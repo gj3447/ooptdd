@@ -80,10 +80,10 @@ class OpenObserveBackend:
             base, org, auth = self._endpoint()
         except ValueError:
             return QueryResult(reachable=False)
-        sql = (
-            "SELECT event, passed, failed, total, skipped, service, test, outcome "
-            f"FROM {self.stream} WHERE cycle_id = '{cid}'"
-        )
+        # SELECT * so whole rows come back: arbitrary fields (verdict, level, …) for
+        # gate `where:` filters and `_timestamp` for `must_order` are then available
+        # to the Python-side logic, identically to every other backend.
+        sql = f"SELECT * FROM {self.stream} WHERE cycle_id = '{cid}'"
         body = json.dumps(
             {"query": {"sql": sql, "start_time": since_us, "end_time": until_us, "size": 1000}}
         ).encode()
