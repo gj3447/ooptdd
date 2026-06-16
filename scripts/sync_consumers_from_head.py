@@ -27,12 +27,18 @@ from pathlib import Path
 
 OOPTDD = Path(__file__).resolve().parent.parent
 
-VENDOR_FILES = [
-    "__init__.py", "model.py", "verify.py", "config.py", "plugin.py", "cli.py",
-    "gate.py", "ontology.py",
-    "backends/__init__.py", "backends/base.py", "backends/memory.py",
-    "backends/openobserve.py", "backends/otel.py",
-]
+def vendor_files() -> list[str]:
+    """Every .py under src/ooptdd at HEAD — auto-derived from git so a NEW canonical
+    module (e.g. assertions.py / semconv.py added mid-sprint) can never be silently
+    left out of the vendor set. All ooptdd modules are stdlib + intra-package at import
+    time (no third-party), so vendoring the whole package is safe AND complete — which a
+    hand-curated list is not (the byte-drift test is blind to a module it doesn't list)."""
+    out = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD", "--", "src/ooptdd"],
+        cwd=OOPTDD, capture_output=True, text=True, check=True).stdout
+    pre = "src/ooptdd/"
+    return sorted(ln[len(pre):] for ln in out.splitlines()
+                  if ln.startswith(pre) and ln.endswith(".py"))
 
 CONSUMERS = [
     {"name": "prismv2",
@@ -73,7 +79,8 @@ def head_version() -> str:
 def main(argv=None) -> int:
     args = sys.argv[1:] if argv is None else argv
     apply = "--apply" in args
-    head_content = {rel: head_bytes(rel) for rel in VENDOR_FILES}
+    files = vendor_files()
+    head_content = {rel: head_bytes(rel) for rel in files}
     print(f"sourcing from HEAD ({subprocess.run(['git','rev-parse','--short','HEAD'],cwd=OOPTDD,capture_output=True,text=True).stdout.strip()}), "
           f"mode={'APPLY' if apply else 'CHECK (no writes)'}\n")
     for c in CONSUMERS:
@@ -81,23 +88,31 @@ def main(argv=None) -> int:
         if not vdir.parent.exists():
             print(f"  {c['name']:<11}: SKIP (consumer not found)"); continue
         changed = []
-        for rel in VENDOR_FILES:
+        for rel in files:
             vf = vdir / rel
             cur = vf.read_bytes() if vf.exists() else None
             if cur != head_content[rel]:
                 changed.append(rel if cur is not None else rel + "(new)")
-        if apply and changed:
-            (vdir / "backends").mkdir(parents=True, exist_ok=True)
+        # files removed upstream but still vendored locally must go (else stale module lingers)
+        stale = sorted(str(p.relative_to(vdir)) for p in vdir.rglob("*.py")
+                       if str(p.relative_to(vdir)) not in head_content)
+        if apply and (changed or stale):
             manifest = {"ooptdd_version": head_version(), "files": {}}
-            for rel in VENDOR_FILES:
+            for rel in files:
+                (vdir / rel).parent.mkdir(parents=True, exist_ok=True)
                 (vdir / rel).write_bytes(head_content[rel])
                 manifest["files"][rel] = h(mode, head_content[rel])
+            for rel in stale:
+                (vdir / rel).unlink()
             c["manifest"].write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-            print(f"  {c['name']:<11}: synced {len(changed)} file(s) <- HEAD  {changed}")
-        elif changed:
-            print(f"  {c['name']:<11}: would sync {len(changed)} file(s)  {changed}")
-        else:
-            print(f"  {c['name']:<11}: already == HEAD")
+            print(f"  {c['name']:<11}: synced {len(changed)} file(s)"
+                  + (f", removed {len(stale)} stale" if stale else "") + f" <- HEAD  {changed}")
+            continue
+        if changed or stale:
+            print(f"  {c['name']:<11}: would sync {len(changed)}" + (f" + remove {len(stale)} stale" if stale else "")
+                  + f" file(s)  {changed}")
+            continue
+        print(f"  {c['name']:<11}: already == HEAD")
     return 0
 
 
