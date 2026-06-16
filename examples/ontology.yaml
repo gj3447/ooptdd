@@ -1,0 +1,29 @@
+# Example event ontology — the offline projection of the KG OoptddOntology
+# 'ontology-ooptdd-example-shop'. File-first: this works with zero KG / zero
+# network; the KG mirror is for query/governance when available.
+#
+# A gate references it with a top-level `ontology: examples/ontology.yaml` and
+# then uses `conforms:` checks. See README / METHODOLOGY for the why.
+
+closed_world: false        # set true (or per-check) to make undeclared events = drift
+
+event_types:
+  order_received:
+    description: an order entered the pipeline
+
+  payment_authorized:
+    description: payment authorized for an order; carries the authorized amount
+    required: [amount]                      # missing -> RED (flat gate can't see this)
+    constraints:
+      amount: {type: number, min: 0}        # wrong type / negative -> RED
+
+  line_item_packed:
+    description: one line item packed
+    required: [index]
+    constraints:
+      index: {type: int, min: 0}
+
+  order_finalized:
+    description: order finalized with a terminal status
+    constraints:
+      status: {enum: [ok, ng]}              # any other value -> RED
