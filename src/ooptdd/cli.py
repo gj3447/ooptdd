@@ -56,6 +56,11 @@ def _cmd_gate(args) -> int:
     spec = load_gate(args.spec)
     res = evaluate(backend, spec)
     print(json.dumps(res, ensure_ascii=False, indent=2))
+    # surface optional misses distinctly — they don't change the exit code but must be
+    # visible (a silently-degraded optional stream should never read as "all clean").
+    if res.get("optional_failed"):
+        print(f"WARN — optional checks failed (not gating): {res['optional_failed']}",
+              file=sys.stderr)
     if res["ok"]:
         print(f"GREEN — gate passed (cid={res['cid']})", file=sys.stderr)
         return 0
