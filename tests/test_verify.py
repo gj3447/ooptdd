@@ -1,7 +1,7 @@
 """The heart of ooptdd: the three-valued verdict and the policy on top of it."""
 from ooptdd.backends import MemoryBackend
 from ooptdd.backends.base import QueryResult
-from ooptdd.model import build_outcome_records
+from ooptdd.model import build_outcome_records, build_session_start
 from ooptdd.verify import session_finish, verify_policy, verify_trace
 
 
@@ -53,6 +53,32 @@ def test_partial_loss_detected():
     assert v["verdict"] == "present"
     assert v["ok"] is False
     assert any("partial_loss" in r for r in v["reasons"])
+
+
+# ── #5 heartbeat: partial (started, summary lost) vs total (nothing) loss ──────
+def test_build_session_start_shape():
+    rec = build_session_start("c", service="svc", expected_total=4)
+    assert rec["event"] == "session_start" and rec["cid"] == "c"
+    assert rec["correlation_id"] == "c" and rec["cycle_id"] == "c"
+    assert rec["service"] == "svc" and rec["expected_total"] == 4
+
+
+def test_started_but_summary_lost_is_distinct_partial():
+    # heartbeat arrived, summary did not -> absent but started=True, distinct reason
+    b = MemoryBackend()
+    b.ship([build_session_start("c", service="x", expected_total=3)])
+    v = verify_trace(b, "c", expect_total=3, retries=1)
+    assert v["verdict"] == "absent" and v["started"] is True
+    assert v["reasons"] == ["session_started_but_summary_lost"]
+
+
+def test_total_loss_has_no_start_flag():
+    # nothing arrived at all -> absent, started=False, the original reason
+    b = MemoryBackend(drop=True)
+    b.ship([build_session_start("c", service="x")])  # dropped
+    v = verify_trace(b, "c", retries=1)
+    assert v["verdict"] == "absent" and v["started"] is False
+    assert v["reasons"] == ["no_test_session_trace_after_poll"]
 
 
 def test_policy_strict_fails_only_on_absent():

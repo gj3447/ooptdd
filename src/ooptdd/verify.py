@@ -49,6 +49,7 @@ def verify_trace(
         backend.default_future_buffer_s if future_buffer_s is None else future_buffer_s
     )
     queried_ok = False  # did *any* query round-trip succeed? (⊥ vs ? discriminator)
+    saw_start = False  # did a session_start heartbeat arrive? (partial vs total loss)
 
     attempts = max(retries, 1)
     for attempt in range(1, attempts + 1):
@@ -61,6 +62,8 @@ def verify_trace(
         if res.reachable:
             queried_ok = True
         hits = res.events
+        if not saw_start and any(h.get("event") == "session_start" for h in hits):
+            saw_start = True
         sessions = [h for h in hits if h.get("event") == "test_session"]
         if sessions:
             s = sessions[0]
@@ -73,6 +76,7 @@ def verify_trace(
             return {
                 "ok": not reasons,
                 "verdict": "present",
+                "started": True,  # a summary implies the run completed
                 "attempts": attempt,
                 "records": len(hits),
                 "outcomes": outcomes,
@@ -85,14 +89,17 @@ def verify_trace(
             time.sleep(min(delay * backoff ** (attempt - 1), max_delay))
 
     verdict = "absent" if queried_ok else "inconclusive"
-    reason = (
-        "no_test_session_trace_after_poll"
-        if queried_ok
-        else "backend_unreachable_all_queries_failed"
-    )
+    if not queried_ok:
+        reason = "backend_unreachable_all_queries_failed"
+    elif saw_start:
+        # heartbeat arrived but the summary didn't — partial loss, distinct RCA path
+        reason = "session_started_but_summary_lost"
+    else:
+        reason = "no_test_session_trace_after_poll"
     return {
         "ok": False,
         "verdict": verdict,
+        "started": saw_start,
         "attempts": attempts,
         "records": 0,
         "outcomes": 0,
