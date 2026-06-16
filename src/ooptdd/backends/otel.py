@@ -26,10 +26,17 @@ class OtelBackend:
         *,
         service: str = "ooptdd.tests",
         endpoint_env: str = "OTEL_EXPORTER_OTLP_ENDPOINT",
+        simple: bool = False,
         **_ignored,
     ):
         self.service = service
         self.endpoint_env = endpoint_env
+        # OTel test-exporter discipline (research E #14): a Batch processor buffers and
+        # exports off-thread, which makes "ship then read back" timing flaky — the same
+        # reason the OTel SDKs tell you to use a *simple* (synchronous) processor in tests.
+        # ``simple=True`` swaps to SimpleLogRecordProcessor so each emit exports inline;
+        # combined with the force_flush below, a hermetic test sees a deterministic ingest.
+        self.simple = simple
         self._logger = None
 
     def _ensure(self):
@@ -39,14 +46,18 @@ class OtelBackend:
             from opentelemetry._logs import get_logger, set_logger_provider
             from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
             from opentelemetry.sdk._logs import LoggerProvider
-            from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+            from opentelemetry.sdk._logs.export import (
+                BatchLogRecordProcessor,
+                SimpleLogRecordProcessor,
+            )
             from opentelemetry.sdk.resources import Resource
         except ImportError as exc:  # pragma: no cover - exercised only with extra
             raise RuntimeError(
                 "the otel backend needs `pip install ooptdd[otel]`"
             ) from exc
         provider = LoggerProvider(resource=Resource.create({"service.name": self.service}))
-        provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
+        proc = SimpleLogRecordProcessor if self.simple else BatchLogRecordProcessor
+        provider.add_log_record_processor(proc(OTLPLogExporter()))
         set_logger_provider(provider)
         self._provider = provider
         self._logger = get_logger(__name__)

@@ -149,6 +149,60 @@ class Ontology:
         raise ValueError(f"unknown builtin ontology {name!r} (have: 'gen_ai')")
 
 
+_COMPAT_MODES = ("backward", "forward", "full")
+
+
+def _enum(et: EventType, attr: str):
+    rule = et.constraints.get(attr) or {}
+    return set(rule["enum"]) if "enum" in rule else None
+
+
+def ontology_compat(old: Ontology, new: Ontology, mode: str = "backward") -> dict:
+    """Is the evolution ``old`` -> ``new`` compatible? (Confluent Schema Registry semantics.)
+
+    ``backward`` — ``new`` can still validate data written under ``old`` (the common
+    "upgrade consumers first" rule). Breaks: adding a required attr, shrinking an enum,
+    and (when ``new`` is closed-world) dropping an event type that old data still emits.
+
+    ``forward`` — ``old`` can validate data written under ``new``. Breaks: removing a
+    required attr, growing an enum, and (when ``old`` is closed-world) adding an event type.
+
+    ``full`` — both directions. Returns ``{compatible, mode, violations:[str]}``. This gates
+    "did this EventType change *safely*?", a layer above per-instance validation.
+    """
+    if mode not in _COMPAT_MODES:
+        raise ValueError(f"mode must be one of {_COMPAT_MODES}")
+    back = mode in ("backward", "full")
+    fwd = mode in ("forward", "full")
+    v: list[str] = []
+    names = set(old.types) | set(new.types)
+    for name in sorted(names):
+        o, n = old.get(name), new.get(name)
+        if o is None:  # type added in new
+            if fwd and old.closed_world:
+                v.append(f"[forward] event type '{name}' added — old closed-world rejects it")
+            continue
+        if n is None:  # type removed in new
+            if back and new.closed_world:
+                v.append(f"[backward] event type '{name}' removed — new closed-world rejects it")
+            continue
+        o_req, n_req = set(o.required), set(n.required)
+        if back:
+            for a in n_req - o_req:
+                v.append(f"[backward] '{name}': new required attr '{a}' — old data lacks it")
+        if fwd:
+            for a in o_req - n_req:
+                v.append(f"[forward] '{name}': required attr '{a}' removed — old reader needs it")
+        for attr in set(o.constraints) | set(n.constraints):
+            oe, ne = _enum(o, attr), _enum(n, attr)
+            if oe is not None and ne is not None:
+                if back and (oe - ne):
+                    v.append(f"[backward] '{name}.{attr}': enum shrank (dropped {sorted(oe - ne)})")
+                if fwd and (ne - oe):
+                    v.append(f"[forward] '{name}.{attr}': enum grew (added {sorted(ne - oe)})")
+    return {"compatible": not v, "mode": mode, "violations": v}
+
+
 def check_conformance(
     events: list[dict],
     ontology: Ontology,

@@ -126,6 +126,67 @@ def signature_status(rec: dict, key: str | None) -> str:
     return "valid" if hmac.compare_digest(have, sign_record(rec, key)) else "invalid"
 
 
+# ── tamper-evident hash chain (Tier-3 #11) ─────────────────────────────────────
+# The single-record `sig` catches an edit to *that* record. A hash chain catches more:
+# deletion and reordering of receipts too — an agent can't silently drop an inconvenient
+# event. Each record's MAC folds in the previous MAC (Schneier-Kelsey / Crosby-Wallach
+# tamper-evident logging). With key evolution (k_{i+1}=H(k_i)) a leaked *current* key
+# can't forge *earlier* receipts (forward security). Scope to one writer per stream
+# (the xdist controller), since the chain needs a single ordered append.
+_CHAIN_EXCLUDE = ("sig_chain", "prev_sig")
+
+
+def _chain_canonical(rec: dict) -> bytes:
+    proj = {k: v for k, v in rec.items() if k not in _CHAIN_EXCLUDE}
+    return json.dumps(
+        proj, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str
+    ).encode()
+
+
+def _evolve(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def sign_chain(records: list[dict], key: str, *, evolve: bool = False) -> list[dict]:
+    """Return copies of ``records`` carrying a tamper-evident hash chain.
+
+    ``rec["sig_chain"] = HMAC(k_i, canonical(rec) || prev_mac)`` and ``rec["prev_sig"]``
+    links to the previous record. ``evolve=True`` ratchets the key forward per record.
+    """
+    out: list[dict] = []
+    prev, k = "", key
+    for rec in records:
+        r = dict(rec)
+        mac = hmac.new(k.encode(), _chain_canonical(r) + prev.encode(), hashlib.sha256).hexdigest()
+        r["prev_sig"] = prev
+        r["sig_chain"] = mac
+        out.append(r)
+        prev = mac
+        if evolve:
+            k = _evolve(k)
+    return out
+
+
+def verify_chain(records: list[dict], key: str, *, evolve: bool = False) -> dict:
+    """Verify a hash chain. Returns ``{ok, broken_index, reason}`` — ``broken_index`` is the
+    first record whose previous-link or MAC fails (``None`` if intact). A mismatch means an
+    edit, a deletion, or a reorder somewhere at or before that index."""
+    prev, k = "", key
+    for i, rec in enumerate(records):
+        if rec.get("prev_sig") != prev:
+            return {"ok": False, "broken_index": i,
+                    "reason": "prev_link_mismatch_possible_deletion_or_reorder"}
+        expect = hmac.new(
+            k.encode(), _chain_canonical(rec) + prev.encode(), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(str(rec.get("sig_chain", "")), expect):
+            return {"ok": False, "broken_index": i, "reason": "chain_mac_mismatch_possible_tamper"}
+        prev = str(rec.get("sig_chain", ""))
+        if evolve:
+            k = _evolve(k)
+    return {"ok": True, "broken_index": None, "reason": None}
+
+
 def build_outcome_records(
     reports: list[dict],
     cid: str,
