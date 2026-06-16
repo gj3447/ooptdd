@@ -181,3 +181,48 @@ def test_memory_query_injects_timestamp():
     _ship(b, "c1", {"event": "a"})
     res = b.query("c1", since_us=0, until_us=10**19)
     assert "_timestamp" in res.events[0] and isinstance(res.events[0]["_timestamp"], int)
+
+
+# ── #10 optional checks: miss surfaced but not gating; unreachable ≠ clean pass ──
+class _UnreachableBackend:
+    default_lookback_s = 3600
+    default_future_buffer_s = 0
+
+    def ship(self, events):  # pragma: no cover - not used
+        pass
+
+    def query(self, cid, *, since_us, until_us):
+        return QueryResult(reachable=False, events=[])
+
+
+def test_optional_miss_does_not_gate_but_is_surfaced():
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "req"})
+    res = evaluate(b, {"cid": "c1", "expect": [
+        {"event": "req", "op": ">=", "count": 1},
+        {"event": "opt", "op": ">=", "count": 1, "optional": True},
+    ]})
+    assert res["ok"] is True and res["optional_failed"] == ["opt"]
+
+
+def test_required_miss_fails_gate():
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "x"})
+    res = evaluate(b, {"cid": "c1", "expect": [{"event": "req", "op": ">=", "count": 1}]})
+    assert res["ok"] is False and res["optional_failed"] == []
+
+
+def test_unreachable_is_not_ok_even_when_all_optional():
+    # infra death (#10 core): store unreachable is never a clean pass, even all-optional.
+    res = evaluate(_UnreachableBackend(), {"cid": "c1", "expect": [
+        {"event": "opt", "op": ">=", "count": 1, "optional": True},
+    ]})
+    assert res["ok"] is False and res["reachable"] is False
+
+
+def test_optional_must_order_miss_surfaced():
+    b = _FixedBackend([_ev("a", 1)])  # b missing
+    res = evaluate(b, {"cid": "c1", "expect": [
+        {"must_order": ["a", "b"], "optional": True},
+    ]})
+    assert res["ok"] is True and res["optional_failed"] == ["must_order:a>b"]

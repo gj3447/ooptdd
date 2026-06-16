@@ -21,6 +21,10 @@ Spec format (``gates/*.yaml``)::
         op: "=="
         count: 0
       - must_order: [a, b, c]  # each must occur, first-occurrence times non-decreasing
+      - event: optional_stream # optional: a threshold miss does NOT fail the gate,
+        op: ">="               #   but it IS surfaced (and an unreachable store is still
+        count: 1               #   INFRA, reported via `reachable`, never a clean pass)
+        optional: true
 
 Counting is done over the events the backend returns for ``cid`` — no
 backend-specific query language, so the same gate runs on memory, OpenObserve, or
@@ -73,6 +77,16 @@ def _first_ts(events: list[dict], name: str) -> int | None:
     return min(seen) if seen else None
 
 
+def _label(chk: dict) -> str:
+    """Human handle for a check (used to surface optional failures)."""
+    if "must_order" in chk:
+        return "must_order:" + ">".join(chk["must_order"])
+    if chk.get("event"):
+        return str(chk["event"])
+    where = chk.get("where") or {}
+    return "where:" + ",".join(f"{k}={v}" for k, v in where.items()) if where else "(any)"
+
+
 def _eval_must_order(events: list[dict], seq: list, reachable: bool) -> dict:
     """A sequencing check: every name must occur, and first-occurrence times must be
     non-decreasing in the listed order. Missing events fail (can't order an absence)."""
@@ -107,7 +121,13 @@ def evaluate(
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
 ) -> dict:
-    """Run a gate spec once. Returns ``{ok, reachable, cid, checks:[...]}``."""
+    """Run a gate spec once.
+
+    Returns ``{ok, reachable, cid, checks:[...], optional_failed:[labels]}``. ``ok`` is
+    true iff the store was reachable and every *required* check passed; optional checks
+    that miss are listed in ``optional_failed`` but never flip ``ok``. ``reachable=False``
+    (store unreachable / INFRA) keeps ``ok`` false regardless — that is not a clean pass.
+    """
     cid = _resolve_cid(spec)
     lookback_s = backend.default_lookback_s if lookback_s is None else lookback_s
     future_buffer_s = (
@@ -120,22 +140,27 @@ def evaluate(
         until_us=now_us + future_buffer_s * 1_000_000,
     )
     checks = []
-    all_ok = res.reachable
     for rule in spec.get("expect", []):
         if "must_order" in rule:
             chk = _eval_must_order(res.events, rule["must_order"], res.reachable)
-            all_ok = all_ok and chk["passed"]
-            checks.append(chk)
-            continue
-        ev_name = rule.get("event")
-        where = rule.get("where") or {}
-        op = rule.get("op", ">=")
-        want = int(rule.get("count", 1))
-        got = sum(1 for ev in res.events if _matches(ev, ev_name, where))
-        passed = res.reachable and _OPS[op](got, want)
-        all_ok = all_ok and passed
-        checks.append(
-            {"event": ev_name, "where": where, "op": op,
-             "want": want, "got": got, "passed": passed}
-        )
-    return {"ok": all_ok, "reachable": res.reachable, "cid": cid, "checks": checks}
+        else:
+            ev_name = rule.get("event")
+            where = rule.get("where") or {}
+            op = rule.get("op", ">=")
+            want = int(rule.get("count", 1))
+            got = sum(1 for ev in res.events if _matches(ev, ev_name, where))
+            chk = {"event": ev_name, "where": where, "op": op,
+                   "want": want, "got": got, "passed": res.reachable and _OPS[op](got, want)}
+        chk["optional"] = bool(rule.get("optional", False))
+        checks.append(chk)
+    # #10: an *optional* check that fails (threshold miss) does NOT fail the gate; but a
+    # query that never reached the store (reachable=False) is INFRA — surfaced separately
+    # via `reachable` so it is never mistaken for a clean pass (CLI maps it to exit 2).
+    required_ok = all(c["passed"] for c in checks if not c["optional"])
+    return {
+        "ok": res.reachable and required_ok,
+        "reachable": res.reachable,
+        "cid": cid,
+        "checks": checks,
+        "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
+    }
