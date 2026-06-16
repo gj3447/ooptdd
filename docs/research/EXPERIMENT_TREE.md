@@ -22,7 +22,7 @@ this doc is the human-readable shadow.
 |---|---|---|---|
 | **V0-kg-substrate** | `proof` | substrate loads & queryable | `ooptdd/ontology.py` (file-first) + KG `LabelConvention` (Ooptdd Requirement/Gate/EventType/Verdict) + `OoptddOntology` mirror. Enables V1; no metric of its own. |
 | **V1-ontology-typed-gate** | `canonical_stage` (progressive) | **conformance_violations_caught = 3** (target ≥3) | `conforms: <EventType\|*>` gate check. Pre-registered prediction met: 3 hallucination classes the flat gate marks GREEN, the ontology gate marks RED. |
-| **V2-kg-native-loop-io** | `CANONICAL` (progressive) | coverage + drift queryable, offline intact | Pluggable `KgStore` (InMemory offline / Neo4j prod). `write_run` persists `OoptddVerdict` + `ReferenceSite` (sha256 + baseline). coverage(spec)=done/total and drift(spec)=changed-sha both by query alone — proven in-memory **and** on the live workspace Neo4j (coverage cypher → total=4/done=4). Loop still runs with no KG store (hard-core #3). |
+| **V2-kg-native-loop-io** | `canonical_stage` (progressive) | coverage + drift queryable, offline intact | Pluggable `KgStore` (InMemory offline / Neo4j prod). `write_run` persists `OoptddVerdict` + `ReferenceSite` (sha256 + baseline). coverage(spec)=done/total and drift(spec)=changed-sha both by query alone — proven in-memory **and** on the live workspace Neo4j (coverage cypher → total=4/done=4). Loop still runs with no KG store (hard-core #3). |
 
 ### V1 — the metric (pre-registered, then measured)
 
@@ -46,6 +46,8 @@ The semantic chain this completes:
 
 A hallucination is caught at whichever link breaks: unknown/typo'd name or missing
 attribute (ontology), absent emitter (Longinus), no log (arrival).
+
+| **V3-ai-native-mcp** | `CANONICAL` (progressive) | ≥6 introspectable tools + run parity, offline | Pure tool registry (`tools.py`: 7 tools — list_requirements/run/verify/rca/ontology_lookup/coverage/drift) + `mcp_server.py` FastMCP wrapper (`mcp` SDK optional). Agents drive the loop natively; `run` tool's verdict == library `run_loop` (parity). All offline with the SDK absent. |
 
 ## Frontier (open questions)
 
