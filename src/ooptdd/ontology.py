@@ -17,6 +17,25 @@ against it, so the above become RED. It is deliberately minimal (required attrs 
 enum/type/range) — an ontology earns its keep only when its types carry real
 invariants; do not formalize for its own sake.
 
+The semantics are borrowed verbatim from **JSON Schema** (Draft 2020-12), which is
+the standard for exactly this job, so the three drift classes map 1:1 and stay
+defensible:
+
+  =========================  ============================  ====================
+  hallucination class        JSON Schema construct         ooptdd field
+  =========================  ============================  ====================
+  missing required attr      ``"required": [...]``         ``required``
+  bad value (enum/type)      ``"enum"`` / ``"type"``       ``constraints``
+  unexpected attribute       ``"additionalProperties":     ``additional_properties:
+                             false``                       false``
+  unknown event type         (closed-world at the          ``Ontology.closed_world``
+                             document level)
+  =========================  ============================  ====================
+
+We re-implement the small subset natively (no ``jsonschema`` dependency) to keep
+the core stdlib-only and the offline invariant intact — but a spec author can read
+the table above and reason about an EventType as the JSON Schema it denotes.
+
 It is **file-first** (zero KG, zero network — the offline invariant holds) and can
 be mirrored into the KG when available; the KG never becomes a hard dependency.
 """
@@ -25,6 +44,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 _NUMBER = (int, float)
+
+# Transport/plumbing keys every envelope carries (see model.py). When an EventType
+# is closed (`additional_properties: false`) these are never counted as "unexpected"
+# attributes — closed-world polices the *payload* you declared, not the carrier.
+ENVELOPE_KEYS = frozenset({
+    "cid", "correlation_id", "cycle_id", "service", "level", "event",
+    "_timestamp", "sig", "sig_alg", "sig_chain", "prev_sig",
+    # CloudEvents context projection (model.cloudevents_envelope)
+    "id", "source", "type", "specversion", "subject", "time", "datacontenttype",
+})
 
 
 @dataclass
@@ -35,6 +64,12 @@ class EventType:
     required: list[str] = field(default_factory=list)   # attribute keys that must be present
     constraints: dict = field(default_factory=dict)     # attr -> {enum|type|min|max}
     description: str = ""
+    #: JSON Schema ``additionalProperties: false`` — when False, a payload attribute
+    #: that is neither declared (required/constraints) nor envelope plumbing is drift.
+    additional_properties: bool = True
+
+    def _declared(self) -> set[str]:
+        return set(self.required) | set(self.constraints)
 
     def validate(self, event: dict) -> list[str]:
         """Return a list of human-readable violation strings (empty = conforms)."""
@@ -54,6 +89,11 @@ class EventType:
                 out.append(f"'{attr}'={val} < min {rule['min']}")
             if "max" in rule and isinstance(val, _NUMBER) and val > rule["max"]:
                 out.append(f"'{attr}'={val} > max {rule['max']}")
+        if not self.additional_properties:
+            allowed = self._declared() | ENVELOPE_KEYS
+            for key in event:
+                if key not in allowed:
+                    out.append(f"unexpected attr '{key}' (additionalProperties:false)")
         return out
 
 
@@ -86,6 +126,7 @@ class Ontology:
                 required=list(spec.get("required", [])),
                 constraints=dict(spec.get("constraints", {})),
                 description=spec.get("description", ""),
+                additional_properties=bool(spec.get("additional_properties", True)),
             )
         return cls(types=types, closed_world=bool(data.get("closed_world", False)))
 

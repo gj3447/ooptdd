@@ -25,6 +25,32 @@ development** (instrumentation as assertions) + **property-based testing**
 (invariants). In practice a simplified event sequence is enough; temporal-logic
 notation stays as design vocabulary.
 
+### What "three-valued" precisely means (and what ooptdd is *not*)
+
+The verdict lattice — `present (⊤)` / `absent (⊥)` / `inconclusive (?)` — is exactly
+the **LTL₃** three-valued semantics of Bauer, Leucker & Schallhart, *"Runtime
+Verification for LTL and TLTL"* (ACM TOSEM 20(4), 2011). A monitor only ever sees a
+finite, growing **prefix** of the trace, so plain boolean truth is wrong: `?` means
+"this prefix neither satisfies nor falsifies the property yet." That is also why
+`inconclusive` never fails the build — demoting "couldn't observe" to "falsified" is
+how a network blip becomes a flaky test.
+
+Be honest about the expressiveness, though. ooptdd evaluates a deliberately small
+**fragment**, not full LTL:
+
+- **counting / cardinality** (`count`, `op`, `ratioMetric`) — "≥ N of event X",
+- **bounded-time windows** (`timeWindow`, and the readback poll) — a bounded `F`/`G`,
+- **ordering** (`must_order`) — first-occurrence sequencing,
+- evaluated **past-time** over what has already arrived (cf. first-order past-time LTL,
+  DejaVu) — so a verdict is always reachable; we never block on the future.
+
+This is a strict sub-logic of MTL + past-LTL under LTL₃ verdicts. The restriction is
+intentional: it is decidable, needs no monitor synthesis, and is robust on
+eventually-consistent stores. So the correct claim is **"LTL₃ verdicts over a
+counting/past-time fragment"** — *not* "full LTL." For genuinely time-metric
+properties (heartbeats, max inter-event gaps) the principled extension is MTL's
+bounded-interval operators `F[a,b]` / `G[a,b]` (see Tier-3 `within`).
+
 ## 7 principles
 
 1. **Spec-as-observability.** Before writing the test, write the expected event
