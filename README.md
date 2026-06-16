@@ -129,6 +129,17 @@ races. See [`METHODOLOGY.md`](METHODOLOGY.md) for the full theory, the 7
 principles, the 6 pitfalls, and [`docs/research/`](docs/research/) for the
 prior-art / competition / design study behind this repo.
 
+## Related projects
+
+- [`ooptdd-loop`](https://github.com/airobotics-ailab/ooptdd-loop) — the
+  **application layer** built on this library: an agent-driven, positive-TDD
+  *requirements loop* (declare requirements as trace gates + a Longinus binding,
+  run until the events actually arrive **and** the binding points at real
+  emitting source). It also carries the **KG-native I/O** (coverage & Longinus
+  drift as graph queries) and an **MCP server** for driving the loop as agent
+  tools. The dependency is one-way (`ooptdd-loop` → `ooptdd`); this library stays
+  unaware of it and is what downstream consumers vendor.
+
 ## License
 
 Apache-2.0.
