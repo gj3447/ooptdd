@@ -41,9 +41,9 @@ SRC = OOPTDD / "src" / "ooptdd"
 
 VENDOR_FILES = [
     "__init__.py", "model.py", "verify.py", "config.py", "plugin.py", "cli.py",
-    "gate.py", "ontology.py",
+    "gate.py", "ontology.py", "assertions.py", "semconv.py",
     "backends/__init__.py", "backends/base.py", "backends/memory.py",
-    "backends/openobserve.py", "backends/otel.py",
+    "backends/openobserve.py", "backends/otel.py", "backends/clickhouse.py",
 ]
 
 # (root, vendor_dir rel-to-root, manifest rel-to-root, test rel-to-root,
