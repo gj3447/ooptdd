@@ -1,0 +1,17 @@
+# The Red artifact: what we expect to OBSERVE when an order is processed.
+# Written before/independent of the code; the store is the judge, not the agent.
+cid_env: OOPTDD_CID
+service: shop.orders
+expect:
+  - event: order_received
+    op: "=="
+    count: 1
+  - event: payment_authorized
+    op: "=="
+    count: 1
+  - event: line_item_packed
+    op: ">="
+    count: 3            # this order has 3 line items
+  - event: order_shipped
+    op: "=="
+    count: 1
