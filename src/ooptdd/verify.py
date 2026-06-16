@@ -3,8 +3,10 @@
 This is where ooptdd earns its "positive" — `ship()` only *claims* delivery; here
 we read the store back and assert the records exist.
 
-The verdict is three-valued on purpose (LTL3: ⊤ / ⊥ / ?). A test harness only
-ever sees a *prefix* of the trace, so plain boolean truth is wrong:
+The verdict is three-valued on purpose — the **LTL₃** semantics of Bauer, Leucker &
+Schallhart (TOSEM 2011): ⊤ / ⊥ / ?. A monitor only ever sees a *prefix* of the trace,
+so plain boolean truth is wrong (ooptdd evaluates a counting/past-time *fragment* of
+LTL, not full LTL — see METHODOLOGY.md "What three-valued precisely means"):
 
     present       the test_session record was observed                 (⊤ witness)
     absent        the query worked but the record never showed up       (⊥ — real

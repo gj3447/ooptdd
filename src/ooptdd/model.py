@@ -41,6 +41,51 @@ def correlation_keys(cid: str) -> dict:
     return {"cid": cid, "correlation_id": cid, "cycle_id": cid}
 
 
+# ── CloudEvents 1.0 floor ──────────────────────────────────────────────────────
+# CloudEvents (CNCF) is the vendor-neutral event envelope standard. We don't adopt
+# the whole spec — only its *required floor* (4 context attributes) — so an ooptdd
+# event is recognizable to any CloudEvents-aware store/router without us reinventing
+# id/source/type semantics. Mapping: event->type, service->source, cid->subject.
+CE_SPECVERSION = "1.0"
+CE_REQUIRED = ("id", "source", "specversion", "type")
+
+
+def cloudevents_envelope(rec: dict, *, source: str | None = None) -> dict:
+    """Project an ooptdd record onto the CloudEvents 1.0 floor (non-destructive copy).
+
+    ``id`` is a deterministic content hash, so re-shipping the same record yields the
+    same CloudEvents id (idempotent — no duplicate events on retry). ``source`` defaults
+    to the record's ``service``; ``subject`` carries the correlation id.
+    """
+    src = source or rec.get("service") or "ooptdd"
+    cid = rec.get("cid") or rec.get("correlation_id") or rec.get("cycle_id")
+    body = json.dumps(
+        rec, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str
+    ).encode()
+    out = dict(rec)
+    out.update({
+        "id": hashlib.sha256(body).hexdigest()[:32],
+        "source": str(src),
+        "specversion": CE_SPECVERSION,
+        "type": str(rec.get("event", "")),
+    })
+    if cid is not None:
+        out["subject"] = str(cid)
+    return out
+
+
+def validate_cloudevents(rec: dict) -> list[str]:
+    """Violations against the CloudEvents 1.0 floor (each required attr a non-empty
+    string). Empty list = conforms. ``type`` must be present *and* non-empty — an event
+    with no name is not a valid CloudEvent."""
+    out: list[str] = []
+    for k in CE_REQUIRED:
+        v = rec.get(k)
+        if not isinstance(v, str) or not v:
+            out.append(f"missing/empty required CloudEvents attr '{k}'")
+    return out
+
+
 def _canonical(rec: dict) -> bytes:
     """Deterministic bytes for the signed-field projection (sig itself excluded)."""
     proj = {k: rec.get(k) for k in _SIGNED_FIELDS}
