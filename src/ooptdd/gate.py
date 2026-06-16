@@ -20,12 +20,16 @@ Spec format (``gates/*.yaml``)::
         where: {verdict: NG}   # field-equality filter (count only matching events)
         op: "=="
         count: 0
+      - must_order: [a, b, c]  # each must occur, first-occurrence times non-decreasing
 
 Counting is done over the events the backend returns for ``cid`` — no
 backend-specific query language, so the same gate runs on memory, OpenObserve, or
 any future driver. ``where`` filters on arbitrary event fields (e.g. ``verdict``,
 ``level``), which is why the OpenObserve driver selects whole rows: the smart
-filtering lives here, in Python, identically for every backend.
+filtering lives here, in Python, identically for every backend. ``must_order``
+checks sequencing using each event's ``_timestamp`` (the store-receive time every
+backend stamps), so "A precedes B precedes C within this cid" becomes config, not
+a hand-written self-join.
 """
 from __future__ import annotations
 
@@ -57,6 +61,33 @@ def _matches(ev: dict, event: str | None, where: dict) -> bool:
     if event is not None and ev.get("event") != event:
         return False
     return all(ev.get(k) == v for k, v in where.items())
+
+
+def _first_ts(events: list[dict], name: str) -> int | None:
+    """Earliest ``_timestamp`` (µs) among events named ``name``; None if none carry one."""
+    seen = [
+        ev["_timestamp"]
+        for ev in events
+        if ev.get("event") == name and ev.get("_timestamp") is not None
+    ]
+    return min(seen) if seen else None
+
+
+def _eval_must_order(events: list[dict], seq: list, reachable: bool) -> dict:
+    """A sequencing check: every name must occur, and first-occurrence times must be
+    non-decreasing in the listed order. Missing events fail (can't order an absence)."""
+    firsts = [(name, _first_ts(events, name)) for name in seq]
+    missing = [name for name, ts in firsts if ts is None]
+    ordered = not missing and all(
+        firsts[i][1] <= firsts[i + 1][1] for i in range(len(firsts) - 1)
+    )
+    return {
+        "must_order": list(seq),
+        "missing": missing,
+        "ordered": ordered,
+        "firsts": {name: ts for name, ts in firsts},
+        "passed": reachable and ordered,
+    }
 
 
 def _resolve_cid(spec: dict) -> str:
@@ -91,6 +122,11 @@ def evaluate(
     checks = []
     all_ok = res.reachable
     for rule in spec.get("expect", []):
+        if "must_order" in rule:
+            chk = _eval_must_order(res.events, rule["must_order"], res.reachable)
+            all_ok = all_ok and chk["passed"]
+            checks.append(chk)
+            continue
         ev_name = rule.get("event")
         where = rule.get("where") or {}
         op = rule.get("op", ">=")

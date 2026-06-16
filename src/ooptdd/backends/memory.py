@@ -46,7 +46,12 @@ class MemoryBackend:
             _STORE.setdefault(cid, []).append((now_us, ev))
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
+        # Stamp each returned event with its store-receive time under ``_timestamp``
+        # (µs), mirroring OpenObserve's native column, so ordering checks
+        # (gate ``must_order``) work uniformly across backends. Copy, don't mutate.
         hits = [
-            ev for (ts, ev) in _STORE.get(cid, []) if since_us <= ts <= until_us
+            {**ev, "_timestamp": ts}
+            for (ts, ev) in _STORE.get(cid, [])
+            if since_us <= ts <= until_us
         ]
         return QueryResult(reachable=True, events=hits)
