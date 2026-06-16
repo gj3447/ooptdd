@@ -19,6 +19,7 @@ from .base import QueryResult
 class OtelBackend:
     default_lookback_s = 3600
     default_future_buffer_s = 300
+    queryable = False  # OTLP is write-only — no read side, so arrival can't be verified here
 
     def __init__(
         self,

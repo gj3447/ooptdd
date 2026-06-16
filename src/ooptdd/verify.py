@@ -210,6 +210,24 @@ def session_finish(
     if mode == "off":
         return {"shipped": len(reports), "messages": msgs, "fail_build": False}
 
+    if not getattr(backend, "queryable", True):
+        # A write-only backend (e.g. OTLP/otel) has no read side, so arrival can NOT be
+        # verified — `strict` over it would otherwise pass silently every run, which is the
+        # exact silent-green this tool exists to kill. Surface it loudly; refuse under strict
+        # (you asked for enforcement the backend can't provide = a misconfiguration to fix).
+        name = type(backend).__name__
+        if mode == "strict":
+            msgs.append(
+                f"FAIL strict verify is impossible: backend {name} is write-only (no query "
+                f"side) — pair it with a reader or use a queryable backend (cid={cid})"
+            )
+            return {"shipped": len(reports), "messages": msgs, "fail_build": True}
+        msgs.append(
+            f"WARN backend {name} is write-only — arrival NOT verified, ship-only "
+            f"(strict would be a no-op here; cid={cid})"
+        )
+        return {"shipped": len(reports), "messages": msgs, "fail_build": False}
+
     n_total = len({r["nodeid"] for r in reports})
     try:
         v = verify_trace(
@@ -220,5 +238,11 @@ def session_finish(
         msgs.append(verdict["message"] + ("" if v.get("ok") else f" (cid={cid})"))
         return {"shipped": len(reports), "messages": msgs, "fail_build": verdict["fail_build"]}
     except Exception as exc:
-        msgs.append(f"verify skipped ({type(exc).__name__}: {exc})")
-        return {"shipped": len(reports), "messages": msgs, "fail_build": False}
+        # A crash in the verify PATH is a harness bug, NOT an unreachable store — don't let it
+        # masquerade as a clean run (silent green). Surface it as an error; under strict, a
+        # broken gate must fail (you asked for enforcement you are not actually getting).
+        msgs.append(
+            f"verify ERROR ({type(exc).__name__}: {exc}) — harness bug in the gate path, "
+            f"NOT an unreachable store; gate integrity unknown (cid={cid})"
+        )
+        return {"shipped": len(reports), "messages": msgs, "fail_build": mode == "strict"}

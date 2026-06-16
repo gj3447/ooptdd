@@ -31,6 +31,7 @@ class MemoryBackend:
 
     default_lookback_s = 3600
     default_future_buffer_s = 0
+    queryable = True  # in-process store reads back deterministically
 
     def __init__(self, *, drop: bool = False, **_ignored):
         # ``drop=True`` silently discards everything shipped — this is how the
