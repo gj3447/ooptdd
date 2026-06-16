@@ -21,6 +21,7 @@ from __future__ import annotations
 import time
 
 from .backends import Backend
+from .model import build_outcome_records, signature_status
 
 
 def verify_trace(
@@ -34,6 +35,8 @@ def verify_trace(
     max_delay: float = 30.0,
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
+    signing_key: str | None = None,
+    require_signature: bool = False,
 ) -> dict:
     """Poll ``backend`` for the ``test_session`` trace of ``cid``.
 
@@ -73,10 +76,18 @@ def verify_trace(
                 reasons.append(f"total={s.get('total')}!=expect{expect_total}")
             if expect_total is not None and outcomes < expect_total:
                 reasons.append(f"outcomes={outcomes}<total{expect_total}_partial_loss")
+            sig_status = signature_status(s, signing_key)
+            if sig_status == "invalid":
+                reasons.append("sig_invalid_possible_forgery")
+            elif require_signature and sig_status != "valid":
+                # enforcement on: an unsigned/unverifiable receipt is no longer acceptable
+                # (closes the "post an unsigned green" evasion once all producers sign).
+                reasons.append(f"signature_required_but_{sig_status}")
             return {
                 "ok": not reasons,
                 "verdict": "present",
                 "started": True,  # a summary implies the run completed
+                "sig_status": sig_status,
                 "attempts": attempt,
                 "records": len(hits),
                 "outcomes": outcomes,
@@ -114,8 +125,19 @@ def verify_policy(v: dict, mode: str) -> dict:
     mode: ``warn`` (default — observation never overrides the verdict),
           ``strict`` (a real miss fails the session),
           ``off`` (handled before calling).
-    Returns ``{level, fail_build, message}``. Only ``strict`` + ``absent`` fails.
+    Returns ``{level, fail_build, message}``. Only ``strict`` + ``absent`` fails — except a
+    *forged* receipt (``sig_status == "invalid"``) always fails, even in warn: catching a
+    tampered green is a positive detection, not an inconclusive observation.
     """
+    if v.get("sig_status") == "invalid":
+        return {
+            "level": "error",
+            "fail_build": True,
+            "message": (
+                f"FAIL forged/tampered receipt — HMAC sig invalid ({v.get('reasons')}); "
+                "a record with the wrong signing key reached the store."
+            ),
+        }
     if v.get("ok"):
         s = v.get("session", {})
         return {
@@ -158,20 +180,24 @@ def session_finish(
     delay: float = 1.0,
     backoff: float = 2.0,
     meta: dict | None = None,
+    signing_key: str | None = None,
+    require_signature: bool = False,
 ) -> dict:
     """Orchestrate build -> ship -> verify -> policy. The plugin calls only this.
 
     A ship failure is a warning, never a build failure ("observation does not
     override the verdict"). ``mode='off'`` ships but skips verification.
+    ``signing_key`` (env-sourced by the caller) HMAC-signs the shipped summary and is used
+    to validate it on read-back, so a forged green receipt is caught.
     Returns ``{shipped, messages, fail_build}``.
     """
-    from .model import build_outcome_records
-
     if not reports:
         return {"shipped": 0, "messages": [], "fail_build": False}
 
     try:
-        recs = build_outcome_records(reports, cid=cid, service=service, meta=meta or {})
+        recs = build_outcome_records(
+            reports, cid=cid, service=service, meta=meta or {}, signing_key=signing_key
+        )
         backend.ship(recs)
     except Exception as exc:  # observation never breaks the build
         return {
@@ -187,7 +213,8 @@ def session_finish(
     n_total = len({r["nodeid"] for r in reports})
     try:
         v = verify_trace(
-            backend, cid, expect_total=n_total, retries=retries, delay=delay, backoff=backoff
+            backend, cid, expect_total=n_total, retries=retries, delay=delay,
+            backoff=backoff, signing_key=signing_key, require_signature=require_signature,
         )
         verdict = verify_policy(v, mode)
         msgs.append(verdict["message"] + ("" if v.get("ok") else f" (cid={cid})"))

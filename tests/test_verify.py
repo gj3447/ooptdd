@@ -81,6 +81,73 @@ def test_total_loss_has_no_start_flag():
     assert v["reasons"] == ["no_test_session_trace_after_poll"]
 
 
+# ── #2 anti-fabrication: HMAC signature on the session summary ─────────────────
+def _signed(cid, key):
+    return build_outcome_records(
+        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}],
+        cid=cid, service="x", signing_key=key,
+    )
+
+
+def test_signed_record_verifies_valid():
+    b = MemoryBackend()
+    b.ship(_signed("c", "k"))
+    v = verify_trace(b, "c", expect_total=1, retries=1, signing_key="k")
+    assert v["sig_status"] == "valid" and v["ok"] is True
+
+
+def test_tampered_record_is_detected_and_not_ok():
+    # genuine signed summary, then a field is tampered after signing -> sig recompute fails
+    recs = _signed("c", "k")
+    summary = next(r for r in recs if r["event"] == "test_session")
+    summary["passed"] = 999  # forge a better-looking result, keep the old sig
+    b = MemoryBackend()
+    b.ship([summary])
+    v = verify_trace(b, "c", retries=1, signing_key="k")
+    assert v["sig_status"] == "invalid" and v["ok"] is False
+    assert any("forgery" in r for r in v["reasons"])
+
+
+def test_forgery_fails_build_even_in_warn():
+    v = {"ok": False, "verdict": "present", "sig_status": "invalid",
+         "reasons": ["sig_invalid_possible_forgery"]}
+    assert verify_policy(v, "warn")["fail_build"] is True
+    assert verify_policy(v, "strict")["fail_build"] is True
+
+
+def test_unsigned_is_graceful_noop_when_not_required():
+    # sender had no key -> unsigned; verifier with a key does NOT fail (transition-safe)
+    b = MemoryBackend()
+    b.ship(build_outcome_records(
+        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c", service="x"))
+    v = verify_trace(b, "c", expect_total=1, retries=1, signing_key="k")
+    assert v["sig_status"] == "unsigned" and v["ok"] is True
+
+
+def test_unverifiable_when_verifier_has_no_key():
+    b = MemoryBackend()
+    b.ship(_signed("c", "k"))
+    v = verify_trace(b, "c", expect_total=1, retries=1)  # verifier has no key
+    assert v["sig_status"] == "unverifiable" and v["ok"] is True
+
+
+def test_require_signature_rejects_unsigned():
+    # enforcement on: an unsigned receipt is no longer acceptable (closes unsigned-forgery)
+    b = MemoryBackend()
+    b.ship(build_outcome_records(
+        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c", service="x"))
+    v = verify_trace(b, "c", expect_total=1, retries=1, signing_key="k", require_signature=True)
+    assert v["sig_status"] == "unsigned" and v["ok"] is False
+    assert any("signature_required" in r for r in v["reasons"])
+
+
+def test_sign_record_is_deterministic_and_key_sensitive():
+    from ooptdd.model import sign_record
+    rec = {"cid": "c", "event": "test_session", "total": 1, "passed": 1, "failed": 0, "skipped": 0}
+    assert sign_record(rec, "k") == sign_record(rec, "k")
+    assert sign_record(rec, "k") != sign_record(rec, "other")
+
+
 def test_policy_strict_fails_only_on_absent():
     absent = {"ok": False, "verdict": "absent", "reasons": ["x"]}
     incon = {"ok": False, "verdict": "inconclusive", "reasons": ["x"]}

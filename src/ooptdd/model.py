@@ -19,14 +19,52 @@ matter which backend you point at.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+
 # When one test produces several phase reports (setup/call/teardown) we keep the
 # most severe outcome for the session tally.
 _RANK = {"failed": 2, "skipped": 1, "passed": 0}
+
+# Anti-fabrication (#2): the session summary IS the green-claim, so it is the forgery
+# target. We HMAC a fixed projection of its identity-bearing fields. `cid` is signed so a
+# real signed record can't be replayed under a forged correlation id. Per-test outcomes
+# are NOT signed (high cardinality) — the verifier cross-checks their count vs the signed
+# `total`. The key lives only where CI injects it (OOPTDD_SIGNING_KEY), never in code.
+_SIGNED_FIELDS = ("cid", "event", "total", "passed", "failed", "skipped")
+SIG_ALG = "hmac-sha256-v1"
 
 
 def correlation_keys(cid: str) -> dict:
     """The id under every alias a backend might index on."""
     return {"cid": cid, "correlation_id": cid, "cycle_id": cid}
+
+
+def _canonical(rec: dict) -> bytes:
+    """Deterministic bytes for the signed-field projection (sig itself excluded)."""
+    proj = {k: rec.get(k) for k in _SIGNED_FIELDS}
+    return json.dumps(proj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+def sign_record(rec: dict, key: str) -> str:
+    """HMAC-SHA256 of the canonical projection (hex)."""
+    return hmac.new(key.encode(), _canonical(rec), hashlib.sha256).hexdigest()
+
+
+def signature_status(rec: dict, key: str | None) -> str:
+    """valid | invalid | unsigned | unverifiable.
+
+    unsigned     no sig on the record (sender had no key — offline/no-CI no-op)
+    unverifiable sig present but the verifier has no key (can't judge — never a failure)
+    valid/invalid  sig present and the verifier recomputed it (constant-time compare)
+    """
+    have = rec.get("sig")
+    if not have:
+        return "unsigned"
+    if not key:
+        return "unverifiable"
+    return "valid" if hmac.compare_digest(have, sign_record(rec, key)) else "invalid"
 
 
 def build_outcome_records(
@@ -35,6 +73,7 @@ def build_outcome_records(
     *,
     service: str = "ooptdd.tests",
     meta: dict | None = None,
+    signing_key: str | None = None,
 ) -> list[dict]:
     """pytest reports -> structured event records (pure function).
 
@@ -42,6 +81,9 @@ def build_outcome_records(
     Returns N per-phase ``test_outcome`` events (tracebacks preserved for RCA)
     plus exactly one ``test_session`` summary. The summary tally is computed over
     *distinct* nodeids so a teardown-failure can't double-count (a real bug we hit).
+
+    ``signing_key`` (passed in, never read from env here — keeps this pure): when given,
+    the session summary is HMAC-signed so the verifier can detect a forged green receipt.
     """
     meta = meta or {}
     recs: list[dict] = []
@@ -69,19 +111,21 @@ def build_outcome_records(
     passed = sum(1 for o in by_test.values() if o == "passed")
     failed = sum(1 for o in by_test.values() if o == "failed")
     skipped = sum(1 for o in by_test.values() if o == "skipped")
-    recs.append(
-        {
-            **correlation_keys(cid),
-            "service": service,
-            "level": "ERROR" if failed else "INFO",
-            "event": "test_session",
-            "total": len(by_test),
-            "passed": passed,
-            "failed": failed,
-            "skipped": skipped,
-            **meta,
-        }
-    )
+    session = {
+        **correlation_keys(cid),
+        "service": service,
+        "level": "ERROR" if failed else "INFO",
+        "event": "test_session",
+        "total": len(by_test),
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        **meta,
+    }
+    if signing_key:
+        session["sig"] = sign_record(session, signing_key)  # over the projection, pre-sig
+        session["sig_alg"] = SIG_ALG
+    recs.append(session)
     return recs
 
 

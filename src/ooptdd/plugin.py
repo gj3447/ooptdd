@@ -145,6 +145,9 @@ def pytest_sessionfinish(session, exitstatus):
         retries=s.retries,
         delay=s.delay,
         backoff=s.backoff,
+        # signing key is CI-only: read from env, never config/code. Absent -> unsigned no-op.
+        signing_key=os.getenv("OOPTDD_SIGNING_KEY"),
+        require_signature=os.getenv("OOPTDD_REQUIRE_SIGNATURE", "") not in {"", "0", "false"},
     )
     _emit(config, result["messages"])
     if result["fail_build"] and exitstatus == 0:
