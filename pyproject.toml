@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ooptdd"
+version = "0.1.0"
+description = "Logs/traces as the test specification and ground truth — a pytest plugin and methodology for positive (arrival-asserted) log-based TDD."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Airobotics AI Lab" }]
+keywords = ["pytest", "testing", "tdd", "observability", "logs", "traces", "runtime-verification", "agents"]
+classifiers = [
+  "Framework :: Pytest",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Software Development :: Testing",
+  "Intended Audience :: Developers",
+]
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+otel = ["opentelemetry-sdk>=1.20", "opentelemetry-exporter-otlp-proto-http>=1.20"]
+dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.4", "mypy>=1.8"]
+
+[project.scripts]
+ooptdd = "ooptdd.cli:main"
+
+# Auto-register the pytest plugin: `pip install ooptdd` is enough, no conftest.
+[project.entry-points.pytest11]
+ooptdd = "ooptdd.plugin"
+
+# Third-party backends register here:  [project.entry-points."ooptdd.backends"]
+#   loki = "my_pkg.loki:LokiBackend"
+
+[project.urls]
+Homepage = "https://github.com/airobotics-ailab/ooptdd"
+Methodology = "https://github.com/airobotics-ailab/ooptdd/blob/main/METHODOLOGY.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ooptdd"]
+
+# ooptdd's own test suite runs with the in-memory backend (zero infra).
+[tool.ooptdd]
+backend = "memory"
+service = "ooptdd.self-tests"
+verify = "warn"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
