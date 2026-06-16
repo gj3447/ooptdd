@@ -51,6 +51,8 @@ _NUMBER = (int, float)
 ENVELOPE_KEYS = frozenset({
     "cid", "correlation_id", "cycle_id", "service", "level", "event",
     "_timestamp", "sig", "sig_alg", "sig_chain", "prev_sig",
+    # W3C trace context (model.with_trace_context)
+    "trace_id", "span_id",
     # CloudEvents context projection (model.cloudevents_envelope)
     "id", "source", "type", "specversion", "subject", "time", "datacontenttype",
 })
@@ -136,6 +138,15 @@ class Ontology:
 
         with open(path) as fh:
             return cls.from_dict(yaml.safe_load(fh) or {})
+
+    @classmethod
+    def builtin(cls, name: str, **kwargs) -> Ontology:
+        """Resolve a shipped preset ontology. Currently ``"gen_ai"`` — the version-pinned
+        OpenTelemetry GenAI semconv vocabulary (see :mod:`ooptdd.semconv`)."""
+        if name == "gen_ai":
+            from .semconv import gen_ai_ontology
+            return gen_ai_ontology(**kwargs)
+        raise ValueError(f"unknown builtin ontology {name!r} (have: 'gen_ai')")
 
 
 def check_conformance(

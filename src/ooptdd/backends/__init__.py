@@ -13,6 +13,8 @@ _BUILTINS = {
     "memory": "ooptdd.backends.memory:MemoryBackend",
     "openobserve": "ooptdd.backends.openobserve:OpenObserveBackend",
     "otel": "ooptdd.backends.otel:OtelBackend",
+    "clickhouse": "ooptdd.backends.clickhouse:ClickHouseBackend",
+    "signoz": "ooptdd.backends.clickhouse:ClickHouseBackend",  # SigNoz = ClickHouse tables
 }
 
 

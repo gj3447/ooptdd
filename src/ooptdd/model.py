@@ -74,6 +74,20 @@ def cloudevents_envelope(rec: dict, *, source: str | None = None) -> dict:
     return out
 
 
+def with_trace_context(rec: dict, trace_id: str, span_id: str | None = None) -> dict:
+    """Attach W3C trace context (``trace_id``/``span_id``) to an event (non-destructive).
+
+    OTel log records carry these so a log line joins to its span; ooptdd uses them as a
+    *standard* correlation key alongside ``cid`` — binding an emitted event to the exact
+    run/span that produced it. Unlike ``gen_ai.*`` (experimental), trace context is stable.
+    """
+    out = dict(rec)
+    out["trace_id"] = str(trace_id)
+    if span_id is not None:
+        out["span_id"] = str(span_id)
+    return out
+
+
 def validate_cloudevents(rec: dict) -> list[str]:
     """Violations against the CloudEvents 1.0 floor (each required attr a non-empty
     string). Empty list = conforms. ``type`` must be present *and* non-empty — an event

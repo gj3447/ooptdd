@@ -283,8 +283,11 @@ def evaluate(
     )
     checks = []
     for rule in spec.get("expect", []):
-        if "must_order" in rule:
-            chk = _eval_must_order(res.events, rule["must_order"], res.reachable)
+        if "must_order" in rule or "trajectory" in rule:
+            # `trajectory` is the promptfoo/DeepEval word for an ordered tool/event
+            # sequence — an alias for must_order (same first-occurrence sequencing).
+            seq = rule.get("must_order") or rule.get("trajectory")
+            chk = _eval_must_order(res.events, seq, res.reachable)
         elif "present" in rule:
             chk = _eval_present(res.events, rule["present"], indicators, res.reachable)
         elif "ratioMetric" in rule:
@@ -299,15 +302,55 @@ def evaluate(
             chk = {"event": ev_name, "where": where, "op": op,
                    "want": want, "got": got, "passed": res.reachable and _OPS[op](got, want)}
         chk["optional"] = bool(rule.get("optional", False))
+        # Pact "pending pacts": a `pending` expectation is verified and surfaced but does
+        # NOT gate the build — for an event whose emitter isn't wired yet. Once it passes,
+        # drop the flag to promote it to a hard gate (see `pending_satisfied`).
+        chk["pending"] = bool(rule.get("pending", False))
+        chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
         checks.append(chk)
-    # #10: an *optional* check that fails (threshold miss) does NOT fail the gate; but a
-    # query that never reached the store (reachable=False) is INFRA — surfaced separately
-    # via `reachable` so it is never mistaken for a clean pass (CLI maps it to exit 2).
-    required_ok = all(c["passed"] for c in checks if not c["optional"])
-    return {
+    # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
+    # misses are surfaced separately so a silently-degraded stream never reads as clean.
+    gating = [c for c in checks if not c["optional"] and not c["pending"]]
+    threshold = spec.get("threshold")
+    if threshold is None:
+        # all-or-nothing (default, unchanged): every gating check must pass.
+        required_ok = all(c["passed"] for c in gating)
+        score = None
+    else:
+        # promptfoo test-level threshold: pass iff the *weighted* pass-ratio meets it
+        # (a quorum of expected events, not strict unanimity).
+        wtot = sum(c["weight"] for c in gating)
+        score = (sum(c["weight"] for c in gating if c["passed"]) / wtot) if wtot else 1.0
+        required_ok = score >= float(threshold)
+    # a store we never reached (reachable=False) is INFRA — never a clean pass (CLI exit 2).
+    result = {
         "ok": res.reachable and required_ok,
         "reachable": res.reachable,
         "cid": cid,
         "checks": checks,
         "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
+        "pending_failed": [_label(c) for c in checks if c["pending"] and not c["passed"]],
+        "pending_satisfied": [_label(c) for c in checks if c["pending"] and c["passed"]],
+    }
+    if score is not None:
+        result["score"] = score
+        result["threshold"] = float(threshold)
+    return result
+
+
+def can_i_deploy(results: list[dict]) -> dict:
+    """Pact ``can-i-deploy`` for ooptdd: may we ship, given a set of gate results?
+
+    Yes iff every gate was reachable and ``ok``. ``pending`` checks never block (that is
+    their purpose). Returns ``{deployable, blockers:[cid], inconclusive:[cid], pending:{cid:[..]}}``
+    so a release step can fail closed on a real RED, hold on INFRA, and still see what is owed.
+    """
+    blockers = [r["cid"] for r in results if r["reachable"] and not r["ok"]]
+    inconclusive = [r["cid"] for r in results if not r["reachable"]]
+    pending = {r["cid"]: r["pending_failed"] for r in results if r.get("pending_failed")}
+    return {
+        "deployable": not blockers and not inconclusive,
+        "blockers": blockers,
+        "inconclusive": inconclusive,
+        "pending": pending,
     }
