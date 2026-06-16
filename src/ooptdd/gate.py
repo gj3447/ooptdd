@@ -79,12 +79,34 @@ def _first_ts(events: list[dict], name: str) -> int | None:
 
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
+    if "conforms" in chk:
+        return "conforms:" + str(chk["conforms"])
     if "must_order" in chk:
         return "must_order:" + ">".join(chk["must_order"])
     if chk.get("event"):
         return str(chk["event"])
     where = chk.get("where") or {}
     return "where:" + ",".join(f"{k}={v}" for k, v in where.items()) if where else "(any)"
+
+
+def _eval_conforms(events: list[dict], rule: dict, ontology, reachable: bool) -> dict:
+    """An ontology-conformance check: events (optionally of one type) must satisfy
+    their EventType — required attrs present, value constraints hold; in closed-world
+    an undeclared event name is drift. Needs an ontology; without one it cannot pass."""
+    target = rule["conforms"]  # an EventType name, or "*" for all events
+    if ontology is None:
+        return {"conforms": target, "passed": False, "checked": 0,
+                "violations": [{"problems": ["ontology_not_loaded "
+                                "(set `ontology:` in the spec or pass ontology=)"]}],
+                "unknown": []}
+    from .ontology import check_conformance
+
+    cw = rule.get("closed_world")
+    res = check_conformance(events, ontology,
+                            event_type=None if target == "*" else target, closed_world=cw)
+    return {"conforms": target, "passed": reachable and res["passed"],
+            "checked": res["checked"], "violations": res["violations"],
+            "unknown": res["unknown"]}
 
 
 def _eval_must_order(events: list[dict], seq: list, reachable: bool) -> dict:
@@ -120,6 +142,7 @@ def evaluate(
     *,
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
+    ontology=None,
 ) -> dict:
     """Run a gate spec once.
 
@@ -129,6 +152,9 @@ def evaluate(
     (store unreachable / INFRA) keeps ``ok`` false regardless — that is not a clean pass.
     """
     cid = _resolve_cid(spec)
+    if ontology is None and spec.get("ontology"):
+        from .ontology import Ontology  # file-first; offline, no KG dependency
+        ontology = Ontology.from_file(spec["ontology"])
     lookback_s = backend.default_lookback_s if lookback_s is None else lookback_s
     future_buffer_s = (
         backend.default_future_buffer_s if future_buffer_s is None else future_buffer_s
@@ -143,6 +169,8 @@ def evaluate(
     for rule in spec.get("expect", []):
         if "must_order" in rule:
             chk = _eval_must_order(res.events, rule["must_order"], res.reachable)
+        elif "conforms" in rule:
+            chk = _eval_conforms(res.events, rule, ontology, res.reachable)
         else:
             ev_name = rule.get("event")
             where = rule.get("where") or {}

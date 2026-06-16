@@ -25,6 +25,7 @@ Public API:
 """
 from .backends import Backend, MemoryBackend, QueryResult, get_backend
 from .model import build_outcome_records
+from .ontology import EventType, Ontology, check_conformance
 from .verify import session_finish, verify_policy, verify_trace
 
 __all__ = [
@@ -36,6 +37,9 @@ __all__ = [
     "Backend",
     "QueryResult",
     "MemoryBackend",
+    "Ontology",
+    "EventType",
+    "check_conformance",
 ]
 
 __version__ = "0.1.0"
