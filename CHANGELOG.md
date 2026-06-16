@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-16
+
 OSS-adoption pass (prom12 research, `docs/research/ooptdd_E_oss_adoption_prom12_20260616.md`):
 align ooptdd's surfaces with mature standards instead of bespoke shapes. All additive
 and backward-compatible (existing specs/records unchanged); 137 tests green.
