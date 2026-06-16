@@ -21,9 +21,13 @@ Public API:
     verify_policy           verdict + mode -> build decision
     session_finish          build -> ship -> verify -> policy (the orchestrator)
     get_backend             resolve a Backend driver by name
+    evaluate, can_i_deploy  run a gate spec / Pact-style multi-gate deploy decision
+    assert_gate, assert_present   DeepEval-style in-test trace assertions
     Backend, QueryResult, MemoryBackend
 """
+from .assertions import TraceAssertionError, assert_gate, assert_present
 from .backends import Backend, MemoryBackend, QueryResult, get_backend
+from .gate import can_i_deploy, evaluate
 from .model import build_outcome_records
 from .ontology import EventType, Ontology, check_conformance
 from .verify import session_finish, verify_policy, verify_trace
@@ -34,6 +38,11 @@ __all__ = [
     "verify_policy",
     "session_finish",
     "get_backend",
+    "evaluate",
+    "can_i_deploy",
+    "assert_gate",
+    "assert_present",
+    "TraceAssertionError",
     "Backend",
     "QueryResult",
     "MemoryBackend",
