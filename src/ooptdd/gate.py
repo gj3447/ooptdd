@@ -16,10 +16,16 @@ Spec format (``gates/*.yaml``)::
       - event: test_outcome
         op: ">="
         count: 5
+      - event: cycle           # `event` is optional; omit to match any event
+        where: {verdict: NG}   # field-equality filter (count only matching events)
+        op: "=="
+        count: 0
 
 Counting is done over the events the backend returns for ``cid`` — no
 backend-specific query language, so the same gate runs on memory, OpenObserve, or
-any future driver.
+any future driver. ``where`` filters on arbitrary event fields (e.g. ``verdict``,
+``level``), which is why the OpenObserve driver selects whole rows: the smart
+filtering lives here, in Python, identically for every backend.
 """
 from __future__ import annotations
 
@@ -43,6 +49,14 @@ def load_gate(path: str) -> dict:
 
     with open(path) as fh:
         return yaml.safe_load(fh) or {}
+
+
+def _matches(ev: dict, event: str | None, where: dict) -> bool:
+    """An event matches a rule when its name equals ``event`` (if given) and every
+    ``where`` field equals the event's value. ``event=None`` matches any name."""
+    if event is not None and ev.get("event") != event:
+        return False
+    return all(ev.get(k) == v for k, v in where.items())
 
 
 def _resolve_cid(spec: dict) -> str:
@@ -74,20 +88,18 @@ def evaluate(
         since_us=now_us - lookback_s * 1_000_000,
         until_us=now_us + future_buffer_s * 1_000_000,
     )
-    counts: dict[str, int] = {}
-    for ev in res.events:
-        counts[ev.get("event", "")] = counts.get(ev.get("event", ""), 0) + 1
-
     checks = []
     all_ok = res.reachable
     for rule in spec.get("expect", []):
-        ev_name = rule["event"]
+        ev_name = rule.get("event")
+        where = rule.get("where") or {}
         op = rule.get("op", ">=")
         want = int(rule.get("count", 1))
-        got = counts.get(ev_name, 0)
+        got = sum(1 for ev in res.events if _matches(ev, ev_name, where))
         passed = res.reachable and _OPS[op](got, want)
         all_ok = all_ok and passed
         checks.append(
-            {"event": ev_name, "op": op, "want": want, "got": got, "passed": passed}
+            {"event": ev_name, "where": where, "op": op,
+             "want": want, "got": got, "passed": passed}
         )
     return {"ok": all_ok, "reachable": res.reachable, "cid": cid, "checks": checks}
