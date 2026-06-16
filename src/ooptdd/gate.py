@@ -151,6 +151,8 @@ def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
     if "conforms" in chk:
         return "conforms:" + str(chk["conforms"])
+    if "heartbeat" in chk:
+        return f"heartbeat:{chk['heartbeat']}@{chk.get('every_s')}s"
     if "must_order" in chk:
         return "must_order:" + ">".join(chk["must_order"])
     if "present" in chk:
@@ -183,21 +185,62 @@ def _eval_conforms(events: list[dict], rule: dict, ontology, reachable: bool) ->
             "unknown": res["unknown"]}
 
 
-def _eval_must_order(events: list[dict], seq: list, reachable: bool) -> dict:
+def _all_ts(events: list[dict], name: str) -> list[int]:
+    """All ``_timestamp`` values (µs, sorted) among events named ``name``."""
+    return sorted(
+        ev["_timestamp"] for ev in events
+        if ev.get("event") == name and ev.get("_timestamp") is not None
+    )
+
+
+def _eval_must_order(events: list[dict], seq: list, reachable: bool,
+                     within_s: float | None = None) -> dict:
     """A sequencing check: every name must occur, and first-occurrence times must be
-    non-decreasing in the listed order. Missing events fail (can't order an absence)."""
+    non-decreasing in the listed order. Missing events fail (can't order an absence).
+
+    ``within_s`` (MTL bounded-interval ``F[0,within_s]``, à la RTAMT): if set, every
+    consecutive gap must also be ≤ ``within_s`` — "B follows A *within* the bound", not
+    just eventually. A gap that exceeds it fails and is surfaced in ``gaps_exceeded``.
+    """
     firsts = [(name, _first_ts(events, name)) for name in seq]
     missing = [name for name, ts in firsts if ts is None]
     ordered = not missing and all(
         firsts[i][1] <= firsts[i + 1][1] for i in range(len(firsts) - 1)
     )
-    return {
+    gaps_exceeded: list[str] = []
+    if ordered and within_s is not None:
+        bound_us = within_s * 1_000_000
+        for i in range(len(firsts) - 1):
+            if firsts[i + 1][1] - firsts[i][1] > bound_us:
+                gaps_exceeded.append(f"{firsts[i][0]}->{firsts[i + 1][0]}")
+    chk = {
         "must_order": list(seq),
         "missing": missing,
         "ordered": ordered,
         "firsts": {name: ts for name, ts in firsts},
-        "passed": reachable and ordered,
+        "passed": reachable and ordered and not gaps_exceeded,
     }
+    if within_s is not None:
+        chk["within_s"] = within_s
+        chk["gaps_exceeded"] = gaps_exceeded
+    return chk
+
+
+def _eval_heartbeat(events: list[dict], rule: dict, reachable: bool) -> dict:
+    """A liveness check (MTL ``G[0,every_s] F event``): the event must occur and never go
+    silent longer than ``every_s`` between consecutive occurrences. ≥1 occurrence required
+    (you can't have a heartbeat that never beat). Surfaces the worst observed gap."""
+    name = rule["heartbeat"]
+    every_s = float(rule["every_s"])
+    ts = _all_ts(events, name)
+    if not ts:
+        return {"heartbeat": name, "every_s": every_s, "beats": 0,
+                "max_gap_s": None, "passed": False, "reason": "no_beat"}
+    gaps = [ts[i + 1] - ts[i] for i in range(len(ts) - 1)]
+    max_gap_us = max(gaps) if gaps else 0
+    ok = max_gap_us <= every_s * 1_000_000
+    return {"heartbeat": name, "every_s": every_s, "beats": len(ts),
+            "max_gap_s": round(max_gap_us / 1_000_000, 6), "passed": reachable and ok}
 
 
 def _eval_present(events: list[dict], matchers: list, indicators: dict, reachable: bool) -> dict:
@@ -283,11 +326,13 @@ def evaluate(
     )
     checks = []
     for rule in spec.get("expect", []):
-        if "must_order" in rule or "trajectory" in rule:
+        if "heartbeat" in rule:
+            chk = _eval_heartbeat(res.events, rule, res.reachable)
+        elif "must_order" in rule or "trajectory" in rule:
             # `trajectory` is the promptfoo/DeepEval word for an ordered tool/event
             # sequence — an alias for must_order (same first-occurrence sequencing).
             seq = rule.get("must_order") or rule.get("trajectory")
-            chk = _eval_must_order(res.events, seq, res.reachable)
+            chk = _eval_must_order(res.events, seq, res.reachable, within_s=rule.get("within_s"))
         elif "present" in rule:
             chk = _eval_present(res.events, rule["present"], indicators, res.reachable)
         elif "ratioMetric" in rule:
