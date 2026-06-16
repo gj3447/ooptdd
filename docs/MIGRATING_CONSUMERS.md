@@ -61,23 +61,29 @@ Graceful: where ooptdd (vendored) is absent, the plugin simply doesn't load → 
 ### 3. consumer_b (`<WORKSPACE>/consumer_b`, branch `user`)
 - `scripts/oo_gate.py` — **partially blocked**: this repo's gates filter on *fields* (`WHERE verdict='NG'`, `WHERE level='ERROR'`); ooptdd's `gate.py` counts by `event` only → those gates are **not expressible**. Either keep `oo_gate.py` for field-filter gates, or build **#11 (field-filter in ooptdd gate)** first. Pure event-count gates can migrate.
 - `test/conftest.py` `oo_trace` fixture (per-test assertion) → ooptdd plugin / `verify_trace`.
-- `scripts/gates/*.yaml` — convert event-count gates to ooptdd's `expect:` spec; field-filter gates stay until #11.
+- `scripts/gates/*.yaml` — convert event-count gates to ooptdd's `expect:` spec; field-filter gates now
+  migrate too (the `where:` key landed — see #11 below).
 
-## Build order (after migration, all in THIS repo)
+## Repo-side items — ✅ DONE (built in this repo *before* migration, 2026-06-16)
 
-- **#7 must_order** (S) — declarative `must_order: [a,b,c]` in `gate.py`; evaluate in Python over the
-  events `backend.query` already returns (sort by `_timestamp`) — *no per-backend SQL needed*.
-- **#10 optional ERROR≠RED** (S) — `gate.py` already surfaces `reachable`; add `optional:` per-check +
-  CLI surfacing of optional-unreachable vs count-miss + `--fail-on-optional-error`.
-- **#5 session heartbeat** (S–M) — `model.build_session_start()` shipped at `pytest_sessionstart`;
-  `verify_trace` adds a `started` branch → distinguish partial-loss from total-loss.
-- **#2 anti-fabrication** (M, needs infra) — HMAC `sig` over signed-field projection in `model`,
-  validated in `verify` (`sig_status ∈ valid/unsigned/unverifiable/invalid`); key in `OOPTDD_SIGNING_KEY`
-  (CI-only, **not** in the agent env). Honest threat model: defends the code-editing agent in a dev
-  shell; **theater** against an agent that can read CI secrets — documented as such. Pair with a
-  dedicated write-only ingest account (ops).
+Done first (on purpose: consumers migrate once, to a complete package). All TDD, 44 tests + ruff clean.
 
-## Also discovered
+- **#11 field-filter** ✅ `19fc316` — `where: {field: value}` (+ optional `event`) in `gate.py`; OpenObserve
+  `SELECT *` so whole rows come back. Unblocks consumer_b's `WHERE verdict=…`/`level=…` gates.
+- **#7 must_order** ✅ `10f3dce` — declarative `must_order: [a,b,c]`, checked in Python over returned
+  events' `_timestamp` (memory backend now stamps it) — no per-backend SQL.
+- **#10 optional** ✅ `516aa13` — per-check `optional:` (miss surfaced via `optional_failed`, not gating);
+  unreachable store still ≠ pass; CLI WARN line.
+- **#5 heartbeat** ✅ `7ebee26` — `model.build_session_start()` shipped at `pytest_collection_finish`
+  (controller-only, best-effort); `verify_trace` `started` flag distinguishes partial vs total loss.
+- **#2 anti-fabrication** ✅ `e6f5858` (code half) — HMAC-signed summary; `sig_status ∈
+  valid/invalid/unsigned/unverifiable`; invalid ALWAYS fails (even warn); `require_signature` rejects
+  unsigned; key = env `OOPTDD_SIGNING_KEY` (CI-only). Honest threat model documented (theater vs an
+  agent that can read CI secrets). **Remaining (ops, not code):** dedicated write-only ingest account +
+  provision the CI secret + run `require_signature` + `strict` for full enforcement.
 
-- **#11 (new):** ooptdd `gate.py` needs an optional field-filter (`where: {verdict: NG}`) to fully
-  replace consumer_b's `oo_gate.py`. Until then consumer_b keeps its SQL gate for field-filtered checks.
+## Remaining work
+
+- **Consumer migration** (lakatotree → consumer_a → consumer_b) per the touchpoints above — the per-consumer
+  rewrite. This is the next phase.
+- **#2 ops half** — ingest account + CI secret provisioning (escalate).
