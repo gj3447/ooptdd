@@ -110,5 +110,21 @@ The only apparent tension (eval frameworks are nondeterministic LLM-judge vs oop
 
 ---
 
+## Implementation status (2026-06-16)
+
+All three tiers were implemented on branch `oss-adoption-prom12` (137 tests green,
+ruff clean), additive and backward-compatible. Commits:
+
+- **Tier 1** `f16af15` — OpenSLO/Keptn gate vocabulary + `present`; JSON Schema
+  `additionalProperties:false`; CloudEvents floor; LTL3 honesty pass.
+- **Tier 2** `2615e44` — ClickHouse/SigNoz backend; Pact `pending`/`can_i_deploy`;
+  promptfoo `weight`/`threshold` + `trajectory` + `assert_gate`; GenAI semconv preset;
+  `with_trace_context`.
+- **Tier 3** `67d834d` — MTL `within_s`/`heartbeat`; HMAC hash chain; `ontology_compat`;
+  otel `simple` processor; OpenLLMetry dogfood example.
+
+Not adopted (as recommended): Loki backend, Tracetest/Keptn server runtimes,
+LLM-as-judge ground truth, Confluent Schema Registry dependency.
+
 ## Sources
 Tracetest (kubeshop, MIT) · Malabi (Aspecto, archived) · OTel InMemorySpanExporter / semconv / GenAI semconv / Logs data model / OTLP (CNCF, Apache-2.0) · OpenLLMetry (traceloop, Apache-2.0) · Bauer–Leucker–Schallhart LTL3 (TOSEM 2011) · RTAMT (nickovic) · JavaMOP/RV-Monitor · DejaVu (NASA/JPL) · Hypothesis (MPL-2.0) · pytest-structlog (MIT) · structlog.testing · testfixtures (MIT) · Pact (pact.io, MIT) · Spring Cloud Contract (Apache-2.0) · Langfuse / Arize Phoenix / LangSmith (see prior D2) · DeepEval (Apache-2.0) · promptfoo (MIT) · Inspect/inspect_ai (MIT) · ragas (Apache-2.0) · CloudEvents (CNCF) · JSON Schema 2020-12 · AsyncAPI v3 · Confluent Schema Registry · OpenObserve (AGPL-3.0) · ClickHouse (Apache-2.0) · Grafana Loki/Tempo (AGPL) · SigNoz (MIT) · Keptn (CNCF, Apache-2.0) · OpenSLO v1 (Apache-2.0) · backoff (MIT) · Crosby–Wallach / Schneier–Kelsey tamper-evident logging · Anthropic/OpenAI evals-as-tests guidance (2026).
