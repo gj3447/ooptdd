@@ -21,7 +21,8 @@ this doc is the human-readable shadow.
 | tag | verdict | metric | what |
 |---|---|---|---|
 | **V0-kg-substrate** | `proof` | substrate loads & queryable | `ooptdd/ontology.py` (file-first) + KG `LabelConvention` (Ooptdd Requirement/Gate/EventType/Verdict) + `OoptddOntology` mirror. Enables V1; no metric of its own. |
-| **V1-ontology-typed-gate** | `CANONICAL` (progressive) | **conformance_violations_caught = 3** (target ≥3) | `conforms: <EventType\|*>` gate check. Pre-registered prediction met: 3 hallucination classes the flat gate marks GREEN, the ontology gate marks RED. |
+| **V1-ontology-typed-gate** | `canonical_stage` (progressive) | **conformance_violations_caught = 3** (target ≥3) | `conforms: <EventType\|*>` gate check. Pre-registered prediction met: 3 hallucination classes the flat gate marks GREEN, the ontology gate marks RED. |
+| **V2-kg-native-loop-io** | `CANONICAL` (progressive) | coverage + drift queryable, offline intact | Pluggable `KgStore` (InMemory offline / Neo4j prod). `write_run` persists `OoptddVerdict` + `ReferenceSite` (sha256 + baseline). coverage(spec)=done/total and drift(spec)=changed-sha both by query alone — proven in-memory **and** on the live workspace Neo4j (coverage cypher → total=4/done=4). Loop still runs with no KG store (hard-core #3). |
 
 ### V1 — the metric (pre-registered, then measured)
 
@@ -51,7 +52,7 @@ attribute (ontology), absent emitter (Longinus), no log (arrival).
 - ✅ `OQ-ooptdd-ontology-catches-more` — **CLOSED by V1** (yes, ≥3 classes).
 - `OQ-ooptdd-minimal-eventtype-schema` — minimal schema that earns its keep (current: required + enum/type/min/max).
 - `OQ-ooptdd-closed-vs-open-world` — default is open-world; closed-world is opt-in per check (`closed_world: true`). Revisit if drift detection should be a project default.
-- `OQ-ooptdd-ontology-location-offline` — file-first today; KG mirror exists. Projection direction (KG→file vs file→KG) for V2 still open.
+- ✅ `OQ-ooptdd-ontology-location-offline` — **CLOSED by V2**: file-first canonical; KG mirror via pluggable `KgStore` (InMemory offline / Neo4j prod); projection = code→KG on each `write_run`; KG never a hard dep.
 - `OQ-ooptdd-longinus-ontology-compose` — partially answered (chain above); full composition is V2/V4.
 
 ## Next branches (not yet run)
