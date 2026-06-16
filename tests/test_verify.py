@@ -171,3 +171,57 @@ def test_session_finish_green_when_arrives():
     r = session_finish(MemoryBackend(), reports, "cid-ok", mode="strict", retries=1)
     assert r["fail_build"] is False
     assert any("arrival confirmed" in m for m in r["messages"])
+
+
+# ── SOLID P2 fixes (2026-06-16): no silent green from a write-only backend or a gate crash ──
+class _WriteOnly:
+    """A backend with no read side (e.g. OTLP/otel): queryable=False."""
+
+    default_lookback_s = 60
+    default_future_buffer_s = 0
+    queryable = False
+
+    def ship(self, events):
+        pass
+
+    def query(self, cid, *, since_us, until_us):
+        return QueryResult(reachable=False)
+
+
+class _CrashOnVerify:
+    """A backend whose query() raises — a bug in the gate path, not an outage."""
+
+    default_lookback_s = 60
+    default_future_buffer_s = 0
+
+    def ship(self, events):
+        pass
+
+    def query(self, cid, *, since_us, until_us):
+        raise RuntimeError("boom in query")
+
+
+def test_write_only_backend_strict_refuses_not_silent_green():
+    # strict over a write-only backend must NOT pass silently (the bug); it refuses loudly.
+    reports = [{"nodeid": "t::a", "outcome": "passed", "when": "call"}]
+    r = session_finish(_WriteOnly(), reports, "cid", mode="strict", retries=1)
+    assert r["fail_build"] is True
+    assert any("write-only" in m and "strict" in m for m in r["messages"])
+
+
+def test_write_only_backend_warn_surfaces_but_passes():
+    reports = [{"nodeid": "t::a", "outcome": "passed", "when": "call"}]
+    r = session_finish(_WriteOnly(), reports, "cid", mode="warn", retries=1)
+    assert r["fail_build"] is False
+    assert any("write-only" in m for m in r["messages"])
+
+
+def test_verify_path_crash_is_surfaced_not_silent():
+    reports = [{"nodeid": "t::a", "outcome": "passed", "when": "call"}]
+    # warn: surfaced loudly as an ERROR (harness bug), build not failed
+    rw = session_finish(_CrashOnVerify(), reports, "cid", mode="warn", retries=1)
+    assert rw["fail_build"] is False
+    assert any("verify ERROR" in m and "harness bug" in m for m in rw["messages"])
+    # strict: a broken gate fails the build (enforcement you asked for is not working)
+    rs = session_finish(_CrashOnVerify(), reports, "cid", mode="strict", retries=1)
+    assert rs["fail_build"] is True

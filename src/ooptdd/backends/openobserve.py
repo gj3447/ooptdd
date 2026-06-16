@@ -25,6 +25,7 @@ from .base import QueryResult
 class OpenObserveBackend:
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
+    queryable = True  # SQL read side over /_search
 
     def __init__(
         self,

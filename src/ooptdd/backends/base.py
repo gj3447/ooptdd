@@ -47,6 +47,11 @@ class Backend(Protocol):
     #: Per-backend polling hints (seconds). Stores with slow ingest override these.
     default_lookback_s: int
     default_future_buffer_s: int
+    #: False iff the backend has no read side (e.g. OTLP/otel is write-only). The verify
+    #: layer cannot confirm arrival on such a backend, so `strict` over it is meaningless —
+    #: callers must surface that loudly rather than passing silently. Defaults True (most
+    #: backends can read); callers read it via ``getattr(backend, "queryable", True)``.
+    queryable: bool = True
 
     def ship(self, events: list[dict]) -> None:
         """Write events. Must be best-effort; raising is allowed but the caller
