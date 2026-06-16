@@ -116,3 +116,68 @@ def test_openobserve_select_star_passes_through_arbitrary_fields(monkeypatch):
     r = b.query("c1", since_us=0, until_us=10**18)
     assert "SELECT *" in captured["sql"]
     assert r.reachable and r.events[0]["verdict"] == "NG"
+
+
+# ── #7 must_order — sequencing by _timestamp (deterministic via a fake backend) ─
+from ooptdd.backends.base import QueryResult  # noqa: E402
+
+
+class _FixedBackend:
+    """Returns a fixed event list with explicit _timestamps — deterministic order."""
+
+    default_lookback_s = 3600
+    default_future_buffer_s = 0
+
+    def __init__(self, events):
+        self._events = events
+
+    def ship(self, events):  # pragma: no cover - not used
+        pass
+
+    def query(self, cid, *, since_us, until_us):
+        return QueryResult(reachable=True, events=list(self._events))
+
+
+def _ev(name, ts):
+    return {"event": name, "_timestamp": ts}
+
+
+def test_must_order_pass_in_sequence():
+    b = _FixedBackend([_ev("a", 1), _ev("b", 2), _ev("c", 3)])
+    res = evaluate(b, {"cid": "c1", "expect": [{"must_order": ["a", "b", "c"]}]})
+    assert res["ok"] and res["checks"][0]["ordered"] and not res["checks"][0]["missing"]
+
+
+def test_must_order_fail_wrong_sequence():
+    b = _FixedBackend([_ev("a", 3), _ev("b", 1)])
+    res = evaluate(b, {"cid": "c1", "expect": [{"must_order": ["a", "b"]}]})
+    assert not res["ok"] and res["checks"][0]["ordered"] is False
+
+
+def test_must_order_fail_missing_event():
+    b = _FixedBackend([_ev("a", 1)])
+    res = evaluate(b, {"cid": "c1", "expect": [{"must_order": ["a", "b"]}]})
+    chk = res["checks"][0]
+    assert not res["ok"] and chk["missing"] == ["b"] and chk["passed"] is False
+
+
+def test_must_order_equal_timestamps_allowed():
+    # concurrent (same store ts) is non-decreasing → ordered (set/quorum-friendly).
+    b = _FixedBackend([_ev("a", 5), _ev("b", 5)])
+    res = evaluate(b, {"cid": "c1", "expect": [{"must_order": ["a", "b"]}]})
+    assert res["ok"] and res["checks"][0]["ordered"]
+
+
+def test_must_order_uses_first_occurrence():
+    # a repeats after b; ordering keys on the *first* a (1) vs first b (2).
+    b = _FixedBackend([_ev("a", 1), _ev("b", 2), _ev("a", 3)])
+    res = evaluate(b, {"cid": "c1", "expect": [{"must_order": ["a", "b"]}]})
+    assert res["ok"] and res["checks"][0]["firsts"] == {"a": 1, "b": 2}
+
+
+def test_memory_query_injects_timestamp():
+    # locks the backend-contract addition #7 relies on.
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "a"})
+    res = b.query("c1", since_us=0, until_us=10**19)
+    assert "_timestamp" in res.events[0] and isinstance(res.events[0]["_timestamp"], int)
