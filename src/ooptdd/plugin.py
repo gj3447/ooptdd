@@ -99,6 +99,28 @@ def _is_xdist_controller(config) -> bool:
     return not hasattr(config, "workerinput")
 
 
+def pytest_collection_finish(session):
+    """Ship a `session_start` heartbeat once collection is known (controller only).
+
+    Best-effort: if the backend init/ship fails (e.g. unprovisioned store), swallow it —
+    a heartbeat must never break collection. Its only job is to let verify distinguish
+    'started but summary lost' from 'nothing arrived' if the summary is later dropped.
+    """
+    config = session.config
+    if not getattr(config, "_ooptdd_active", False) or not _is_xdist_controller(config):
+        return
+    s: Settings = config._ooptdd_settings
+    try:
+        from .model import build_session_start
+
+        backend = get_backend(s.backend, service=s.service, **s.backend_options)
+        backend.ship([build_session_start(
+            config._ooptdd_cid, service=s.service, expected_total=len(session.items)
+        )])
+    except Exception:  # noqa: BLE001 — heartbeat is best-effort, never gates collection
+        pass
+
+
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
     if not getattr(config, "_ooptdd_active", False):

@@ -83,3 +83,28 @@ def build_outcome_records(
         }
     )
     return recs
+
+
+def build_session_start(
+    cid: str,
+    *,
+    service: str = "ooptdd.tests",
+    expected_total: int | None = None,
+    meta: dict | None = None,
+) -> dict:
+    """A heartbeat shipped *before* the run (pure function).
+
+    If the ``test_session`` summary is later lost, the presence of this record lets
+    ``verify_trace`` tell "the run started but its summary never arrived" (partial loss)
+    from "nothing arrived at all" (total loss) — two very different RCA paths.
+    """
+    rec = {
+        **correlation_keys(cid),
+        "service": service,
+        "level": "INFO",
+        "event": "session_start",
+        **(meta or {}),
+    }
+    if expected_total is not None:
+        rec["expected_total"] = expected_total
+    return rec
