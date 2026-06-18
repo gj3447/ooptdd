@@ -10,7 +10,7 @@ import pytest
 
 from ooptdd.backends.base import QueryResult
 from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.gate import duration_s, evaluate
+from ooptdd.engine.gate import duration_s, evaluate
 
 
 @pytest.fixture(autouse=True)

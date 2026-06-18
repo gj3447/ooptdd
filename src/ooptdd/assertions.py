@@ -14,7 +14,7 @@ keeping the rule that an infra outage is not a falsification.
 from __future__ import annotations
 
 from .backends import Backend, get_backend
-from .gate import _label, evaluate
+from .engine.gate import _label, evaluate
 
 
 class TraceAssertionError(AssertionError):
