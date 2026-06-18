@@ -119,6 +119,30 @@ ooptdd verify <cid> --backend openobserve   # manual re-check, exit 0/1/2
 ooptdd gate gates/order_pipeline.yaml        # evaluate a gate spec
 ```
 
+## Extending: custom check-predicates & ontology presets
+
+Two registration seams let you grow the vocabulary **without editing the core**
+(a string-keyed single-dispatch registry — the pluggy/hypothesis pattern):
+
+```python
+from ooptdd import check                     # the gate check-predicate seam
+
+@check("spike")                              # a new gate keyword, registered from your conftest
+def _spike(events, rule, ctx):
+    n = sum(1 for e in events if e.get("event") == rule["spike"])
+    return {"spike": rule["spike"], "got": n, "passed": ctx.reachable and n >= 1}
+# now `expect: [{spike: boom}]` dispatches to your handler — evaluate() is untouched
+```
+
+```python
+from ooptdd import Ontology                  # the preset-ontology seam (dependency-inverted)
+Ontology.register_preset("my_vocab", my_ontology_factory)   # in your module
+Ontology.builtin("my_vocab")                 # resolves it; built-ins (e.g. "gen_ai") self-register on `import ooptdd`
+```
+
+A duplicate predicate key raises at registration (loud, not silent). Presets require
+importing the `ooptdd` package (which wires the shipped built-ins), not just a submodule.
+
 ## Status & honesty
 
 `0.1.0`, extracted from internal harnesses (a service monorepo, a research
