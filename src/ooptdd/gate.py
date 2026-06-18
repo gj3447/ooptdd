@@ -65,8 +65,45 @@ from __future__ import annotations
 import operator
 import os
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from .backends import Backend
+
+# ---- check-predicate registry (the extension seam) -------------------------- #
+# Each gate check kind (present/absent/conforms/...) is a handler registered under its
+# spec keyword, not a branch in a central if-elif. New predicates register via
+# ``@check("<key>")`` WITHOUT editing ``evaluate()`` — the pluggy/hypothesis registration
+# pattern (a string-keyed single-dispatch table), absorbed here. The registry is also a
+# structural-assertion surface: every dispatched key must resolve to a registered handler.
+
+
+@dataclass(frozen=True)
+class CheckCtx:
+    """Cross-cutting context a check handler may need — built once per :func:`evaluate`
+    call, so handlers take ``(events, rule, ctx)`` instead of 4-6 positional args."""
+
+    reachable: bool
+    indicators: dict
+    ontology: object | None = None
+    allow_errors: list | None = None
+
+
+CheckFn = Callable[[list, dict, CheckCtx], dict]
+CHECK_REGISTRY: dict[str, CheckFn] = {}
+
+
+def check(*keys: str) -> Callable[[CheckFn], CheckFn]:
+    """Register a check handler under one or more spec keywords. Decoration-time only (a
+    dict insert, no I/O). A duplicate key raises — guarding the silent-overwrite failure."""
+    def deco(fn: CheckFn) -> CheckFn:
+        for k in keys:
+            if k in CHECK_REGISTRY:
+                raise ValueError(f"duplicate check predicate {k!r}")
+        for k in keys:
+            CHECK_REGISTRY[k] = fn
+        return fn
+    return deco
 
 # Symbolic comparison operators are native; the OpenSLO/Keptn word forms
 # (gte/gt/eq/lte/lt[/ne]) are accepted as aliases so a spec can read like an SLO
@@ -327,6 +364,84 @@ def _eval_ratio(events: list[dict], rule: dict, indicators: dict, reachable: boo
             "op": op, "want": want, "passed": reachable and _OPS[op](value, want)}
 
 
+# ---- registered check handlers (thin adapters over the _eval_* evaluators) --- #
+# The evaluation logic lives in the _eval_* functions above, UNCHANGED; these wrappers
+# only give them the uniform (events, rule, ctx) signature and register them on the seam.
+
+
+@check("absent")
+def _check_absent(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    raw = rule.get("absent", rule.get("forbid"))  # `forbid` is a synonym for `absent`
+    matchers = raw if isinstance(raw, list) else [raw]
+    return _eval_absent(events, matchers, ctx.indicators, ctx.reachable,
+                        allow=ctx.allow_errors)
+
+
+@check("heartbeat")
+def _check_heartbeat(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _eval_heartbeat(events, rule, ctx.reachable)
+
+
+@check("must_order")
+def _check_must_order(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    # `trajectory` is the promptfoo/DeepEval word for an ordered sequence — an alias.
+    seq = rule.get("must_order") or rule.get("trajectory")
+    return _eval_must_order(events, seq, ctx.reachable, within_s=rule.get("within_s"))
+
+
+@check("present")
+def _check_present(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _eval_present(events, rule["present"], ctx.indicators, ctx.reachable)
+
+
+@check("ratioMetric")
+def _check_ratio(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _eval_ratio(events, rule, ctx.indicators, ctx.reachable)
+
+
+@check("conforms")
+def _check_conforms(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _eval_conforms(events, rule, ctx.ontology, ctx.reachable)
+
+
+def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    """The default check (no predicate keyword): count events matching the rule's
+    event/where and compare with op/target. The documented fallback when no registered
+    predicate key is present."""
+    ev_name, where = _resolve_matcher(rule, ctx.indicators)
+    op = _norm_op(rule.get("op", ">="))
+    want = int(_want(rule))
+    got = _count(events, ev_name, where)
+    return {"event": ev_name, "where": where, "op": op, "want": want, "got": got,
+            "passed": ctx.reachable and _OPS[op](got, want)}
+
+
+# Ordered (spec_key -> canonical registry key) probes: preserve the historical if-elif
+# priority and the keyword synonyms (forbid->absent, trajectory->must_order). Probed
+# before the generic registry scan so built-in precedence is deterministic even for a
+# (degenerate) multi-keyword rule.
+_KEY_PROBES = (
+    ("absent", "absent"), ("forbid", "absent"),
+    ("heartbeat", "heartbeat"),
+    ("must_order", "must_order"), ("trajectory", "must_order"),
+    ("present", "present"),
+    ("ratioMetric", "ratioMetric"),
+    ("conforms", "conforms"),
+)
+
+
+def _detect_check_key(rule: dict) -> str | None:
+    """The registry key for ``rule`` (``None`` -> the default count check). Built-in keys
+    win in historical order; an externally-registered custom key is matched after."""
+    for spec_key, canon in _KEY_PROBES:
+        if spec_key in rule:
+            return canon
+    for key in CHECK_REGISTRY:
+        if key in rule:
+            return key
+    return None
+
+
 def _resolve_cid(spec: dict) -> str:
     if spec.get("cid"):
         return str(spec["cid"])
@@ -385,33 +500,16 @@ def evaluate(
         levels = spec.get("error_levels") or ["ERROR", "CRITICAL"]
         rules.append({"absent": [{"where": {"level": lv}} for lv in levels],
                       "_auto": "forbid_errors"})
+    # Dispatch each rule through the check-predicate registry (the extension seam):
+    # detect the rule's predicate keyword, look up its handler (else the default count
+    # check). The uniform post-stamp (optional/pending/weight) applies to every check.
+    ctx = CheckCtx(reachable=res.reachable, indicators=indicators,
+                   ontology=ontology, allow_errors=spec.get("allow_errors"))
     checks = []
     for rule in rules:
-        if "absent" in rule or "forbid" in rule:
-            raw = rule.get("absent", rule.get("forbid"))
-            matchers = raw if isinstance(raw, list) else [raw]
-            chk = _eval_absent(res.events, matchers, indicators, res.reachable,
-                               allow=spec.get("allow_errors"))
-        elif "heartbeat" in rule:
-            chk = _eval_heartbeat(res.events, rule, res.reachable)
-        elif "must_order" in rule or "trajectory" in rule:
-            # `trajectory` is the promptfoo/DeepEval word for an ordered tool/event
-            # sequence — an alias for must_order (same first-occurrence sequencing).
-            seq = rule.get("must_order") or rule.get("trajectory")
-            chk = _eval_must_order(res.events, seq, res.reachable, within_s=rule.get("within_s"))
-        elif "present" in rule:
-            chk = _eval_present(res.events, rule["present"], indicators, res.reachable)
-        elif "ratioMetric" in rule:
-            chk = _eval_ratio(res.events, rule, indicators, res.reachable)
-        elif "conforms" in rule:
-            chk = _eval_conforms(res.events, rule, ontology, res.reachable)
-        else:
-            ev_name, where = _resolve_matcher(rule, indicators)
-            op = _norm_op(rule.get("op", ">="))
-            want = int(_want(rule))
-            got = _count(res.events, ev_name, where)
-            chk = {"event": ev_name, "where": where, "op": op,
-                   "want": want, "got": got, "passed": res.reachable and _OPS[op](got, want)}
+        key = _detect_check_key(rule)
+        handler = CHECK_REGISTRY[key] if key is not None else _eval_count
+        chk = handler(res.events, rule, ctx)
         chk["optional"] = bool(rule.get("optional", False))
         # Pact "pending pacts": a `pending` expectation is verified and surfaced but does
         # NOT gate the build — for an event whose emitter isn't wired yet. Once it passes,

@@ -78,3 +78,10 @@ def gen_ai_ontology(*, closed_world: bool = False) -> Ontology:
             "description": f"OTel GenAI semconv {SEMCONV_VERSION}: {name}",
         }
     return Ontology.from_dict({"event_types": event_types, "closed_world": closed_world})
+
+
+# Self-register as the ``gen_ai`` built-in preset. Inversion seam (see
+# :meth:`ooptdd.ontology.Ontology.register_preset`): this preset depends on the core,
+# the core does NOT depend on the preset — so ``ontology.py`` never imports ``semconv``
+# and the module-import graph stays acyclic (``ooptdd.ontology`` is a pure sink).
+Ontology.register_preset("gen_ai", gen_ai_ontology)
