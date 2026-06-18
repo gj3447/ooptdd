@@ -41,7 +41,9 @@ be mirrored into the KG when available; the KG never becomes a hard dependency.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 _NUMBER = (int, float)
 
@@ -115,6 +117,13 @@ class Ontology:
     #: when True, an observed event whose name is not a declared type is drift.
     closed_world: bool = False
 
+    #: Preset ontology factories, keyed by name (e.g. ``"gen_ai"``). A ``ClassVar`` —
+    #: shared state, NOT a dataclass field. Dependency-inversion seam: the core exposes
+    #: :meth:`register_preset` as a registration port and preset modules
+    #: (e.g. :mod:`ooptdd.semconv`) register *into* it at import time — so ``ontology.py``
+    #: never imports a specific preset and the module-import graph stays acyclic.
+    _PRESETS: ClassVar[dict[str, Callable[..., Ontology]]] = {}
+
     def get(self, name: str) -> EventType | None:
         return self.types.get(name)
 
@@ -140,13 +149,28 @@ class Ontology:
             return cls.from_dict(yaml.safe_load(fh) or {})
 
     @classmethod
+    def register_preset(cls, name: str, factory: Callable[..., Ontology]) -> None:
+        """Register a shipped preset ontology factory under ``name``.
+
+        The inversion seam: preset modules call this at import time
+        (e.g. :mod:`ooptdd.semconv` registers ``"gen_ai"``), so the core never imports a
+        preset. Importing the ``ooptdd`` package wires the shipped built-ins.
+        """
+        cls._PRESETS[name] = factory
+
+    @classmethod
     def builtin(cls, name: str, **kwargs) -> Ontology:
-        """Resolve a shipped preset ontology. Currently ``"gen_ai"`` — the version-pinned
-        OpenTelemetry GenAI semconv vocabulary (see :mod:`ooptdd.semconv`)."""
-        if name == "gen_ai":
-            from .semconv import gen_ai_ontology
-            return gen_ai_ontology(**kwargs)
-        raise ValueError(f"unknown builtin ontology {name!r} (have: 'gen_ai')")
+        """Resolve a registered preset ontology by ``name`` — e.g. ``"gen_ai"``, the
+        version-pinned OpenTelemetry GenAI semconv vocabulary (see :mod:`ooptdd.semconv`).
+
+        Presets self-register at import; ``import ooptdd`` wires the shipped built-ins.
+        """
+        try:
+            factory = cls._PRESETS[name]
+        except KeyError:
+            have = ", ".join(sorted(cls._PRESETS)) or "none (is the preset module imported?)"
+            raise ValueError(f"unknown builtin ontology {name!r} (have: {have})") from None
+        return factory(**kwargs)
 
 
 _COMPAT_MODES = ("backward", "forward", "full")

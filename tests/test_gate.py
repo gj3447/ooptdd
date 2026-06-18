@@ -226,3 +226,72 @@ def test_optional_must_order_miss_surfaced():
         {"must_order": ["a", "b"], "optional": True},
     ]})
     assert res["ok"] is True and res["optional_failed"] == ["must_order:a>b"]
+
+
+# ── absent / forbid (the negative wing — error logs as failures) ──────────────
+def test_absent_passes_when_no_matching_event():
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "cycle.final_verdict", "verdict": "PASS"})
+    res = evaluate(b, {"cid": "c1", "expect": [
+        {"present": [{"event": "cycle.final_verdict"}]},
+        {"absent": {"where": {"level": "ERROR"}}},
+    ]})
+    assert res["ok"] is True
+    absent_chk = [c for c in res["checks"] if "absent" in c][0]
+    assert absent_chk["passed"] is True and absent_chk["violations"] == 0
+
+
+def test_absent_fails_and_surfaces_offender():
+    # a cycle whose good events ALL arrived but which also logged an ERROR =
+    # green-and-noisy under positive-only; the forbid wing must turn it RED.
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "cycle.final_verdict", "verdict": "PASS"},
+          {"event": "decode", "level": "ERROR", "error": "ZDF decode boom"})
+    res = evaluate(b, {"cid": "c1", "expect": [
+        {"present": [{"event": "cycle.final_verdict"}]},
+        {"absent": {"where": {"level": "ERROR"}}},
+    ]})
+    assert res["ok"] is False
+    chk = [c for c in res["checks"] if "absent" in c][0]
+    assert chk["passed"] is False and chk["violations"] == 1
+    assert "ZDF decode boom" in json.dumps(chk["offending"])
+
+
+# ── env default: OOPTDD_FORBID_ERRORS injects an implicit error-forbid ─────────
+def test_env_forbid_errors_injects_default_gate(monkeypatch):
+    monkeypatch.setenv("OOPTDD_FORBID_ERRORS", "1")
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "cycle.final_verdict", "verdict": "PASS"},
+          {"event": "render", "level": "CRITICAL", "error": "VTK null"})
+    res = evaluate(b, {"cid": "c1", "expect": [{"present": [{"event": "cycle.final_verdict"}]}]})
+    assert res["ok"] is False  # no explicit absent rule, yet CRITICAL flips it RED
+    assert any("absent" in c for c in res["checks"])
+
+
+def test_env_forbid_errors_green_when_clean(monkeypatch):
+    monkeypatch.setenv("OOPTDD_FORBID_ERRORS", "1")
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "cycle.final_verdict", "verdict": "PASS"})
+    res = evaluate(b, {"cid": "c1", "expect": [{"present": [{"event": "cycle.final_verdict"}]}]})
+    assert res["ok"] is True
+
+
+def test_allow_errors_allowlists_a_known_benign_error(monkeypatch):
+    monkeypatch.setenv("OOPTDD_FORBID_ERRORS", "1")
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "cycle.final_verdict", "verdict": "PASS"},
+          {"event": "zdf.drop", "level": "ERROR", "error": "known benign"})
+    res = evaluate(b, {"cid": "c1",
+                       "allow_errors": [{"event": "zdf.drop"}],
+                       "expect": [{"present": [{"event": "cycle.final_verdict"}]}]})
+    assert res["ok"] is True  # the one allowlisted error is exempt
+
+
+def test_spec_forbid_errors_false_opts_out_of_env_default(monkeypatch):
+    monkeypatch.setenv("OOPTDD_FORBID_ERRORS", "1")
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "cycle.final_verdict", "verdict": "PASS"},
+          {"event": "x", "level": "ERROR", "error": "tolerated"})
+    res = evaluate(b, {"cid": "c1", "forbid_errors": False,
+                       "expect": [{"present": [{"event": "cycle.final_verdict"}]}]})
+    assert res["ok"] is True  # spec explicitly opted out
