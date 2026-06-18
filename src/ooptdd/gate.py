@@ -33,10 +33,18 @@ Spec format (``gates/*.yaml``)::
           - {event: a}         #   each matcher must match >=1 event. The default "did these
           - {event: b, where: {station: A}}   #   happen?" check — order is NOT asserted.
       - must_order: [a, b, c]  # each must occur, first-occurrence times non-decreasing
+      - absent:                # the negative wing — matching events must NOT occur (count 0).
+          where: {level: ERROR}   #   the mirror of `present`. Offenders are surfaced so an
+                               #   error log becomes a hard failure, not green-and-noisy.
       - event: optional_stream # optional: a threshold miss does NOT fail the gate,
         op: ">="               #   but it IS surfaced (and an unreachable store is still
         count: 1               #   INFRA, reported via `reachable`, never a clean pass)
         optional: true
+    forbid_errors: true        # optional (spec-level): inject an implicit ERROR/CRITICAL
+                               #   `absent` into the gate (default = env OOPTDD_FORBID_ERRORS;
+                               #   set false here to opt a spec out). Levels via `error_levels:`.
+    allow_errors:              # optional (spec-level) allowlist — these matched errors are
+      - {event: zdf.drop}      #   exempt (known-benign), so they don't flip the gate.
 
 Counting is done over the events the backend returns for ``cid`` — no
 backend-specific query language, so the same gate runs on memory, OpenObserve, or
@@ -157,6 +165,8 @@ def _label(chk: dict) -> str:
         return "must_order:" + ">".join(chk["must_order"])
     if "present" in chk:
         return "present:" + ",".join(chk["present"])
+    if "absent" in chk:
+        return "absent:" + ",".join(chk["absent"])
     if "ratio" in chk:
         return f"ratio:{chk['ratio']}{chk.get('op', '')}{chk.get('want', '')}"
     if chk.get("event"):
@@ -261,6 +271,44 @@ def _eval_present(events: list[dict], matchers: list, indicators: dict, reachabl
     }
 
 
+def _truthy(v) -> bool:
+    return str(v).strip().lower() in {"1", "true", "yes", "on"} if v is not None else False
+
+
+def _brief(ev: dict) -> dict:
+    """A capped view of an offending event — enough for the RCA to name what leaked
+    without dumping a whole payload into the verdict."""
+    keys = ("event", "level", "message", "msg", "error", "exc", "_timestamp")
+    return {k: ev[k] for k in keys if k in ev} or {"event": ev.get("event")}
+
+
+def _eval_absent(events: list[dict], matchers: list, indicators: dict, reachable: bool,
+                 *, allow: list | None = None) -> dict:
+    """A forbid check — the mirror of ``present``: each matcher must match ZERO events.
+    This is the negative wing (e.g. *no* ``ERROR``-level record for this cid). An event
+    matching any ``allow`` (allowlist) matcher is exempt, so a known-benign error doesn't
+    flip the gate. Offending events are surfaced (capped) so the RCA can name what leaked.
+    """
+    allow = allow or []
+    allow_resolved = [_resolve_matcher(a, indicators) for a in allow]
+    labels, offenders = [], []
+    for m in matchers:
+        event, where = _resolve_matcher(m, indicators)
+        labels.append(event or ("where:" + ",".join(f"{k}={v}" for k, v in where.items()))
+                      or "(any)")
+        for ev in events:
+            if _matches(ev, event, where) and not any(
+                _matches(ev, a_ev, a_where) for a_ev, a_where in allow_resolved
+            ):
+                offenders.append(ev)
+    return {
+        "absent": labels,
+        "violations": len(offenders),
+        "offending": [_brief(o) for o in offenders[:5]],
+        "passed": reachable and not offenders,
+    }
+
+
 def _eval_ratio(events: list[dict], rule: dict, indicators: dict, reachable: bool) -> dict:
     """An OpenSLO ratioMetric: ``good / total`` compared to ``target`` with ``op``. A zero
     denominator can't form a ratio -> not a pass (surfaced via ``reason``)."""
@@ -324,9 +372,27 @@ def evaluate(
         since_us=now_us - lookback_s * 1_000_000,
         until_us=now_us + future_buffer_s * 1_000_000,
     )
+    rules = list(spec.get("expect", []))
+    # The negative wing: forbid ERROR/CRITICAL records for this cid. Default-ON via the
+    # OOPTDD_FORBID_ERRORS env so consumers opt in without editing every spec; a spec can
+    # override with `forbid_errors: false` (opt out) or exempt known-benign ones via
+    # `allow_errors:`. Without it, a cycle whose good events all arrived but which also
+    # logged an error reads as green-and-noisy — the field-error blind spot.
+    fe = spec.get("forbid_errors")
+    if fe is None:
+        fe = _truthy(os.getenv("OOPTDD_FORBID_ERRORS"))
+    if fe:
+        levels = spec.get("error_levels") or ["ERROR", "CRITICAL"]
+        rules.append({"absent": [{"where": {"level": lv}} for lv in levels],
+                      "_auto": "forbid_errors"})
     checks = []
-    for rule in spec.get("expect", []):
-        if "heartbeat" in rule:
+    for rule in rules:
+        if "absent" in rule or "forbid" in rule:
+            raw = rule.get("absent", rule.get("forbid"))
+            matchers = raw if isinstance(raw, list) else [raw]
+            chk = _eval_absent(res.events, matchers, indicators, res.reachable,
+                               allow=spec.get("allow_errors"))
+        elif "heartbeat" in rule:
             chk = _eval_heartbeat(res.events, rule, res.reachable)
         elif "must_order" in rule or "trajectory" in rule:
             # `trajectory` is the promptfoo/DeepEval word for an ordered tool/event
