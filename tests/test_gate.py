@@ -10,7 +10,7 @@ import json
 import pytest
 
 from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.gate import evaluate
+from ooptdd.engine.gate import evaluate
 
 
 @pytest.fixture(autouse=True)

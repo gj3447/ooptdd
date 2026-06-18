@@ -17,8 +17,8 @@ import sys
 from . import __version__
 from .backends import get_backend
 from .config import from_mapping, load_pyproject
-from .gate import evaluate, load_gate
-from .verify import verify_trace
+from .engine.gate import evaluate, load_gate
+from .engine.verify import verify_trace
 
 
 def _settings(args):

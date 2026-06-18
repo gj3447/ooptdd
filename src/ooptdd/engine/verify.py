@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import time
 
-from .backends import Backend
-from .model import build_outcome_records, signature_status
+from ..domain.model import build_outcome_records, signature_status
+from ..domain.ports import Backend
 
 
 def verify_trace(

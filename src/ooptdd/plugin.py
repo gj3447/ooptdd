@@ -25,7 +25,7 @@ import pytest
 
 from .backends import get_backend
 from .config import Settings, from_mapping, load_pyproject
-from .verify import session_finish
+from .engine.verify import session_finish
 
 
 def pytest_addoption(parser):
@@ -111,7 +111,7 @@ def pytest_collection_finish(session):
         return
     s: Settings = config._ooptdd_settings
     try:
-        from .model import build_session_start
+        from .domain.model import build_session_start
 
         backend = get_backend(s.backend, service=s.service, **s.backend_options)
         backend.ship([build_session_start(

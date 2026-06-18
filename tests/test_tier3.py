@@ -4,9 +4,9 @@ from __future__ import annotations
 import pytest
 
 from ooptdd.backends.base import QueryResult
-from ooptdd.gate import evaluate
-from ooptdd.model import build_outcome_records, sign_chain, verify_chain
-from ooptdd.ontology import Ontology, ontology_compat
+from ooptdd.domain.model import build_outcome_records, sign_chain, verify_chain
+from ooptdd.domain.ontology import Ontology, ontology_compat
+from ooptdd.engine.gate import evaluate
 
 
 class _Fixed:

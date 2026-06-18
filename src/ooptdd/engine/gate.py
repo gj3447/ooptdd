@@ -59,16 +59,37 @@ The vocabulary (``op: gte``, ``target``, ``timeWindow``, ``indicators``/``indica
 a gate reads like an SLO objective and the SLI ("how to query") is decoupled from the
 SLO ("what is green") and reusable. Symbolic operators and ``count`` remain first-class —
 the alignment is additive, the evaluation logic is unchanged.
+
+Evaluation is **streaming**: each check compiles to an LTL₃/MTL monitor automaton
+(:mod:`ooptdd.monitor`) that is fed the event prefix in store-timestamp order and reports
+a three-valued verdict (``sat``/``viol``/``pend``) plus the index at which it settled. The
+final collapsed pass/fail is identical to the historical count comparison; what the gate
+gains is a real incremental monitor with anticipatory verdicts, surfaced per check as
+``verdict``/``settled_at``.
 """
 from __future__ import annotations
 
-import operator
 import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .backends import Backend
+from ..domain.ports import Backend
+from .monitor import (  # the evaluation kernel
+    AbsentMonitor,
+    ConformsMonitor,
+    CountMonitor,
+    HeartbeatMonitor,
+    OrderMonitor,
+    PresentMonitor,
+    RatioMonitor,
+    _matches,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
+    _norm_op,
+    _resolve_matcher,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
+    _want,
+    run_monitor,
+    stream_key,
+)
 
 # ---- check-predicate registry (the extension seam) -------------------------- #
 # Each gate check kind (present/absent/conforms/...) is a handler registered under its
@@ -105,34 +126,8 @@ def check(*keys: str) -> Callable[[CheckFn], CheckFn]:
         return fn
     return deco
 
-# Symbolic comparison operators are native; the OpenSLO/Keptn word forms
-# (gte/gt/eq/lte/lt[/ne]) are accepted as aliases so a spec can read like an SLO
-# objective without changing evaluation.
-_OPS = {
-    ">=": operator.ge,
-    ">": operator.gt,
-    "==": operator.eq,
-    "!=": operator.ne,
-    "<=": operator.le,
-    "<": operator.lt,
-}
-_OP_ALIASES = {
-    "gte": ">=", "ge": ">=", "gt": ">", "eq": "==", "ne": "!=",
-    "lte": "<=", "le": "<=", "lt": "<",
-}
+
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-
-
-def _norm_op(op) -> str:
-    """Map an OpenSLO word operator to its symbolic form; pass symbols through."""
-    return _OP_ALIASES.get(str(op), str(op))
-
-
-def _want(rule: dict):
-    """``target`` (OpenSLO) is an alias for ``count``; default 1."""
-    if "target" in rule:
-        return rule["target"]
-    return rule.get("count", 1)
 
 
 def duration_s(v) -> int | None:
@@ -157,41 +152,6 @@ def load_gate(path: str) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def _matches(ev: dict, event: str | None, where: dict) -> bool:
-    """An event matches when its name equals ``event`` (if given) and every ``where``
-    field equals the event's value (partial-dict — unlisted keys ignored). ``event=None``
-    matches any name."""
-    if event is not None and ev.get("event") != event:
-        return False
-    return all(ev.get(k) == v for k, v in where.items())
-
-
-def _resolve_matcher(m: dict, indicators: dict) -> tuple[str | None, dict]:
-    """Resolve a matcher to ``(event, where)``, expanding an ``indicatorRef`` against the
-    spec's ``indicators`` (SLI layer). Inline ``event``/``where`` override/extend the
-    referenced indicator."""
-    if "indicatorRef" in m:
-        base = indicators.get(m["indicatorRef"], {})
-        event = m.get("event", base.get("event"))
-        where = {**(base.get("where") or {}), **(m.get("where") or {})}
-        return event, where
-    return m.get("event"), (m.get("where") or {})
-
-
-def _count(events: list[dict], event: str | None, where: dict) -> int:
-    return sum(1 for ev in events if _matches(ev, event, where))
-
-
-def _first_ts(events: list[dict], name: str) -> int | None:
-    """Earliest ``_timestamp`` (µs) among events named ``name``; None if none carry one."""
-    seen = [
-        ev["_timestamp"]
-        for ev in events
-        if ev.get("event") == name and ev.get("_timestamp") is not None
-    ]
-    return min(seen) if seen else None
-
-
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
     if "conforms" in chk:
@@ -212,208 +172,76 @@ def _label(chk: dict) -> str:
     return "where:" + ",".join(f"{k}={v}" for k, v in where.items()) if where else "(any)"
 
 
-def _eval_conforms(events: list[dict], rule: dict, ontology, reachable: bool) -> dict:
-    """An ontology-conformance check: events (optionally of one type) must satisfy
-    their EventType — required attrs present, value constraints hold; in closed-world
-    an undeclared event name is drift. Needs an ontology; without one it cannot pass."""
-    target = rule["conforms"]  # an EventType name, or "*" for all events
-    if ontology is None:
-        return {"conforms": target, "passed": False, "checked": 0,
-                "violations": [{"problems": ["ontology_not_loaded "
-                                "(set `ontology:` in the spec or pass ontology=)"]}],
-                "unknown": []}
-    from .ontology import check_conformance
-
-    cw = rule.get("closed_world")
-    res = check_conformance(events, ontology,
-                            event_type=None if target == "*" else target, closed_world=cw)
-    return {"conforms": target, "passed": reachable and res["passed"],
-            "checked": res["checked"], "violations": res["violations"],
-            "unknown": res["unknown"]}
-
-
-def _all_ts(events: list[dict], name: str) -> list[int]:
-    """All ``_timestamp`` values (µs, sorted) among events named ``name``."""
-    return sorted(
-        ev["_timestamp"] for ev in events
-        if ev.get("event") == name and ev.get("_timestamp") is not None
-    )
-
-
-def _eval_must_order(events: list[dict], seq: list, reachable: bool,
-                     within_s: float | None = None) -> dict:
-    """A sequencing check: every name must occur, and first-occurrence times must be
-    non-decreasing in the listed order. Missing events fail (can't order an absence).
-
-    ``within_s`` (MTL bounded-interval ``F[0,within_s]``, à la RTAMT): if set, every
-    consecutive gap must also be ≤ ``within_s`` — "B follows A *within* the bound", not
-    just eventually. A gap that exceeds it fails and is surfaced in ``gaps_exceeded``.
-    """
-    firsts = [(name, _first_ts(events, name)) for name in seq]
-    missing = [name for name, ts in firsts if ts is None]
-    ordered = not missing and all(
-        firsts[i][1] <= firsts[i + 1][1] for i in range(len(firsts) - 1)
-    )
-    gaps_exceeded: list[str] = []
-    if ordered and within_s is not None:
-        bound_us = within_s * 1_000_000
-        for i in range(len(firsts) - 1):
-            if firsts[i + 1][1] - firsts[i][1] > bound_us:
-                gaps_exceeded.append(f"{firsts[i][0]}->{firsts[i + 1][0]}")
-    chk = {
-        "must_order": list(seq),
-        "missing": missing,
-        "ordered": ordered,
-        "firsts": {name: ts for name, ts in firsts},
-        "passed": reachable and ordered and not gaps_exceeded,
-    }
-    if within_s is not None:
-        chk["within_s"] = within_s
-        chk["gaps_exceeded"] = gaps_exceeded
-    return chk
-
-
-def _eval_heartbeat(events: list[dict], rule: dict, reachable: bool) -> dict:
-    """A liveness check (MTL ``G[0,every_s] F event``): the event must occur and never go
-    silent longer than ``every_s`` between consecutive occurrences. ≥1 occurrence required
-    (you can't have a heartbeat that never beat). Surfaces the worst observed gap."""
-    name = rule["heartbeat"]
-    every_s = float(rule["every_s"])
-    ts = _all_ts(events, name)
-    if not ts:
-        return {"heartbeat": name, "every_s": every_s, "beats": 0,
-                "max_gap_s": None, "passed": False, "reason": "no_beat"}
-    gaps = [ts[i + 1] - ts[i] for i in range(len(ts) - 1)]
-    max_gap_us = max(gaps) if gaps else 0
-    ok = max_gap_us <= every_s * 1_000_000
-    return {"heartbeat": name, "every_s": every_s, "beats": len(ts),
-            "max_gap_s": round(max_gap_us / 1_000_000, 6), "passed": reachable and ok}
-
-
-def _eval_present(events: list[dict], matchers: list, indicators: dict, reachable: bool) -> dict:
-    """A subset-present check (``testfixtures.check_present`` semantics): each matcher must
-    match at least one event. Order is NOT asserted and extra events are ignored — the
-    robust default for unordered, eventually-consistent telemetry."""
-    labels, missing = [], []
-    for m in matchers:
-        event, where = _resolve_matcher(m, indicators)
-        lbl = event or ("where:" + ",".join(f"{k}={v}" for k, v in where.items())) or "(any)"
-        labels.append(lbl)
-        if _count(events, event, where) < 1:
-            missing.append(lbl)
-    return {
-        "present": labels,
-        "missing": missing,
-        "passed": reachable and not missing,
-    }
-
-
 def _truthy(v) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"} if v is not None else False
 
 
-def _brief(ev: dict) -> dict:
-    """A capped view of an offending event — enough for the RCA to name what leaked
-    without dumping a whole payload into the verdict."""
-    keys = ("event", "level", "message", "msg", "error", "exc", "_timestamp")
-    return {k: ev[k] for k in keys if k in ev} or {"event": ev.get("event")}
-
-
-def _eval_absent(events: list[dict], matchers: list, indicators: dict, reachable: bool,
-                 *, allow: list | None = None) -> dict:
-    """A forbid check — the mirror of ``present``: each matcher must match ZERO events.
-    This is the negative wing (e.g. *no* ``ERROR``-level record for this cid). An event
-    matching any ``allow`` (allowlist) matcher is exempt, so a known-benign error doesn't
-    flip the gate. Offending events are surfaced (capped) so the RCA can name what leaked.
-    """
-    allow = allow or []
-    allow_resolved = [_resolve_matcher(a, indicators) for a in allow]
-    labels, offenders = [], []
-    for m in matchers:
-        event, where = _resolve_matcher(m, indicators)
-        labels.append(event or ("where:" + ",".join(f"{k}={v}" for k, v in where.items()))
-                      or "(any)")
-        for ev in events:
-            if _matches(ev, event, where) and not any(
-                _matches(ev, a_ev, a_where) for a_ev, a_where in allow_resolved
-            ):
-                offenders.append(ev)
-    return {
-        "absent": labels,
-        "violations": len(offenders),
-        "offending": [_brief(o) for o in offenders[:5]],
-        "passed": reachable and not offenders,
-    }
-
-
-def _eval_ratio(events: list[dict], rule: dict, indicators: dict, reachable: bool) -> dict:
-    """An OpenSLO ratioMetric: ``good / total`` compared to ``target`` with ``op``. A zero
-    denominator can't form a ratio -> not a pass (surfaced via ``reason``)."""
-    spec = rule["ratioMetric"]
-    g_event, g_where = _resolve_matcher(spec.get("good", {}), indicators)
-    t_event, t_where = _resolve_matcher(spec.get("total", {}), indicators)
-    good = _count(events, g_event, g_where)
-    total = _count(events, t_event, t_where)
-    op = _norm_op(rule.get("op", ">="))
-    want = float(_want(rule))
-    if total == 0:
-        return {"ratio": "good/total", "good": good, "total": 0, "value": None,
-                "op": op, "want": want, "passed": False, "reason": "ratio_total_zero"}
-    value = good / total
-    return {"ratio": "good/total", "good": good, "total": total, "value": value,
-            "op": op, "want": want, "passed": reachable and _OPS[op](value, want)}
-
-
-# ---- registered check handlers (thin adapters over the _eval_* evaluators) --- #
-# The evaluation logic lives in the _eval_* functions above, UNCHANGED; these wrappers
-# only give them the uniform (events, rule, ctx) signature and register them on the seam.
+# ---- registered check handlers (thin adapters that compile a rule to a monitor) ---- #
+# Each handler builds the monitor automaton for its predicate and drives it over the
+# (already stream-ordered) events via run_monitor. The evaluation logic lives in
+# ``ooptdd.monitor``; these wrappers only adapt the (events, rule, ctx) seam to it.
 
 
 @check("absent")
 def _check_absent(events: list, rule: dict, ctx: CheckCtx) -> dict:
     raw = rule.get("absent", rule.get("forbid"))  # `forbid` is a synonym for `absent`
     matchers = raw if isinstance(raw, list) else [raw]
-    return _eval_absent(events, matchers, ctx.indicators, ctx.reachable,
-                        allow=ctx.allow_errors)
+    return run_monitor(
+        AbsentMonitor(matchers, ctx.indicators, allow=ctx.allow_errors),
+        events, ctx.reachable,
+    )
 
 
 @check("heartbeat")
 def _check_heartbeat(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return _eval_heartbeat(events, rule, ctx.reachable)
+    return run_monitor(
+        HeartbeatMonitor(rule["heartbeat"], rule["every_s"]), events, ctx.reachable
+    )
 
 
 @check("must_order")
 def _check_must_order(events: list, rule: dict, ctx: CheckCtx) -> dict:
     # `trajectory` is the promptfoo/DeepEval word for an ordered sequence — an alias.
     seq = rule.get("must_order") or rule.get("trajectory")
-    return _eval_must_order(events, seq, ctx.reachable, within_s=rule.get("within_s"))
+    return run_monitor(
+        OrderMonitor(seq, within_s=rule.get("within_s")), events, ctx.reachable
+    )
 
 
 @check("present")
 def _check_present(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return _eval_present(events, rule["present"], ctx.indicators, ctx.reachable)
+    return run_monitor(
+        PresentMonitor(rule["present"], ctx.indicators), events, ctx.reachable
+    )
 
 
 @check("ratioMetric")
 def _check_ratio(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return _eval_ratio(events, rule, ctx.indicators, ctx.reachable)
+    spec = rule["ratioMetric"]
+    return run_monitor(
+        RatioMonitor(spec.get("good", {}), spec.get("total", {}),
+                     _norm_op(rule.get("op", ">=")), float(_want(rule)), ctx.indicators),
+        events, ctx.reachable,
+    )
 
 
 @check("conforms")
 def _check_conforms(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return _eval_conforms(events, rule, ctx.ontology, ctx.reachable)
+    return run_monitor(
+        ConformsMonitor(rule["conforms"], ctx.ontology, closed_world=rule.get("closed_world")),
+        events, ctx.reachable,
+    )
 
 
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    """The default check (no predicate keyword): count events matching the rule's
-    event/where and compare with op/target. The documented fallback when no registered
+    """The default check (no predicate keyword): a :class:`CountMonitor` over the rule's
+    event/where compared with op/target. The documented fallback when no registered
     predicate key is present."""
     ev_name, where = _resolve_matcher(rule, ctx.indicators)
-    op = _norm_op(rule.get("op", ">="))
-    want = int(_want(rule))
-    got = _count(events, ev_name, where)
-    return {"event": ev_name, "where": where, "op": op, "want": want, "got": got,
-            "passed": ctx.reachable and _OPS[op](got, want)}
+    return run_monitor(
+        CountMonitor(ev_name, where, _norm_op(rule.get("op", ">=")), int(_want(rule))),
+        events, ctx.reachable,
+    )
 
 
 # Ordered (spec_key -> canonical registry key) probes: preserve the historical if-elif
@@ -467,12 +295,16 @@ def evaluate(
     that miss are listed in ``optional_failed`` but never flip ``ok``. ``reachable=False``
     (store unreachable / INFRA) keeps ``ok`` false regardless — that is not a clean pass.
 
+    Each check is evaluated by a streaming monitor (:mod:`ooptdd.monitor`) fed the event
+    prefix in store-timestamp order; the per-check dict carries the three-valued
+    ``verdict`` and the ``settled_at`` stream index alongside the collapsed ``passed``.
+
     The readback window comes from ``lookback_s`` (arg) else the spec's ``timeWindow``
     (OpenSLO rolling window) else the backend default.
     """
     cid = _resolve_cid(spec)
     if ontology is None and spec.get("ontology"):
-        from .ontology import Ontology  # file-first; offline, no KG dependency
+        from ..domain.ontology import Ontology  # file-first; offline, no KG dependency
         ontology = Ontology.from_file(spec["ontology"])
     indicators = spec.get("indicators") or {}
     if lookback_s is None:
@@ -487,6 +319,9 @@ def evaluate(
         since_us=now_us - lookback_s * 1_000_000,
         until_us=now_us + future_buffer_s * 1_000_000,
     )
+    # Consume events in store-timestamp order so the monitors' first-occurrence /
+    # sequencing / liveness automata see the true arrival stream.
+    events = sorted(res.events, key=stream_key)
     rules = list(spec.get("expect", []))
     # The negative wing: forbid ERROR/CRITICAL records for this cid. Default-ON via the
     # OOPTDD_FORBID_ERRORS env so consumers opt in without editing every spec; a spec can
@@ -509,7 +344,7 @@ def evaluate(
     for rule in rules:
         key = _detect_check_key(rule)
         handler = CHECK_REGISTRY[key] if key is not None else _eval_count
-        chk = handler(res.events, rule, ctx)
+        chk = handler(events, rule, ctx)
         chk["optional"] = bool(rule.get("optional", False))
         # Pact "pending pacts": a `pending` expectation is verified and surfaced but does
         # NOT gate the build — for an event whose emitter isn't wired yet. Once it passes,

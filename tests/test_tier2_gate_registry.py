@@ -7,7 +7,7 @@ from ooptdd import assert_gate, assert_present, can_i_deploy
 from ooptdd.assertions import TraceAssertionError
 from ooptdd.backends.base import QueryResult
 from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.gate import evaluate
+from ooptdd.engine.gate import evaluate
 
 
 @pytest.fixture(autouse=True)

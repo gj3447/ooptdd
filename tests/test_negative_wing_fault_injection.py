@@ -22,7 +22,7 @@ import json
 import pytest
 
 from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.gate import evaluate
+from ooptdd.engine.gate import evaluate
 
 _CID = "fault-cid"
 # A minimal gate: the good lifecycle must complete. The ERROR-forbid is injected by

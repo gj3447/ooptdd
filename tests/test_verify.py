@@ -1,8 +1,8 @@
 """The heart of ooptdd: the three-valued verdict and the policy on top of it."""
 from ooptdd.backends import MemoryBackend
 from ooptdd.backends.base import QueryResult
-from ooptdd.model import build_outcome_records, build_session_start
-from ooptdd.verify import session_finish, verify_policy, verify_trace
+from ooptdd.domain.model import build_outcome_records, build_session_start
+from ooptdd.engine.verify import session_finish, verify_policy, verify_trace
 
 
 class _Unreachable:
@@ -142,7 +142,7 @@ def test_require_signature_rejects_unsigned():
 
 
 def test_sign_record_is_deterministic_and_key_sensitive():
-    from ooptdd.model import sign_record
+    from ooptdd.domain.model import sign_record
     rec = {"cid": "c", "event": "test_session", "total": 1, "passed": 1, "failed": 0, "skipped": 0}
     assert sign_record(rec, "k") == sign_record(rec, "k")
     assert sign_record(rec, "k") != sign_record(rec, "other")

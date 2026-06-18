@@ -26,15 +26,15 @@ Public API:
     assert_gate, assert_present   DeepEval-style in-test trace assertions
     Backend, QueryResult, MemoryBackend
 """
-from . import (
-    semconv as _semconv,  # noqa: F401  # registers the "gen_ai" builtin preset (Ontology.register_preset)
-)
 from .assertions import TraceAssertionError, assert_gate, assert_present
 from .backends import Backend, MemoryBackend, QueryResult, get_backend
-from .gate import can_i_deploy, check, evaluate
-from .model import build_outcome_records
-from .ontology import EventType, Ontology, check_conformance
-from .verify import session_finish, verify_policy, verify_trace
+from .domain import (
+    semconv as _semconv,  # noqa: F401  # registers the "gen_ai" builtin preset (Ontology.register_preset)
+)
+from .domain.model import build_outcome_records
+from .domain.ontology import EventType, Ontology, check_conformance
+from .engine.gate import can_i_deploy, check, evaluate
+from .engine.verify import session_finish, verify_policy, verify_trace
 
 __all__ = [
     "build_outcome_records",
