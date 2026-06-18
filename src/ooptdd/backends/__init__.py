@@ -15,6 +15,7 @@ _BUILTINS = {
     "otel": "ooptdd.backends.otel:OtelBackend",
     "clickhouse": "ooptdd.backends.clickhouse:ClickHouseBackend",
     "signoz": "ooptdd.backends.clickhouse:ClickHouseBackend",  # SigNoz = ClickHouse tables
+    "victorialogs": "ooptdd.backends.victorialogs:VictoriaLogsBackend",
 }
 
 
