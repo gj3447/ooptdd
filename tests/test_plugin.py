@@ -1,4 +1,8 @@
-"""Plugin-level behaviour, exercised with pytest's own Pytester."""
+"""Plugin-level behaviour, exercised with pytest's own Pytester.
+
+Hermeticity against ambient OOPTDD_* env (so these pytester self-tests survive a full-suite
+real-store dogfood) is provided by the autouse ``_hermetic_env`` fixture in conftest.py.
+"""
 
 
 def test_plugin_ships_and_confirms_arrival(pytester):
