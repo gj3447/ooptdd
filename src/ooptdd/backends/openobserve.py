@@ -19,7 +19,7 @@ import json
 import os
 import urllib.request
 
-from .base import QueryResult
+from .base import QueryResult, _raise_for_status
 
 
 class OpenObserveBackend:
@@ -36,6 +36,8 @@ class OpenObserveBackend:
         user_env: str = "OOPTDD_OO_USER",
         password_env: str = "OOPTDD_OO_PASSWORD",
         timeout: float = 15.0,
+        page_size: int = 1000,
+        max_rows: int = 1_000_000,
         opener=None,
         **_ignored,
     ):
@@ -45,6 +47,12 @@ class OpenObserveBackend:
         self.user_env = user_env
         self.password_env = password_env
         self.timeout = timeout
+        # Read-back is paged to completion (offset/size), never silently capped at one
+        # page. `max_rows` is only a runaway guard for a pathologically huge cid; hitting
+        # it sets QueryResult.truncated so the verdict layer refuses a clean pass rather
+        # than undercounting in silence.
+        self.page_size = page_size
+        self.max_rows = max_rows
         # opener(request, timeout) injection lets tests exercise this driver
         # without a network.
         self._open = opener or (lambda req, timeout: urllib.request.urlopen(req, timeout=timeout))
@@ -73,30 +81,57 @@ class OpenObserveBackend:
             method="POST",
             headers={"Authorization": auth, "Content-Type": "application/json"},
         )
-        with self._open(req, timeout=self.timeout):
-            pass
+        with self._open(req, timeout=self.timeout) as r:
+            # Surface a non-2xx so a dropped ingest is a *loud* ship failure (caught by the
+            # caller as a warning), not a silent success.
+            _raise_for_status(r)
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
             base, org, auth = self._endpoint()
         except ValueError:
             return QueryResult(reachable=False)
-        # SELECT * so whole rows come back: arbitrary fields (verdict, level, …) for
-        # gate `where:` filters and `_timestamp` for `must_order` are then available
-        # to the Python-side logic, identically to every other backend.
-        sql = f"SELECT * FROM {self.stream} WHERE cycle_id = '{cid}'"
-        body = json.dumps(
-            {"query": {"sql": sql, "start_time": since_us, "end_time": until_us, "size": 1000}}
-        ).encode()
-        req = urllib.request.Request(
-            f"{base}/api/{org}/_search",
-            data=body,
-            method="POST",
-            headers={"Authorization": auth, "Content-Type": "application/json"},
-        )
-        try:
-            with self._open(req, timeout=self.timeout) as r:
-                hits = json.loads(r.read().decode()).get("hits", [])
-            return QueryResult(reachable=True, events=hits)
-        except Exception:
-            return QueryResult(reachable=False)
+        # SELECT * so whole rows come back: arbitrary fields (verdict, level, …) for gate
+        # `where:` filters and `_timestamp` for `must_order`. The cid is a single-quoted SQL
+        # string literal, so it is escaped by doubling embedded quotes — it can never break
+        # out of the literal (injection-safe), matching the parameterized ClickHouse driver.
+        safe_cid = cid.replace("'", "''")
+        sql = f"SELECT * FROM {self.stream} WHERE cycle_id = '{safe_cid}'"
+        events: list[dict] = []
+        offset = 0
+        complete = True
+        # Page to completion: OpenObserve caps a single response, so a cid with more events
+        # than one page would otherwise be SILENTLY undercounted — the exact silent loss
+        # this tool exists to catch. Loop on offset until a short page (no more rows).
+        while True:
+            body = json.dumps({"query": {
+                "sql": sql, "start_time": since_us, "end_time": until_us,
+                "from": offset, "size": self.page_size,
+            }}).encode()
+            req = urllib.request.Request(
+                f"{base}/api/{org}/_search",
+                data=body,
+                method="POST",
+                headers={"Authorization": auth, "Content-Type": "application/json"},
+            )
+            try:
+                with self._open(req, timeout=self.timeout) as r:
+                    # A non-2xx search is a loud failure, not "0 hits": without this an error
+                    # body lacking a `hits` key would read as an empty result set → a false
+                    # `absent` (reachable=True, 0 events). Mirrors ship()'s _raise_for_status.
+                    _raise_for_status(r)
+                    hits = json.loads(r.read().decode()).get("hits", [])
+            except Exception:
+                # A failure mid-paging means we don't have the complete set: if we already
+                # have some rows it's an incomplete read, else fully unreachable.
+                if offset == 0:
+                    return QueryResult(reachable=False)
+                return QueryResult(reachable=True, events=events, complete=False)
+            events.extend(hits)
+            if len(hits) < self.page_size:
+                break  # short page → the result set is exhausted (complete read)
+            offset += len(hits)
+            if offset >= self.max_rows:
+                complete = False  # runaway guard hit — surfaced, never silent
+                break
+        return QueryResult(reachable=True, events=events, complete=complete)

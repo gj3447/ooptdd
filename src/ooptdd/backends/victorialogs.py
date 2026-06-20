@@ -23,7 +23,15 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from .base import QueryResult
+from .base import QueryResult, _raise_for_status
+
+
+def _logsql_str(value: str) -> str:
+    """Escape a value for a LogsQL double-quoted phrase (``field:="..."``): backslash first,
+    then the double-quote. A cid containing a quote can then never break out of the filter
+    or be silently mangled — the injection/breakage fix, mirroring ClickHouse's parameter
+    binding and OpenObserve's quote-doubling."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _parse_time_us(value) -> int | None:
@@ -63,6 +71,7 @@ class VictoriaLogsBackend:
         password_env: str = "OOPTDD_VL_PASSWORD",
         stream_field: str = "cycle_id",
         timeout: float = 15.0,
+        max_rows: int = 1_000_000,
         opener=None,
         **_ignored,
     ):
@@ -71,6 +80,9 @@ class VictoriaLogsBackend:
         self.password_env = password_env
         self.stream_field = stream_field
         self.timeout = timeout
+        # LogsQL streams all matches; this bounds how many we ingest so a pathological cid
+        # can't OOM. Exceeding it surfaces complete=False rather than silently dropping rows.
+        self.max_rows = max_rows
         # opener(request, timeout) injection lets tests exercise this driver offline.
         self._open = opener or (lambda req, timeout: urllib.request.urlopen(req, timeout=timeout))
 
@@ -105,8 +117,8 @@ class VictoriaLogsBackend:
             method="POST",
             headers=self._headers(),
         )
-        with self._open(req, timeout=self.timeout):
-            pass
+        with self._open(req, timeout=self.timeout) as r:
+            _raise_for_status(r)  # a dropped ingest must be a loud ship failure, not silent
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
@@ -117,7 +129,7 @@ class VictoriaLogsBackend:
         # (VictoriaLogs accepts fractional). SELECT-* equivalent: no field projection, so
         # whole rows come back for the Python-side gate `where:` filters.
         params = urllib.parse.urlencode({
-            "query": f'{self.stream_field}:="{cid}"',
+            "query": f'{self.stream_field}:="{_logsql_str(cid)}"',
             "start": f"{since_us / 1_000_000:.6f}",
             "end": f"{until_us / 1_000_000:.6f}",
         })
@@ -130,6 +142,7 @@ class VictoriaLogsBackend:
         except Exception:
             return QueryResult(reachable=False)
         events = []
+        complete = True
         for line in payload.splitlines():
             line = line.strip()
             if not line:
@@ -143,4 +156,7 @@ class VictoriaLogsBackend:
                 if ts is not None:
                     row["_timestamp"] = ts
             events.append(row)
-        return QueryResult(reachable=True, events=events)
+            if len(events) >= self.max_rows:
+                complete = False  # ceiling hit — surfaced, never a silent subset
+                break
+        return QueryResult(reachable=True, events=events, complete=complete)

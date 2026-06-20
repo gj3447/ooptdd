@@ -17,43 +17,77 @@ every "shipped OK" log lied.)
 
 Public API:
     build_outcome_records   pure: pytest reports -> structured event records
-    verify_trace            poll a backend, return an LTL3 verdict
+    verify_trace            poll a backend for the pytest summary, return an LTL3 verdict
+    verify_gate             poll until an arbitrary gate spec arrives for a cid (generic)
+    poll_until_present      the generic, shape-agnostic arrival loop underneath both
     verify_policy           verdict + mode -> build decision
     session_finish          build -> ship -> verify -> policy (the orchestrator)
-    get_backend             resolve a Backend driver by name
-    evaluate, can_i_deploy  run a gate spec / Pact-style multi-gate deploy decision
+    evaluate, evaluate_events   run a gate spec (read+judge) / judge already-fetched events
+    can_i_deploy            Pact-style multi-gate deploy decision
     check                   @decorator to register a custom gate check-predicate (seam)
+    compile_check, LiveMonitorSet   kernel API: rule -> Monitor -> feed a live stream
+    get_backend, BackendRegistry    resolve a Backend driver by name
+    QuerySpec, TimeWindow, BackendCaps, Clock, SystemClock   the domain ports/value objects
     assert_gate, assert_present   DeepEval-style in-test trace assertions
     Backend, QueryResult, MemoryBackend
 """
 from .assertions import TraceAssertionError, assert_gate, assert_present
-from .backends import Backend, MemoryBackend, QueryResult, get_backend
+from .backends import (
+    Backend,
+    BackendCaps,
+    BackendRegistry,
+    Clock,
+    MemoryBackend,
+    QueryResult,
+    QuerySpec,
+    SystemClock,
+    TimeWindow,
+    get_backend,
+)
 from .domain import (
     semconv as _semconv,  # noqa: F401  # registers the "gen_ai" builtin preset (Ontology.register_preset)
 )
 from .domain.model import build_outcome_records
 from .domain.ontology import EventType, Ontology, check_conformance
-from .engine.gate import can_i_deploy, check, evaluate
-from .engine.verify import session_finish, verify_policy, verify_trace
+from .engine.gate import can_i_deploy, check, evaluate, evaluate_events
+from .engine.monitor import LiveMonitorSet, compile_check
+from .engine.verify import (
+    poll_until_present,
+    session_finish,
+    verify_gate,
+    verify_policy,
+    verify_trace,
+)
 
 __all__ = [
     "build_outcome_records",
     "verify_trace",
+    "verify_gate",
+    "poll_until_present",
     "verify_policy",
     "session_finish",
     "get_backend",
+    "BackendRegistry",
     "evaluate",
+    "evaluate_events",
     "can_i_deploy",
     "check",
+    "compile_check",
+    "LiveMonitorSet",
     "assert_gate",
     "assert_present",
     "TraceAssertionError",
     "Backend",
     "QueryResult",
     "MemoryBackend",
+    "QuerySpec",
+    "TimeWindow",
+    "BackendCaps",
+    "Clock",
+    "SystemClock",
     "Ontology",
     "EventType",
     "check_conformance",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

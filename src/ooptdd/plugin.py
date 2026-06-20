@@ -5,9 +5,12 @@ no conftest wiring required. Behaviour:
 
 * **Off is truly off.** When disabled the hooks return immediately — byte-for-byte
   identical run (a property the test suite checks).
-* **xdist-safe.** Reports are collected wherever a test runs; shipping +
-  verification happen only on the controller (``not config.workerinput``), so a
-  ``-n 8`` run ships once, not eight times.
+* **xdist-safe.** Per-test reports are collected via ``pytest_runtest_logreport``,
+  which fires on the controller for every forwarded report (and in-process when
+  serial) — so the controller, the only node that ships + verifies, has the full
+  set with or without ``-n``. A ``-n 8`` run ships once, not eight times — and,
+  crucially, not *zero* times (collecting in ``pytest_runtest_makereport`` would
+  only ever see the worker each test ran on, never the controller).
 * **Fail-open.** A down backend never hangs or breaks the suite — verification
   defaults to ``warn``; only opt-in ``strict`` can fail the build, and only on a
   *real* miss (never on an unreachable store).
@@ -20,8 +23,6 @@ from __future__ import annotations
 
 import os
 import uuid
-
-import pytest
 
 from .backends import get_backend
 from .config import Settings, from_mapping, load_pyproject
@@ -40,6 +41,9 @@ def pytest_addoption(parser):
         ("ooptdd_verify", "verify mode: off|warn|strict"),
         ("ooptdd_enabled", "auto|1|0"),
         ("ooptdd_cid_env", "env var holding the correlation id"),
+        ("ooptdd_retries", "arrival-poll attempts (int, default 4)"),
+        ("ooptdd_delay", "initial arrival-poll delay in seconds (float, default 1.0)"),
+        ("ooptdd_backoff", "arrival-poll backoff multiplier (float, default 2.0)"),
     ]:
         parser.addini(key, help=help_, default=None)
 
@@ -52,6 +56,9 @@ def _settings_from_config(config) -> Settings:
         ("ooptdd_verify", "verify"),
         ("ooptdd_enabled", "enabled"),
         ("ooptdd_cid_env", "cid_env"),
+        ("ooptdd_retries", "retries"),
+        ("ooptdd_delay", "delay"),
+        ("ooptdd_backoff", "backoff"),
     ]:
         val = config.getini(ini)
         if val:
@@ -73,26 +80,41 @@ def pytest_configure(config):
     config._ooptdd_reports = []
     config._ooptdd_active = s.is_enabled()
     config._ooptdd_cid = os.getenv(s.cid_env) or f"pytest-{uuid.uuid4().hex[:12]}"
+    if config._ooptdd_active:
+        # Register the report collector only when active so "off is truly off" (no hook
+        # registered at all when disabled). It collects via pytest_runtest_logreport — see
+        # _ReportCollector for why that, not pytest_runtest_makereport, is what makes ooptdd
+        # actually run under xdist.
+        config.pluginmanager.register(_ReportCollector(config), "_ooptdd_report_collector")
 
 
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
-    config = item.config
-    if not getattr(config, "_ooptdd_active", False):
-        return
-    report = outcome.get_result()
-    if report.when not in ("setup", "call", "teardown"):
-        return
-    config._ooptdd_reports.append(
-        {
-            "nodeid": report.nodeid,
-            "outcome": report.outcome,  # passed | failed | skipped
-            "when": report.when,
-            "duration": getattr(report, "duration", 0.0),
-            "longrepr": str(report.longrepr) if report.failed else None,
-        }
-    )
+class _ReportCollector:
+    """Gather each test's report on whichever node *aggregates* results.
+
+    The hook is ``pytest_runtest_logreport`` on purpose, not ``pytest_runtest_makereport``.
+    makereport only ever fires where a test *executes* — under ``pytest-xdist`` that is the
+    worker, never the controller — so the controller (the only node that ships + verifies,
+    see :func:`pytest_sessionfinish`) collected nothing and a ``-n`` run silently shipped and
+    verified *nothing*: a false green, the exact failure ooptdd exists to catch. logreport
+    fires on the controller for every forwarded report (and once in-process when serial), so
+    the report set is identical with or without ``-n``.
+    """
+
+    def __init__(self, config):
+        self._config = config
+
+    def pytest_runtest_logreport(self, report):
+        if report.when not in ("setup", "call", "teardown"):
+            return
+        self._config._ooptdd_reports.append(
+            {
+                "nodeid": report.nodeid,
+                "outcome": report.outcome,  # passed | failed | skipped
+                "when": report.when,
+                "duration": getattr(report, "duration", 0.0),
+                "longrepr": str(report.longrepr) if report.failed else None,
+            }
+        )
 
 
 def _is_xdist_controller(config) -> bool:
