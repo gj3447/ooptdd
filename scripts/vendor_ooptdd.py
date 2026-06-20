@@ -20,17 +20,23 @@ import shutil
 import sys
 from pathlib import Path
 
-# The whole small core. Consumers import a subset; vendoring all keeps it simple
-# and the drift-check covers every file.
-VENDOR_FILES = [
-    "__init__.py", "model.py", "verify.py", "config.py", "plugin.py", "cli.py",
-    "gate.py", "ontology.py",
-    "backends/__init__.py", "backends/base.py", "backends/memory.py",
-    "backends/openobserve.py", "backends/otel.py",
-]
-
 _HERE = Path(__file__).resolve().parent
 _SRC = _HERE.parent / "src" / "ooptdd"
+
+
+def vendor_files() -> list[str]:
+    """Every ``.py`` under the core, as POSIX-relative paths — DERIVED from the tree, not a
+    hand-maintained list. A hand list silently rots against a layout change: the 0.3.0
+    engine/+domain/ split left the old flat list missing ``assertions.py`` and the whole
+    ``engine/``+``domain/`` packages, so a re-vendor produced a copy that ``import ooptdd``
+    could not even load. Walking the tree vendors the *whole* small core (the documented
+    intent) and can never go out of sync with the real module layout. Sorted for a stable
+    manifest/diff."""
+    return sorted(
+        p.relative_to(_SRC).as_posix()
+        for p in _SRC.rglob("*.py")
+        if "__pycache__" not in p.parts
+    )
 
 
 def normalized_sha256(text: str) -> str:
@@ -50,13 +56,20 @@ def _version() -> str:
 
 def vendor(consumer: Path) -> dict:
     dest = consumer / "_vendor" / "ooptdd"
+    # Clean re-vendor: wipe the destination first so a module REMOVED upstream leaves no
+    # orphan behind (an orphaned stale module would otherwise linger, fail the structural
+    # drift guard, and — worse — still be importable). A from-scratch copy each run keeps the
+    # vendored tree byte-identical to canonical.
+    if dest.exists():
+        shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "backends").mkdir(exist_ok=True)
     manifest = {"ooptdd_version": _version(), "files": {}}
-    for rel in VENDOR_FILES:
+    for rel in vendor_files():
         src = _SRC / rel
         text = src.read_text()
-        (dest / rel).write_text(text)
+        out = dest / rel
+        out.parent.mkdir(parents=True, exist_ok=True)  # engine/, domain/, backends/ …
+        out.write_text(text)
         manifest["files"][rel] = normalized_sha256(text)
     (consumer / "_vendor" / "ooptdd_vendor_manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n")

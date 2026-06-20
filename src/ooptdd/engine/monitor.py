@@ -427,3 +427,73 @@ def run_monitor(monitor: Monitor, events: list[dict], reachable: bool) -> dict:
     for idx, ev in enumerate(events):
         monitor.step(ev, idx)
     return monitor.collapse(reachable)
+
+
+# ── public kernel API: compile a gate rule -> Monitor -> feed a stream ──────────
+# This is the single source of truth for "which automaton does this rule denote". The
+# batch path (gate.evaluate) and a live/resident path (LiveMonitorSet, fed an event stream
+# as it arrives) both go through compile_check, so they can never disagree. Built-in rule
+# vocabulary only — custom @check predicates are a gate-layer concern, not kernel monitors.
+
+def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
+                  allow: list | None = None) -> Monitor:
+    """Compile one gate rule into its :class:`Monitor` (the automaton it denotes).
+
+    Detection mirrors the gate's historical key precedence (``forbid``→absent,
+    ``trajectory``→must_order); a rule with no predicate keyword is a count check.
+    """
+    indicators = indicators or {}
+    if "absent" in rule or "forbid" in rule:
+        raw = rule.get("absent", rule.get("forbid"))
+        matchers = raw if isinstance(raw, list) else [raw]
+        return AbsentMonitor(matchers, indicators, allow=allow)
+    if "heartbeat" in rule:
+        return HeartbeatMonitor(rule["heartbeat"], rule["every_s"])
+    if "must_order" in rule or "trajectory" in rule:
+        seq = rule.get("must_order") or rule.get("trajectory")
+        return OrderMonitor(seq, within_s=rule.get("within_s"))
+    if "present" in rule:
+        return PresentMonitor(rule["present"], indicators)
+    if "ratioMetric" in rule:
+        spec = rule["ratioMetric"]
+        return RatioMonitor(spec.get("good", {}), spec.get("total", {}),
+                            _norm_op(rule.get("op", ">=")), float(_want(rule)), indicators)
+    if "conforms" in rule:
+        return ConformsMonitor(rule["conforms"], ontology, closed_world=rule.get("closed_world"))
+    event, where = _resolve_matcher(rule, indicators)
+    return CountMonitor(event, where, _norm_op(rule.get("op", ">=")), int(_want(rule)))
+
+
+class LiveMonitorSet:
+    """A bank of monitors fed a *live* event stream incrementally — the resident/live-mode
+    counterpart to the one-shot :func:`run_monitor`. Build it from compiled checks, call
+    :meth:`feed` per event as it arrives, read :meth:`verdicts` for the anticipatory
+    ⊤/⊥/? at any time, and :meth:`collapse` for the final per-check result dicts.
+
+    The live path and the batch path share :func:`compile_check`, so feeding the same events
+    one-by-one here yields the same verdicts/settle points as a batch ``run_monitor``."""
+
+    def __init__(self, monitors: list[Monitor]):
+        self.monitors = list(monitors)
+        self._idx = 0
+
+    @classmethod
+    def from_rules(cls, rules: list[dict], *, indicators: dict | None = None,
+                   ontology=None, allow: list | None = None) -> LiveMonitorSet:
+        return cls([compile_check(r, indicators=indicators, ontology=ontology, allow=allow)
+                    for r in rules])
+
+    def feed(self, ev: dict, idx: int | None = None) -> None:
+        """Consume one event (auto-incrementing the stream index if not given)."""
+        i = self._idx if idx is None else idx
+        for m in self.monitors:
+            m.step(ev, i)
+        self._idx = i + 1
+
+    def verdicts(self) -> list[str]:
+        """The current three-valued verdict (sat/viol/pend) of each monitor."""
+        return [m.verdict for m in self.monitors]
+
+    def collapse(self, reachable: bool = True, complete: bool = True) -> list[dict]:
+        """The final per-check result dicts (reachable AND complete gates a clean pass)."""
+        return [m.collapse(reachable and complete) for m in self.monitors]

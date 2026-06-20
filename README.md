@@ -145,7 +145,7 @@ importing the `ooptdd` package (which wires the shipped built-ins), not just a s
 
 ## Status & honesty
 
-`0.1.0`, extracted from internal harnesses (a service monorepo, a research
+`0.3.0`, extracted from internal harnesses (a service monorepo, a research
 harness, and a PyQt field application) where the core has run in anger. No long-horizon (6-month+) operational data
 yet. Hard **log-free zones** — do *not* use ooptdd for: precise numeric
 regression (use snapshots/metrology), security redaction, or µs-scale concurrency

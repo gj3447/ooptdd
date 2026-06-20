@@ -6,6 +6,42 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-20
+
+Engine/domain/adapter layering + a streaming monitor kernel, then a hardening pass that
+closed several silent-green holes the audit surfaced. 228 tests green, 1 skipped (optional
+Toxiproxy chaos layer). Backward-compatible: the flat module names (`ooptdd.gate`,
+`ooptdd.verify`, `ooptdd.model`, …) keep working as re-export shims.
+
+### Changed
+- **Layering:** the read/judge engine moved to `ooptdd.engine.{gate,verify,monitor}` and the
+  pure data/ports to `ooptdd.domain.{model,ports,ontology,semconv}`, with an import-cycle
+  (Tarjan SCC) and layer-direction fitness test guarding the boundary. Flat modules remain as
+  thin shims so 0.2.x imports are unbroken.
+- **Streaming monitor kernel:** every gate check compiles to an LTL₃/MTL monitor automaton
+  (anticipatory `sat`/`viol`/`pend` verdict + `settled_at`); the batch, live, and one-shot
+  paths share one `compile_check`, so they cannot diverge.
+
+### Fixed
+- **xdist no longer ships/verifies *nothing*.** Per-test reports are now collected via
+  `pytest_runtest_logreport` (fires on the controller) instead of `pytest_runtest_makereport`
+  (fires only on the worker that ran the test). Before this, a `-n` run silently shipped and
+  verified nothing — and a `strict` parallel run was a guaranteed green regardless of real
+  ingest loss. Regression test runs an actual `-n 2` subprocess.
+- **A truncated read is `inconclusive`, not a falsification.** `verify_trace` and `assert_gate`
+  now treat an incomplete (`complete=False`) readback as `?` (never fails strict), matching
+  the gate path (`evaluate_events`/`verify_gate`) — an undercounted read is no longer
+  conflated with a real silent loss.
+- **Partial-loss check no longer depends on `expect_total`.** `verify_trace` cross-checks the
+  observed per-test `outcomes` against the session summary's own **signed** `total`, so a
+  direct caller that passes no `expect_total` still catches a lost-receipt partial loss.
+- **OpenObserve `query()` raises on a non-2xx search** (`_raise_for_status`, mirroring `ship`),
+  so an error response can no longer read as an empty result set (a false `absent`).
+
+### Added
+- Plugin ini keys `ooptdd_retries` / `ooptdd_delay` / `ooptdd_backoff` to tune the arrival
+  poll from `[tool.ooptdd]` (e.g. `ooptdd_delay = 0` for fast offline runs).
+
 ## [0.2.0] - 2026-06-16
 
 OSS-adoption pass (prom12 research, `docs/research/ooptdd_E_oss_adoption_prom12_20260616.md`):

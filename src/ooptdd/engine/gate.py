@@ -70,23 +70,14 @@ gains is a real incremental monitor with anticipatory verdicts, surfaced per che
 from __future__ import annotations
 
 import os
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..domain.ports import Backend
+from ..domain.ports import Backend, Clock, QuerySpec, SystemClock, TimeWindow, fetch
 from .monitor import (  # the evaluation kernel
-    AbsentMonitor,
-    ConformsMonitor,
-    CountMonitor,
-    HeartbeatMonitor,
-    OrderMonitor,
-    PresentMonitor,
-    RatioMonitor,
     _matches,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
-    _norm_op,
     _resolve_matcher,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
-    _want,
+    compile_check,
     run_monitor,
     stream_key,
 )
@@ -176,72 +167,55 @@ def _truthy(v) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"} if v is not None else False
 
 
-# ---- registered check handlers (thin adapters that compile a rule to a monitor) ---- #
-# Each handler builds the monitor automaton for its predicate and drives it over the
-# (already stream-ordered) events via run_monitor. The evaluation logic lives in
-# ``ooptdd.monitor``; these wrappers only adapt the (events, rule, ctx) seam to it.
+# ---- registered check handlers (thin adapters over the kernel's compile_check) ---- #
+# Every built-in handler compiles its rule to the right Monitor via the kernel's single
+# source of truth (compile_check) and drives it over the (already stream-ordered) events.
+# The batch path here and the live path (monitor.LiveMonitorSet) therefore share one
+# rule->automaton compiler and can never diverge. Custom @check predicates (user-registered)
+# remain free to return their own dicts — they are a gate-layer seam, not kernel monitors.
+
+
+def _run(rule: dict, events: list, ctx: CheckCtx) -> dict:
+    monitor = compile_check(rule, indicators=ctx.indicators, ontology=ctx.ontology,
+                            allow=ctx.allow_errors)
+    return run_monitor(monitor, events, ctx.reachable)
 
 
 @check("absent")
 def _check_absent(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    raw = rule.get("absent", rule.get("forbid"))  # `forbid` is a synonym for `absent`
-    matchers = raw if isinstance(raw, list) else [raw]
-    return run_monitor(
-        AbsentMonitor(matchers, ctx.indicators, allow=ctx.allow_errors),
-        events, ctx.reachable,
-    )
+    return _run(rule, events, ctx)
 
 
 @check("heartbeat")
 def _check_heartbeat(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return run_monitor(
-        HeartbeatMonitor(rule["heartbeat"], rule["every_s"]), events, ctx.reachable
-    )
+    return _run(rule, events, ctx)
 
 
 @check("must_order")
 def _check_must_order(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    # `trajectory` is the promptfoo/DeepEval word for an ordered sequence — an alias.
-    seq = rule.get("must_order") or rule.get("trajectory")
-    return run_monitor(
-        OrderMonitor(seq, within_s=rule.get("within_s")), events, ctx.reachable
-    )
+    return _run(rule, events, ctx)
 
 
 @check("present")
 def _check_present(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return run_monitor(
-        PresentMonitor(rule["present"], ctx.indicators), events, ctx.reachable
-    )
+    return _run(rule, events, ctx)
 
 
 @check("ratioMetric")
 def _check_ratio(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    spec = rule["ratioMetric"]
-    return run_monitor(
-        RatioMonitor(spec.get("good", {}), spec.get("total", {}),
-                     _norm_op(rule.get("op", ">=")), float(_want(rule)), ctx.indicators),
-        events, ctx.reachable,
-    )
+    return _run(rule, events, ctx)
 
 
 @check("conforms")
 def _check_conforms(events: list, rule: dict, ctx: CheckCtx) -> dict:
-    return run_monitor(
-        ConformsMonitor(rule["conforms"], ctx.ontology, closed_world=rule.get("closed_world")),
-        events, ctx.reachable,
-    )
+    return _run(rule, events, ctx)
 
 
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The default check (no predicate keyword): a :class:`CountMonitor` over the rule's
     event/where compared with op/target. The documented fallback when no registered
     predicate key is present."""
-    ev_name, where = _resolve_matcher(rule, ctx.indicators)
-    return run_monitor(
-        CountMonitor(ev_name, where, _norm_op(rule.get("op", ">=")), int(_want(rule))),
-        events, ctx.reachable,
-    )
+    return _run(rule, events, ctx)
 
 
 # Ordered (spec_key -> canonical registry key) probes: preserve the historical if-elif
@@ -287,41 +261,67 @@ def evaluate(
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
     ontology=None,
+    clock: Clock | None = None,
 ) -> dict:
-    """Run a gate spec once.
+    """Run a gate spec once: read the backend, then judge the events.
 
-    Returns ``{ok, reachable, cid, checks:[...], optional_failed:[labels]}``. ``ok`` is
-    true iff the store was reachable and every *required* check passed; optional checks
-    that miss are listed in ``optional_failed`` but never flip ``ok``. ``reachable=False``
-    (store unreachable / INFRA) keeps ``ok`` false regardless — that is not a clean pass.
+    Returns ``{ok, reachable, complete, cid, checks:[...], optional_failed:[labels]}``.
+    ``ok`` is true iff the store was reachable, the read was complete, and every *required*
+    check passed; optional checks that miss are in ``optional_failed`` but never flip ``ok``.
+    ``reachable=False`` (store unreachable / INFRA) and ``complete=False`` (truncated read)
+    each keep ``ok`` false regardless — neither is a clean pass.
 
     Each check is evaluated by a streaming monitor (:mod:`ooptdd.monitor`) fed the event
-    prefix in store-timestamp order; the per-check dict carries the three-valued
-    ``verdict`` and the ``settled_at`` stream index alongside the collapsed ``passed``.
+    prefix in store-timestamp order; the per-check dict carries the three-valued ``verdict``
+    and the ``settled_at`` stream index alongside the collapsed ``passed``.
 
     The readback window comes from ``lookback_s`` (arg) else the spec's ``timeWindow``
-    (OpenSLO rolling window) else the backend default.
+    (OpenSLO rolling window) else the backend default. ``clock`` (a :class:`Clock`) is
+    injectable so the window is deterministic under test; it defaults to the system clock.
+    This function owns the *read*; :func:`evaluate_events` owns the *judgement* and is the
+    seam the arrival-poller (:func:`ooptdd.engine.verify.verify_gate`) reuses per poll.
     """
     cid = _resolve_cid(spec)
     if ontology is None and spec.get("ontology"):
         from ..domain.ontology import Ontology  # file-first; offline, no KG dependency
         ontology = Ontology.from_file(spec["ontology"])
-    indicators = spec.get("indicators") or {}
     if lookback_s is None:
         lookback_s = duration_s(spec.get("timeWindow", spec.get("time_window")))
     lookback_s = backend.default_lookback_s if lookback_s is None else lookback_s
     future_buffer_s = (
         backend.default_future_buffer_s if future_buffer_s is None else future_buffer_s
     )
-    now_us = int(time.time() * 1_000_000)
-    res = backend.query(
-        cid,
-        since_us=now_us - lookback_s * 1_000_000,
-        until_us=now_us + future_buffer_s * 1_000_000,
+    window = TimeWindow.around_now(clock or SystemClock(), lookback_s, future_buffer_s)
+    res = fetch(backend, QuerySpec(cid=cid, window=window))
+    # getattr default keeps duck-typed/older result objects (no `complete` field) working.
+    return evaluate_events(
+        spec, res.events, reachable=res.reachable,
+        complete=getattr(res, "complete", True), ontology=ontology, cid=cid,
     )
+
+
+def evaluate_events(
+    spec: dict,
+    events: list[dict],
+    *,
+    reachable: bool,
+    complete: bool = True,
+    ontology=None,
+    cid: str | None = None,
+) -> dict:
+    """Judge an already-fetched event set against a gate spec (no I/O).
+
+    This is the post-read half of :func:`evaluate`, split out so the same monitor dispatch
+    runs over a one-shot query *and* over each freshly-polled prefix in the arrival loop —
+    a verified arrival and a gate evaluation can therefore never diverge. ``reachable`` /
+    ``complete`` come from the :class:`~ooptdd.domain.ports.QueryResult`; a not-reachable or
+    not-complete read is never a clean pass.
+    """
+    cid = cid if cid is not None else _resolve_cid(spec)
+    indicators = spec.get("indicators") or {}
     # Consume events in store-timestamp order so the monitors' first-occurrence /
     # sequencing / liveness automata see the true arrival stream.
-    events = sorted(res.events, key=stream_key)
+    events = sorted(events, key=stream_key)
     rules = list(spec.get("expect", []))
     # The negative wing: forbid ERROR/CRITICAL records for this cid. Default-ON via the
     # OOPTDD_FORBID_ERRORS env so consumers opt in without editing every spec; a spec can
@@ -337,8 +337,10 @@ def evaluate(
                       "_auto": "forbid_errors"})
     # Dispatch each rule through the check-predicate registry (the extension seam):
     # detect the rule's predicate keyword, look up its handler (else the default count
-    # check). The uniform post-stamp (optional/pending/weight) applies to every check.
-    ctx = CheckCtx(reachable=res.reachable, indicators=indicators,
+    # check). A check passes only over a *clean* read — reachable AND complete; a truncated
+    # read (complete=False) is incomplete evidence and gates every check, exactly like an
+    # unreachable store. The top-level result still reports the true reachable/complete.
+    ctx = CheckCtx(reachable=reachable and complete, indicators=indicators,
                    ontology=ontology, allow_errors=spec.get("allow_errors"))
     checks = []
     for rule in rules:
@@ -366,10 +368,16 @@ def evaluate(
         wtot = sum(c["weight"] for c in gating)
         score = (sum(c["weight"] for c in gating if c["passed"]) / wtot) if wtot else 1.0
         required_ok = score >= float(threshold)
-    # a store we never reached (reachable=False) is INFRA — never a clean pass (CLI exit 2).
+    # A store we never reached (reachable=False) is INFRA and a truncated read
+    # (complete=False) is incomplete evidence — neither is ever a clean pass (CLI exit 2).
+    # A gate with NO checks at all (empty `expect:` and no injected forbid wing) asserts
+    # nothing — `all([])` is vacuously True — so it would report GREEN while proving nothing
+    # arrived. That is the false-green this tool exists to kill, so a check-less gate is never
+    # a clean pass. (Checks that are all optional/pending are a different, intentional case.)
     result = {
-        "ok": res.reachable and required_ok,
-        "reachable": res.reachable,
+        "ok": reachable and complete and bool(checks) and required_ok,
+        "reachable": reachable,
+        "complete": complete,
         "cid": cid,
         "checks": checks,
         "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
@@ -385,12 +393,17 @@ def evaluate(
 def can_i_deploy(results: list[dict]) -> dict:
     """Pact ``can-i-deploy`` for ooptdd: may we ship, given a set of gate results?
 
-    Yes iff every gate was reachable and ``ok``. ``pending`` checks never block (that is
-    their purpose). Returns ``{deployable, blockers:[cid], inconclusive:[cid], pending:{cid:[..]}}``
-    so a release step can fail closed on a real RED, hold on INFRA, and still see what is owed.
+    Yes iff every gate was reachable, complete, and ``ok``. ``pending`` checks never block
+    (that is their purpose). A gate that was reachable-but-RED is a hard blocker; one that
+    was unreachable OR read incompletely (truncated) is inconclusive — an INFRA hold, not a
+    clean pass. Returns ``{deployable, blockers:[cid], inconclusive:[cid], pending:{cid:[..]}}``.
     """
-    blockers = [r["cid"] for r in results if r["reachable"] and not r["ok"]]
-    inconclusive = [r["cid"] for r in results if not r["reachable"]]
+    def _incomplete(r: dict) -> bool:
+        return not r["reachable"] or not r.get("complete", True)
+
+    blockers = [r["cid"] for r in results if r["reachable"] and r.get("complete", True)
+                and not r["ok"]]
+    inconclusive = [r["cid"] for r in results if _incomplete(r)]
     pending = {r["cid"]: r["pending_failed"] for r in results if r.get("pending_failed")}
     return {
         "deployable": not blockers and not inconclusive,

@@ -13,6 +13,49 @@ Drivers are discovered three ways, in order:
 """
 from __future__ import annotations
 
-from ..domain.ports import Backend, QueryResult
+from ..domain.ports import (
+    DEFAULT_CAPS,
+    Backend,
+    BackendCaps,
+    Clock,
+    QueryResult,
+    QuerySpec,
+    SystemClock,
+    TimeWindow,
+    backend_caps,
+    fetch,
+)
 
-__all__ = ["Backend", "QueryResult"]
+__all__ = [
+    "Backend",
+    "QueryResult",
+    "BackendCaps",
+    "DEFAULT_CAPS",
+    "QuerySpec",
+    "TimeWindow",
+    "Clock",
+    "SystemClock",
+    "backend_caps",
+    "fetch",
+    "raise_for_status",
+]
+
+
+def raise_for_status(response) -> None:
+    """Raise if an HTTP response carries a non-2xx status, so a dropped ingest/read surfaces
+    as a *loud* failure (the caller downgrades a ship failure to a warning; a query failure
+    becomes ``reachable=False``) instead of being silently treated as success. Tolerates a
+    response object with no status (e.g. a test's mock opener) by treating it as success —
+    real ``urllib`` responses always carry one and also raise on 4xx/5xx themselves."""
+    status = getattr(response, "status", None)
+    if status is None and hasattr(response, "getcode"):
+        try:
+            status = response.getcode()
+        except Exception:
+            status = None
+    if status is not None and status >= 400:
+        raise OSError(f"backend returned HTTP {status}")
+
+
+# module-private alias used by the driver modules
+_raise_for_status = raise_for_status

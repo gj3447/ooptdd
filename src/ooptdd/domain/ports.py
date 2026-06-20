@@ -4,20 +4,33 @@ The :class:`Backend` Protocol is a *port* (hexagonal architecture / dependency i
 the engine (gate, verify) is written against this interface, and concrete drivers
 (memory, OpenObserve, OTLP, …) are *adapters* that implement it in :mod:`ooptdd.backends`.
 Keeping the port here — not in the adapter package — is what lets the dependency arrow
-point engine → domain (never engine → a concrete adapter), which the architecture fitness
-test enforces.
+point engine → domain (never engine → a concrete adapter), enforced by the architecture
+fitness test.
 
-A backend does exactly two things: ``ship(events)`` (write) and ``query(cid, …)`` (read
-back, reporting whether the query itself was *reachable*). The interesting logic — the
-LTL₃ verdict, the polling window, the clock-skew buffer — lives *above* the port, so it is
-identical no matter where events land. A backend never decides pass/fail; it only fetches.
+Beyond the backend, this module owns the small **value objects and ports the engine reads
+against**: :class:`QueryResult` (an answer, with its completeness/reachability honesty),
+:class:`TimeWindow` / :class:`QuerySpec` (a typed *query intent* instead of bare kwargs),
+:class:`BackendCaps` (typed capabilities instead of ad-hoc ``getattr``), and the
+:class:`Clock` port (injectable time, so the engine's polling is deterministic and
+sleep-free under test). The bridge functions :func:`backend_caps` and :func:`fetch` let the
+engine use the typed surface while every legacy two-method backend keeps working untouched.
 
-``reachable`` is the load-bearing field: it distinguishes "the store says no such event"
-(absent / ⊥) from "I couldn't even ask the store" (inconclusive / ?). Conflating those two
-is how a network blip becomes a flaky test.
+A backend does exactly two required things: ``ship(events)`` (write) and
+``query(cid, *, since_us, until_us)`` (read back, reporting whether the query itself was
+*reachable* and *complete*). The interesting logic — the LTL₃ verdict, the polling window,
+the clock-skew buffer — lives *above* the port, identical no matter where events land.
+
+Two load-bearing honesty fields on :class:`QueryResult`:
+  - ``reachable`` distinguishes "the store says no such event" (absent / ⊥) from "I could
+    not even ask the store" (inconclusive / ?). Conflating them turns a blip into a flake.
+  - ``complete`` distinguishes a full answer from a partial one (a paging/row cap was hit).
+    A truncated read may undercount or hide an offender, so the verdict layer must refuse to
+    treat ``complete=False`` as a clean pass — the same discipline as ``reachable``.
 """
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -26,26 +39,103 @@ from typing import Protocol, runtime_checkable
 class QueryResult:
     """Outcome of a single backend query.
 
-    reachable: True iff the query round-trip succeeded (regardless of hits).
-               False means the store was unreachable -> verdict stays `?`.
+    reachable: True iff the query round-trip succeeded (regardless of hits). False means
+               the store was unreachable -> verdict stays `?` (inconclusive).
     events:    the matching event envelopes (dicts), newest-or-any order.
+    complete:  True iff the backend returned *every* matching row for the window. False iff a
+               paging/row cap was hit and the set is partial — incomplete evidence, which the
+               verdict layer must not treat as a clean pass. A full read leaves this True.
     """
 
     reachable: bool
     events: list[dict] = field(default_factory=list)
+    complete: bool = True
+
+
+# ── time: an injectable Clock port + a typed query window ───────────────────────
+
+class Clock(Protocol):
+    """The time port. The engine reads ``now_us()`` instead of calling ``time.time()`` so
+    polling windows and retry loops are deterministic (and sleep-free) under a fake clock."""
+
+    def now_us(self) -> int:
+        """Current wall-clock time in epoch microseconds."""
+        ...
+
+
+class SystemClock:
+    """The real clock — epoch microseconds from ``time.time()``. The default everywhere."""
+
+    def now_us(self) -> int:
+        return int(time.time() * 1_000_000)
+
+
+@dataclass(frozen=True)
+class TimeWindow:
+    """A microsecond readback window ``[since_us, until_us]`` (store-receive time)."""
+
+    since_us: int
+    until_us: int
+
+    @classmethod
+    def around_now(cls, clock: Clock, lookback_s: int, future_buffer_s: int) -> TimeWindow:
+        """The window a poll uses: ``[now - lookback, now + future_buffer]``. The future
+        buffer absorbs receive-time / clock-skew (a record stamped just after we start
+        looking). Integer arithmetic identical to the historical inline computation."""
+        now_us = clock.now_us()
+        return cls(now_us - lookback_s * 1_000_000, now_us + future_buffer_s * 1_000_000)
+
+
+@dataclass(frozen=True)
+class QuerySpec:
+    """A typed query *intent* handed to a backend, instead of loose kwargs: which cid, over
+    what window, with an optional row ``limit`` / paging ``cursor`` / ``where`` filter. A
+    backend that implements ``query_spec`` reads it directly; legacy backends are driven via
+    :func:`fetch`, which translates it to the two-kwarg ``query`` call."""
+
+    cid: str
+    window: TimeWindow
+    limit: int | None = None
+    cursor: str | None = None
+    where: dict | None = None
+
+
+# ── capabilities: typed, not ad-hoc getattr ─────────────────────────────────────
+
+@dataclass(frozen=True)
+class BackendCaps:
+    """What a backend can do, as data instead of scattered ``getattr`` probes.
+
+    queryable:     has a read side (False = write-only, e.g. OTLP; strict verify impossible).
+    paginates:     reads to completion across pages (so ``complete`` is meaningful).
+    supports_where: can filter server-side (informational; ooptdd filters in Python anyway).
+    write_only:    convenience inverse of ``queryable`` for call sites that read positively.
+    """
+
+    queryable: bool = True
+    paginates: bool = False
+    supports_where: bool = False
+    write_only: bool = False
+
+
+DEFAULT_CAPS = BackendCaps()
 
 
 @runtime_checkable
 class Backend(Protocol):
-    """Minimal driver contract. Implement these two methods; that's a backend."""
+    """Minimal driver contract. Implement these two methods; that's a backend.
+
+    A driver MAY additionally expose ``caps: BackendCaps`` and/or ``query_spec(spec)`` for the
+    typed surface — both optional and read via :func:`backend_caps` / :func:`fetch`, so a
+    plain two-method backend (and every test fake) still structurally satisfies this Protocol.
+    """
 
     #: Per-backend polling hints (seconds). Stores with slow ingest override these.
     default_lookback_s: int
     default_future_buffer_s: int
     #: False iff the backend has no read side (e.g. OTLP/otel is write-only). The verify
     #: layer cannot confirm arrival on such a backend, so `strict` over it is meaningless —
-    #: callers must surface that loudly rather than passing silently. Defaults True (most
-    #: backends can read); callers read it via ``getattr(backend, "queryable", True)``.
+    #: callers surface that loudly rather than passing silently. Read via :func:`backend_caps`.
     queryable: bool = True
 
     def ship(self, events: list[dict]) -> None:
@@ -57,3 +147,29 @@ class Backend(Protocol):
         """Return events carrying ``cid`` whose store timestamp falls in the
         microsecond window ``[since_us, until_us]``."""
         ...
+
+
+def backend_caps(backend) -> BackendCaps:
+    """The single place capability logic lives: a backend's ``caps`` if it has one, else
+    synthesized from the legacy ``queryable`` attribute. Bridges old and new drivers so the
+    engine never hand-rolls ``getattr(backend, 'queryable', True)`` again."""
+    caps = getattr(backend, "caps", None)
+    if isinstance(caps, BackendCaps):
+        return caps
+    queryable = getattr(backend, "queryable", True)
+    return BackendCaps(queryable=queryable, write_only=not queryable)
+
+
+def fetch(backend, spec: QuerySpec, clock: Clock | None = None) -> QueryResult:
+    """Read a backend through one typed entry point regardless of its generation: use
+    ``query_spec(spec)`` if the driver implements it, else translate the :class:`QuerySpec`
+    into the legacy ``query(cid, since_us=, until_us=)`` call. This shim is what lets every
+    existing backend (and test fake) keep working while the engine speaks ``QuerySpec``."""
+    query_spec = getattr(backend, "query_spec", None)
+    if callable(query_spec):
+        return query_spec(spec)
+    return backend.query(spec.cid, since_us=spec.window.since_us, until_us=spec.window.until_us)
+
+
+#: A sleeper is the injectable counterpart to the Clock for the retry loop's waits.
+Sleeper = Callable[[float], None]
