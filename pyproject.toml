@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ooptdd"
-version = "0.2.0"
+version = "0.3.0"
 description = "Logs/traces as the test specification and ground truth — a pytest plugin and methodology for positive (arrival-asserted) log-based TDD."
 readme = "README.md"
 requires-python = ">=3.10"

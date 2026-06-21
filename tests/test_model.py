@@ -1,4 +1,4 @@
-from ooptdd.model import build_outcome_records, correlation_keys
+from ooptdd.domain.model import build_outcome_records, correlation_keys
 
 
 def test_correlation_keys_carry_three_aliases():

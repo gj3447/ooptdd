@@ -136,3 +136,65 @@ scale (1000+ events/s) is unproven here. Keep a human in the loop on the critica
 path: ooptdd deliberately does **not** treat *absence of evidence* as automatic
 failure (`inconclusive` ≠ fail) — that is a condition of correct use, not a
 suggestion.
+
+### GREEN is a closed-world consistency claim, not a correctness claim
+
+A verdict is `f(emitted_events, spec)` where **both inputs descend from one authority** — the
+code you wrote *to emit* and the spec you wrote *to expect*. There is no second, independently
+grounded input, so ooptdd is a **derived/pseudo-oracle** (Weyuker 1982): it detects
+*disagreement* between emission and expectation, and is **structurally blind to any error common
+to both** (a wrong understanding produces a wrong emit *and* a matching wrong/absent expectation —
+GREEN). Concretely, GREEN means *“the events I **named** arrived with the asserted shape,”* never
+*“the system is correct.”* To keep this honest the gate result carries a `scope` block (`gating`/
+`optional`/`pending` counts + per-check `strength`: existence-only < bounded < value-pinned/
+ordered/forbid < ratio/liveness/conformance) and the CLI prints it on green. Two rules follow:
+
+- **`asserts_anything` (≥1 *gating* check) is necessary, not sufficient.** A gate whose every
+  check is `optional`/`pending` asserts nothing that can fail — it is `vacuous`, never a clean
+  pass (this closes the cheapest way to fake green: mark the last check optional/pending). But a
+  non-vacuous gate is still only a *closed-world* claim over the events you named; an
+  un-instrumented path emits nothing and is simply *outside* the verdict — not present, not
+  absent, not inconclusive.
+- **Higher `strength` is a harder *self*-check, not an external oracle.** `value-pinned` means a
+  `where` field matched — but that field value descends from the *same mental model* as the emit
+  (`where: {residual: 0.0}` against a stub that emits `0.0` is green forever). For the *effect*
+  behind an event (a payment actually moved, a measurement is in tolerance), you must leave ooptdd
+  and assert against the **territory** directly (principle 6 ⑤; the numeric/security/concurrency
+  log-free zones of principle 7) — an external oracle ooptdd does not have by construction.
+
+Two tools push against (without escaping) this boundary. **`invariant`** asserts a *relation
+between events* — `sum(amount@payment) == sum(amount@shipment)`, `count(request) == count(response)`
+within a tolerance — the first check that rises above token-counting toward value *consistency*,
+and it kills the emit-without-effect green the moment you assert it (a `payment_authorized` with no
+`amount` yields `invariant_no_evidence`, RED). It is still **intra-trace, single-authority**: it
+catches inconsistency *between* the system's own events, not event-vs-territory. **`ooptdd lint
+<spec>`** is a static, offline audit that refuses a vacuously-satisfiable gate *before* any run —
+no gating checks, a `threshold < 1` quorum without justification, or an existence-only gating check
+— so a weak gate is caught at author time, not after a green.
+
+One check *does* escape the boundary. **`external:`** is the single verdict input that is **not**
+the system's own emit: it asserts against a fact read from the **territory** through an
+`ExternalProbe` port — a DB row, a file, a second collector (reference adapters `FileProbe` /
+`HttpProbe` / `CallableProbe` in `ooptdd.probes`, resolved like backend drivers; write your own in
+five lines). Honesty is held on both ends: a *missing* probe is a loud misconfiguration (never a
+silent green), an *unreachable* one is `inconclusive` (never a strict fail), and — the load-bearing
+rule — a probe only counts as **corroboration** when it declares `separate_source=True`: a genuinely
+different store / service than the one the system wrote its trace to (a probe re-reading the
+system's own store is *relocation*, not independence). Corroboration is an *achievement*, not a
+check kind — an `external:` check the probe could not reach, or that *refuted* the system,
+corroborates nothing.
+
+This makes the single-authority boundary **measurable**. Every gate result carries an `oracle`
+block: how many gating checks are `corroborated` (separate-source `external:`) vs `derived_self`,
+and `single_authority` when *zero* are independently corroborated — the meta-blind-spot named, a
+green where the system only agrees with itself. **`require_corroboration`** (spec key /
+`OOPTDD_REQUIRE_CORROBORATION`) promotes that signal to a *gate*: with it on, a single-authority
+green is RED (`uncorroborated`) — a fixable misconfiguration, add a separate-source `external:`.
+
+Two further signals keep a green honest about *how much it saw*. **Charge** (`scope.charged` /
+`charge_ratio` / `uncharged`) counts how many gating checks actually *saw* matching evidence rather
+than passing on absence/emptiness (an `absent` that fired on nothing, an exists-check over an empty
+store) — orthogonal to strength and to stream-coverage (which counts how many *arrived* event-types
+the gate even names). And **`metamorphic`** joins `invariant` as a second intra-trace, oracle-free
+consistency check: a relation between two reductions over two matched subsets of the same stream
+(`sum(amount@A) == k · sum(amount@B)`), `metamorphic_no_evidence` → RED on a no-data run.

@@ -8,6 +8,10 @@ on:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows defaults stdio to cp1252; force UTF-8 so subprocess-captured output
+      # (e.g. pytester.runpytest_subprocess) decodes consistently across the matrix.
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:

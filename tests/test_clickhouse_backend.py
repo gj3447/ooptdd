@@ -10,7 +10,7 @@ import json
 
 from ooptdd.backends import get_backend
 from ooptdd.backends.clickhouse import ClickHouseBackend
-from ooptdd.gate import evaluate
+from ooptdd.engine.gate import evaluate
 
 
 class _Resp:

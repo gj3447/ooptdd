@@ -14,7 +14,7 @@ import json
 
 from ooptdd.backends import get_backend
 from ooptdd.backends.victorialogs import VictoriaLogsBackend, _parse_time_us
-from ooptdd.gate import evaluate
+from ooptdd.engine.gate import evaluate
 
 
 class _Resp:

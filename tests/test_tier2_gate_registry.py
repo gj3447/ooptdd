@@ -7,7 +7,7 @@ from ooptdd import assert_gate, assert_present, can_i_deploy
 from ooptdd.assertions import TraceAssertionError
 from ooptdd.backends.base import QueryResult
 from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.gate import evaluate
+from ooptdd.engine.gate import evaluate
 
 
 @pytest.fixture(autouse=True)
@@ -35,9 +35,14 @@ def test_pending_miss_does_not_gate_but_is_surfaced():
 
 
 def test_pending_satisfied_signals_promotion():
+    # a real gating check alongside a now-passing pending one: the gate is non-vacuous (GREEN)
+    # and pending_satisfied surfaces the promotion hint. (An all-pending gate asserts nothing
+    # gating and is vacuous -> see test_gate_scope.test_all_pending_on_empty_store_is_vacuous.)
     b = MemoryBackend()
+    _ship(b, "c1", {"event": "wired"})
     _ship(b, "c1", {"event": "now_wired"})
     res = evaluate(b, {"cid": "c1", "expect": [
+        {"event": "wired", "op": ">=", "count": 1},
         {"event": "now_wired", "op": ">=", "count": 1, "pending": True},
     ]})
     assert res["ok"] is True and res["pending_satisfied"] == ["now_wired"]

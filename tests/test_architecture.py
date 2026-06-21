@@ -143,3 +143,58 @@ def test_cycle_detector_actually_detects_cycles(tmp_path):
 def test_ooptdd_has_no_import_cycles():
     cycles = _import_cycles(SRC)
     assert cycles == [], f"import cycle(s) reintroduced: {cycles}"
+
+
+# ── layered dependency-direction fitness gate ─────────────────────────────────── #
+# The package is layered domain → engine → adapters. The dependency arrow may only point
+# toward an equal-or-lower layer (lower = more abstract / fewer dependencies):
+#
+#   domain   (0)  pure data + the Backend PORT (ports/model/ontology/semconv); imports only domain
+#   engine   (1)  evaluation logic (monitor/gate/verify); imports engine + domain, never an adapter
+#   adapter  (2)  concrete drivers + IO (backends/*, cli, plugin, config, mutation, assertions)
+#   api      (3)  the package __init__ — the composition root, may wire anything
+#
+# An edge that points UP the stack (domain→engine, engine→backends, …) fails the build. This
+# is what keeps the engine runnable against any store and the domain free of IO — enforced as
+# a fact about the imports, not a convention.
+_LAYER = {"domain": 0, "engine": 1}  # everything else under ooptdd.* is an adapter (2)
+_API = "ooptdd"  # the package __init__ — composition root
+
+
+def _layer_of(module: str) -> int:
+    if module == _API:
+        return 3
+    parts = module.split(".")
+    if len(parts) >= 2 and parts[0] == "ooptdd" and parts[1] in _LAYER:
+        return _LAYER[parts[1]]
+    return 2  # ooptdd.backends.*, ooptdd.cli, ooptdd.plugin, ooptdd.config, ooptdd.mutation, ...
+
+
+def test_layer_dependency_direction_is_respected():
+    disc = _discover(SRC)
+    modules = set(disc)
+    violations = []
+    for module, path in disc.items():
+        src_layer = _layer_of(module)
+        for dep in _module_imports(path, module, modules):
+            if dep == _API:
+                continue  # reading the package root (e.g. __version__) is not an up-edge;
+                          # the cycle test already guards __init__ from importing adapters
+            if _layer_of(dep) > src_layer:  # importing a higher (less abstract) layer
+                violations.append(f"{module} (layer {src_layer}) -> {dep} (layer {_layer_of(dep)})")
+    assert violations == [], "layering violated (an arrow points up the stack):\n" + "\n".join(
+        sorted(violations)
+    )
+
+
+def test_engine_does_not_import_concrete_backends():
+    # the sharpest single rule: the engine talks to the Backend *port* (domain.ports), never
+    # to a concrete driver package. This is the dependency inversion that the layering buys.
+    disc = _discover(SRC)
+    modules = set(disc)
+    offenders = {
+        m: sorted(d for d in _module_imports(p, m, modules) if d.startswith("ooptdd.backends"))
+        for m, p in disc.items() if m.startswith("ooptdd.engine")
+    }
+    leaking = {m: d for m, d in offenders.items() if d}
+    assert leaking == {}, f"engine imports a concrete backend (use domain.ports instead): {leaking}"
