@@ -358,6 +358,31 @@ def _rule_event_names(rule: dict) -> set[str]:
     return {n for n in names if isinstance(n, str) and n}
 
 
+def _check_charged(chk: dict) -> bool:
+    """Did a check actually SEE matching evidence (positive confirmation), vs pass on absence /
+    emptiness? The charge-ratio over gating checks measures how much of a green is backed by
+    observed events rather than by nothing happening — distinct from stream-coverage."""
+    if "got" in chk:
+        return chk["got"] > 0
+    if "present" in chk:
+        return len(chk.get("missing", [])) < len(chk.get("present", []))
+    if "must_order" in chk:
+        return any(v is not None for v in chk.get("firsts", {}).values())
+    if "ratio" in chk:
+        return chk.get("total", 0) > 0
+    if "invariant" in chk:
+        return chk.get("reason") != "invariant_no_evidence"
+    if "external" in chk:
+        return chk.get("probe_reachable") is True and chk.get("value") is not None
+    if "heartbeat" in chk:
+        return chk.get("beats", 0) > 0
+    if "conforms" in chk:
+        return chk.get("checked", 0) > 0
+    if "absent" in chk:
+        return chk.get("violations", 0) > 0  # absent is "charged" only if it SAW an offender
+    return False
+
+
 def _resolve_cid(spec: dict) -> str:
     if spec.get("cid"):
         return str(spec["cid"])
@@ -471,6 +496,10 @@ def evaluate_events(
         chk["pending"] = bool(rule.get("pending", False))
         chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
         chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
+        # grounding: where the truth comes from — `external` is CORROBORATED by an independent
+        # source; everything else is DERIVED-SELF (the system's own emit). Orthogonal to strength.
+        chk["grounding"] = "corroborated" if chk["strength"] == "external" else "derived-self"
+        chk["charged"] = _check_charged(chk)  # did it see matching evidence (vs pass on absence)?
         checks.append(chk)
     # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
     # misses are surfaced separately so a silently-degraded stream never reads as clean.
@@ -510,6 +539,12 @@ def evaluate_events(
     # layer maps it to inconclusive (?), never a strict fail — the same honesty as an unreachable
     # store. A missing probe (no_external_probe_configured) is a loud RED, not a silent green.
     probe_reachable = not any(c.get("probe_reachable") is False for c in checks)
+    # oracle provenance: how many GATING checks are CORROBORATED by an independent source (only
+    # `external:`) vs DERIVED-SELF (the system's own emit). single_authority=True is the meta-
+    # blind-spot made visible: this green is the system agreeing with itself. charge: how many
+    # gating checks actually SAW matching evidence (vs passed on absence) — distinct from coverage.
+    corroborated = sum(1 for c in gating if c.get("grounding") == "corroborated")
+    charged = sum(1 for c in gating if c.get("charged"))
     result = {
         "ok": reachable and complete and asserts_anything and required_ok,
         "reachable": reachable,
@@ -518,6 +553,12 @@ def evaluate_events(
         "vacuous": vacuous,
         "cid": cid,
         "checks": checks,
+        "oracle": {
+            "gating": len(gating),
+            "corroborated": corroborated,
+            "derived_self": len(gating) - corroborated,
+            "single_authority": corroborated == 0,
+        },
         "scope": {
             "gating": len(gating),
             "optional": sum(1 for c in checks if c["optional"]),
@@ -529,6 +570,9 @@ def evaluate_events(
             "named_event_types": len(named),
             "unasserted_observed": sorted(observed - asserted)[:10],
             "stream_coverage": (len(named) / len(observed)) if observed else None,
+            "charged": charged,
+            "charge_ratio": (charged / len(gating)) if gating else None,
+            "uncharged": [_label(c) for c in gating if not c.get("charged")][:10],
         },
         "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
         "pending_failed": [_label(c) for c in checks if c["pending"] and not c["passed"]],
@@ -561,6 +605,15 @@ def green_banner(result: dict) -> str:
                  f"{sc.get('observed_event_types')} arrived event-type(s) named")
         un = sc.get("unasserted_observed") or []
         line += f" ({len(un)} arrived UNOBSERVED: {','.join(un[:5])})." if un else "."
+    orc = result.get("oracle") or {}
+    if orc.get("gating"):
+        line += (" Oracle: single authority — 0 checks corroborated by an independent source "
+                 "(add an `external:` check to break self-consistency)."
+                 if orc.get("single_authority")
+                 else f" Oracle: {orc.get('corroborated')}/{orc.get('gating')} independently"
+                      " corroborated.")
+    if sc.get("charge_ratio") is not None:
+        line += f" Charge: {sc.get('charged')}/{sc.get('gating')} gating check(s) saw evidence."
     return line
 
 

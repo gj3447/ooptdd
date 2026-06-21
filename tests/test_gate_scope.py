@@ -115,3 +115,33 @@ def test_stream_coverage_full_when_gate_names_all_arrived():
 def test_stream_coverage_none_when_nothing_arrived():
     res = _eval([{"event": "a", "op": ">=", "count": 1, "pending": True}], [])
     assert res["scope"]["stream_coverage"] is None  # no events -> no coverage, no crash
+
+
+# ── oracle provenance (single-authority boundary made visible) ─────────────────
+def test_oracle_single_authority_when_all_self_emitted():
+    res = _eval([{"event": "a", "where": {"k": "v"}, "op": ">=", "count": 1}], [_ev("a", 1, k="v")])
+    assert res["oracle"]["single_authority"] is True
+    assert res["oracle"]["corroborated"] == 0 and res["oracle"]["derived_self"] == 1
+    assert "single authority" in green_banner(res)
+
+
+def test_oracle_corroborated_with_an_external_check():
+    class _P:
+        def probe(self, kind, selector, cid):
+            from ooptdd.domain.ports import ProbeResult
+            return ProbeResult(reachable=True, value=42)
+
+    res = evaluate_events({"expect": [{"external": {"kind": "x", "selector": {}, "want": 42}}]},
+                          [], reachable=True, complete=True, cid="c", probe=_P())
+    assert res["oracle"]["corroborated"] == 1 and res["oracle"]["single_authority"] is False
+    assert "independently corroborated" in green_banner(res)
+
+
+# ── charge-ratio (evidenced vs absence-passing) ───────────────────────────────
+def test_charge_ratio_distinguishes_evidenced_from_absence_passing():
+    res = _eval([{"event": "a", "op": ">=", "count": 1},        # matched -> charged
+                 {"absent": [{"where": {"level": "ERROR"}}]}],   # nothing matched -> uncharged-pass
+                [_ev("a", 1)])
+    sc = res["scope"]
+    assert sc["charged"] == 1 and sc["gating"] == 2 and abs(sc["charge_ratio"] - 0.5) < 1e-9
+    assert "Charge: 1/2" in green_banner(res)
