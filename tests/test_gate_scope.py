@@ -152,3 +152,43 @@ def test_charge_ratio_distinguishes_evidenced_from_absence_passing():
     sc = res["scope"]
     assert sc["charged"] == 1 and sc["gating"] == 2 and abs(sc["charge_ratio"] - 0.5) < 1e-9
     assert "Charge: 1/2" in green_banner(res)
+
+
+# ── corroboration is an ACHIEVEMENT, not a check KIND ──────────────────────────
+# grounding marks a separate-source `external:` as the corroborating kind, but a corroboration
+# only HAPPENED if the probe actually agreed. A refuted (or fact-absent) separate-source probe
+# corroborates NOTHING — counting it would issue the "independently corroborated" receipt the
+# oracle itself denied (the cardinal sin: a green without a receipt).
+def test_oracle_not_corroborated_when_separate_source_probe_refutes():
+    class _Refute:
+        def probe(self, kind, selector, cid):
+            from ooptdd.domain.ports import ProbeResult
+            return ProbeResult(reachable=True, value=7, separate_source=True)  # 7 != want 42
+
+    spec = {"expect": [{"external": {"kind": "x", "selector": {}, "want": 42}}]}
+    res = evaluate_events(spec, [], reachable=True, complete=True, cid="c", probe=_Refute())
+    assert res["ok"] is False                       # the external check disagreed -> RED
+    assert res["checks"][0]["passed"] is False
+    assert res["oracle"]["corroborated"] == 0       # a refuted probe corroborates nothing
+    assert res["oracle"]["single_authority"] is True
+    assert "independently corroborated" not in green_banner(res)
+
+
+# The enforcement teeth: require_corroboration must not be satisfied by an oracle that REFUTED the
+# system. Under a quorum `threshold` a refuting external could otherwise ride a self-pass to GREEN
+# while claiming the corroboration mandate was met — corroboration certified by a contradiction.
+def test_require_corroboration_is_not_satisfied_by_a_refuting_oracle():
+    class _Refute:
+        def probe(self, kind, selector, cid):
+            from ooptdd.domain.ports import ProbeResult
+            return ProbeResult(reachable=True, value=7, separate_source=True)
+
+    spec = {"threshold": 0.5, "require_corroboration": True, "expect": [
+        {"event": "a", "op": ">=", "count": 1},                    # self-pass
+        {"external": {"kind": "x", "selector": {}, "want": 42}},   # separate-source, REFUTES
+    ]}
+    res = evaluate_events(spec, [_ev("a", 1)], reachable=True, complete=True, cid="c",
+                          probe=_Refute())
+    assert res["oracle"]["corroborated"] == 0   # the refuting oracle is not corroboration
+    assert res["uncorroborated"] is True        # so the mandate is UNMET
+    assert res["ok"] is False                   # and the gate is RED despite meeting the quorum

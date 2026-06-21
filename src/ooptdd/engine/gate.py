@@ -557,7 +557,13 @@ def evaluate_events(
     # `external:`) vs DERIVED-SELF (the system's own emit). single_authority=True is the meta-
     # blind-spot made visible: this green is the system agreeing with itself. charge: how many
     # gating checks actually SAW matching evidence (vs passed on absence) — distinct from coverage.
-    corroborated = sum(1 for c in gating if c.get("grounding") == "corroborated")
+    # Corroboration is an ACHIEVEMENT, not a check kind: a separate-source `external:` the probe
+    # could not reach OR that REFUTED the system (passed=False) corroborates nothing — counting it
+    # would issue the "independently corroborated" receipt the oracle denied, and would let a
+    # refuting oracle satisfy require_corroboration. So the corroboration must have actually passed.
+    corroborated = sum(
+        1 for c in gating if c.get("grounding") == "corroborated" and c.get("passed")
+    )
     charged = sum(1 for c in gating if c.get("charged"))
     # require_corroboration (spec key or env OOPTDD_REQUIRE_CORROBORATION, default OFF): promote the
     # single_authority SIGNAL to a GATE — a gate whose every check is the system's own self-report
