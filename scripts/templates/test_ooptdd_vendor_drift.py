@@ -31,3 +31,23 @@ def test_vendored_ooptdd_matches_manifest():
         "Someone edited the vendored copy directly. Re-vendor from canonical: "
         "python <ooptdd>/scripts/vendor_ooptdd.py <this-repo>"
     )
+
+
+def test_vendored_tree_matches_manifest_set():
+    """The set of vendored ``.py`` files must equal the manifest's set — no extras, none
+    missing. The per-file content check above is blind to a file *added* or *removed*
+    upstream (a structural drift, e.g. the engine/+domain/ split): an orphaned stale module
+    or a newly-required one would slip through. Offline, stdlib — no git needed."""
+    manifest = json.loads(_MANIFEST.read_text())
+    declared = set(manifest["files"])
+    pkg = _VENDOR / "ooptdd"
+    present = {
+        p.relative_to(pkg).as_posix()
+        for p in pkg.rglob("*.py")
+        if "__pycache__" not in p.parts
+    }
+    assert present == declared, (
+        f"vendored tree != manifest. extra (orphaned): {sorted(present - declared)}; "
+        f"missing (un-vendored): {sorted(declared - present)}. Re-vendor from canonical: "
+        "python <ooptdd>/scripts/vendor_ooptdd.py <this-repo>"
+    )

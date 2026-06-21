@@ -35,7 +35,7 @@ import os
 import urllib.parse
 import urllib.request
 
-from .base import QueryResult
+from .base import QueryResult, _raise_for_status
 
 
 class ClickHouseBackend:
@@ -51,6 +51,7 @@ class ClickHouseBackend:
         user_env: str = "OOPTDD_CH_USER",
         password_env: str = "OOPTDD_CH_PASSWORD",
         timeout: float = 15.0,
+        max_rows: int = 1_000_000,
         opener=None,
         **_ignored,
     ):
@@ -60,6 +61,9 @@ class ClickHouseBackend:
         self.user_env = user_env
         self.password_env = password_env
         self.timeout = timeout
+        # Bound a single read so an unbounded SELECT can't OOM; exceeding it surfaces
+        # complete=False (incomplete evidence) instead of silently returning a subset.
+        self.max_rows = max_rows
         # opener(request, timeout) injection lets tests exercise this driver with no network.
         self._open = opener or (lambda req, timeout: urllib.request.urlopen(req, timeout=timeout))
 
@@ -100,8 +104,8 @@ class ClickHouseBackend:
             ))
         body = (f"INSERT INTO {self.table} FORMAT JSONEachRow\n" + "\n".join(rows)).encode()
         headers = {**self._headers(), "Content-Type": "text/plain; charset=utf-8"}
-        with self._post({"database": self.database}, body, headers):
-            pass
+        with self._post({"database": self.database}, body, headers) as r:
+            _raise_for_status(r)  # a dropped INSERT must be a loud ship failure, not silent
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
@@ -111,7 +115,11 @@ class ClickHouseBackend:
         # SELECT * (whole rows) with a *parameterized* cid — injection-safe. Time-window
         # bounding is store-receive-stamped; the cid is the real discriminator (one cid per
         # run), matching the OpenObserve driver. FORMAT JSON yields {"data":[...]}.
-        sql = f"SELECT * FROM {self.table} WHERE cycle_id = {{cid:String}} FORMAT JSON"
+        # LIMIT max_rows+1 bounds the read: if more than max_rows rows match we learn the set
+        # is incomplete (surfaced as complete=False) instead of unbounded-loading or silently
+        # returning a subset. The cid stays a parameter (injection-safe).
+        sql = (f"SELECT * FROM {self.table} WHERE cycle_id = {{cid:String}} "
+               f"LIMIT {self.max_rows + 1} FORMAT JSON")
         params = {
             "database": self.database,
             "query": sql,
@@ -121,11 +129,14 @@ class ClickHouseBackend:
         headers = {**self._headers(), "Content-Type": "text/plain; charset=utf-8"}
         try:
             with self._post(params, b"", headers) as r:
+                _raise_for_status(r)
                 payload = json.loads(r.read().decode())
         except Exception:
             return QueryResult(reachable=False)
+        data = payload.get("data", [])
+        complete = len(data) <= self.max_rows
         events = []
-        for row in payload.get("data", []):
+        for row in data[:self.max_rows]:
             # rows carry the original envelope in `data`; unwrap it so `where`/counts see
             # the real fields. A row without `data` (custom schema) is passed through as-is.
             raw = row.get("data") if isinstance(row, dict) else None
@@ -138,4 +149,4 @@ class ClickHouseBackend:
                 ev = dict(row)
             ev.setdefault("_timestamp", row.get("_timestamp") if isinstance(row, dict) else None)
             events.append(ev)
-        return QueryResult(reachable=True, events=events)
+        return QueryResult(reachable=True, events=events, complete=complete)

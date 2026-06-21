@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 
 from .backends.memory import MemoryBackend, reset
-from .gate import _matches, _resolve_matcher, evaluate
+from .engine.gate import _matches, _resolve_matcher, evaluate
 
 _SENTINEL = "__ooptdd_mutant__"
 

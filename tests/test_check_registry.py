@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.gate import _KEY_PROBES, CHECK_REGISTRY, _detect_check_key, check, evaluate
+from ooptdd.engine.gate import _KEY_PROBES, CHECK_REGISTRY, _detect_check_key, check, evaluate
 
 
 @pytest.fixture(autouse=True)

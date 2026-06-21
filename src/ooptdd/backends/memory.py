@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 
-from .base import QueryResult
+from .base import BackendCaps, QueryResult
 
 # process-global store: cid -> list[(stored_us, event)]
 _STORE: dict[str, list[tuple[int, dict]]] = {}
@@ -32,6 +32,9 @@ class MemoryBackend:
     default_lookback_s = 3600
     default_future_buffer_s = 0
     queryable = True  # in-process store reads back deterministically
+    # The reference backend: reads everything in one shot (always complete) and filters in
+    # Python, so the conformance kit validates the typed-caps contract against it.
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True)
 
     def __init__(self, *, drop: bool = False, **_ignored):
         # ``drop=True`` silently discards everything shipped — this is how the

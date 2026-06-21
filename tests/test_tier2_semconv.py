@@ -1,10 +1,10 @@
 """Tier-2 #8: OTel GenAI semconv ontology preset + W3C trace-context correlation."""
 from __future__ import annotations
 
-from ooptdd.gate import evaluate
-from ooptdd.model import with_trace_context
-from ooptdd.ontology import Ontology, check_conformance
-from ooptdd.semconv import GEN_AI_PROVIDERS, SEMCONV_VERSION, gen_ai_ontology
+from ooptdd.domain.model import with_trace_context
+from ooptdd.domain.ontology import Ontology, check_conformance
+from ooptdd.domain.semconv import GEN_AI_PROVIDERS, SEMCONV_VERSION, gen_ai_ontology
+from ooptdd.engine.gate import evaluate
 
 
 def test_builtin_resolves_gen_ai():
@@ -77,6 +77,6 @@ def test_with_trace_context_attaches_ids_nondestructively():
 
 
 def test_trace_ids_not_flagged_by_closed_world():
-    from ooptdd.ontology import EventType
+    from ooptdd.domain.ontology import EventType
     et = EventType(name="x", required=[], additional_properties=False)
     assert et.validate({"event": "x", "trace_id": "t", "span_id": "s"}) == []

@@ -14,7 +14,7 @@ keeping the rule that an infra outage is not a falsification.
 from __future__ import annotations
 
 from .backends import Backend, get_backend
-from .gate import _label, evaluate
+from .engine.gate import _label, evaluate
 
 
 class TraceAssertionError(AssertionError):
@@ -35,9 +35,16 @@ def assert_gate(spec: dict, *, backend: Backend | None = None, ontology=None,
     """
     backend = backend or get_backend("memory")
     res = evaluate(backend, spec, ontology=ontology)
-    if not res["reachable"]:
+    if not res["reachable"] or not res.get("complete", True):
+        # Store unreachable OR a truncated/incomplete read: inconclusive evidence (?), not a
+        # falsification (⊥). Skip unless the caller opted into ``strict_infra`` — an infra
+        # outage or an undercounted read is never a RED, the same rule the verdict layer uses
+        # (verify_policy / evaluate_events). Treating a truncated read as RED here would make
+        # an infra hiccup a hard assertion failure.
         if strict_infra:
-            raise TraceAssertionError(f"store unreachable for cid={res['cid']} (inconclusive)")
+            raise TraceAssertionError(
+                f"store unreachable or read incomplete for cid={res['cid']} (inconclusive)"
+            )
         return res
     if not res["ok"]:
         raise TraceAssertionError(

@@ -1,13 +1,13 @@
 """Tier-1 #2 (JSON-Schema-equivalent EventType) + #5 (CloudEvents floor)."""
 from __future__ import annotations
 
-from ooptdd.model import (
+from ooptdd.domain.model import (
     CE_REQUIRED,
     build_outcome_records,
     cloudevents_envelope,
     validate_cloudevents,
 )
-from ooptdd.ontology import EventType, Ontology, check_conformance
+from ooptdd.domain.ontology import EventType, Ontology, check_conformance
 
 
 # ── #2: additionalProperties:false → unexpected-attr drift ────────────────────

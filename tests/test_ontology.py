@@ -7,8 +7,8 @@ Classes: (1) missing required attr, (2) bad enum value, (3) unknown event type
 (closed-world drift). novel_prediction = predictive power the flat gate lacks.
 """
 from ooptdd.backends import MemoryBackend, memory_reset
-from ooptdd.gate import evaluate
-from ooptdd.ontology import Ontology
+from ooptdd.domain.ontology import Ontology
+from ooptdd.engine.gate import evaluate
 
 ONTO = Ontology.from_dict({
     "event_types": {
