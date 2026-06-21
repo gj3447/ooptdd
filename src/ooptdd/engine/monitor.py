@@ -363,6 +363,68 @@ class RatioMonitor(Monitor):
         })
 
 
+_REDUCERS = {"sum": sum, "min": min, "max": max, "last": lambda vs: vs[-1]}
+
+
+class InvariantMonitor(Monitor):
+    """Cross-event conservation invariant: ``reduce(field@left) op reduce(field@right)``. Makes a
+    *relation between events* expressible (e.g. ``sum(amount@payment) == sum(amount@shipment)``,
+    ``count(request) == count(response)``) — the first primitive that catches a value-CONSISTENCY
+    bug the count/where checks are blind to (a payment emitted with no/zero amount, a half that
+    doesn't balance its whole).
+
+    Honesty boundary: this is INTRA-TRACE and single-authority — it catches inconsistency BETWEEN
+    emitted events, **not** emit-vs-truth (both sides are still the system's own self-report).
+
+    Non-monotone (both reductions can move), so it never latches — stays PEND and collapses to the
+    final comparison. ``==`` compares within ``tol``. If either side matched ZERO events (or a
+    non-count side collected no numeric value), there is nothing to relate → not a pass
+    (``invariant_no_evidence``): a conservation law over a stream that never emitted either side
+    must not read green."""
+
+    def __init__(self, left, right, op, tol, indicators):
+        super().__init__()
+        self.l_event, self.l_where = _resolve_matcher(left, indicators)
+        self.r_event, self.r_where = _resolve_matcher(right, indicators)
+        self.l_reduce, self.r_reduce = left.get("reduce", "sum"), right.get("reduce", "sum")
+        self.l_field, self.r_field = left.get("field"), right.get("field")
+        self.op, self.tol = op, float(tol)
+        self._l_vals: list = []
+        self._r_vals: list = []
+        self._l_n = self._r_n = 0
+
+    def step(self, ev, idx):
+        if _matches(ev, self.l_event, self.l_where):
+            self._l_n += 1
+            v = ev.get(self.l_field)
+            if self.l_reduce != "count" and isinstance(v, (int, float)) and not isinstance(v, bool):
+                self._l_vals.append(v)
+        if _matches(ev, self.r_event, self.r_where):
+            self._r_n += 1
+            v = ev.get(self.r_field)
+            if self.r_reduce != "count" and isinstance(v, (int, float)) and not isinstance(v, bool):
+                self._r_vals.append(v)
+
+    @staticmethod
+    def _reduce(reduce_, vals, n):
+        if reduce_ == "count":
+            return n
+        return _REDUCERS[reduce_](vals) if vals else None
+
+    def collapse(self, reachable):
+        lv = self._reduce(self.l_reduce, self._l_vals, self._l_n)
+        rv = self._reduce(self.r_reduce, self._r_vals, self._r_n)
+        base = {
+            "invariant": (f"{self.l_reduce}({self.l_field or self.l_event}) {self.op} "
+                          f"{self.r_reduce}({self.r_field or self.r_event})"),
+            "left": lv, "right": rv, "op": self.op, "tol": self.tol,
+        }
+        if self._l_n == 0 or self._r_n == 0 or lv is None or rv is None:
+            return self._stamp({**base, "passed": False, "reason": "invariant_no_evidence"})
+        passed = abs(lv - rv) <= self.tol if self.op == "==" else _OPS[self.op](lv, rv)
+        return self._stamp({**base, "passed": reachable and passed})
+
+
 class ConformsMonitor(Monitor):
     """Ontology conformance: events of the target type must satisfy their EventType (required
     attrs, value constraints); in closed-world an undeclared in-scope event name is drift.
@@ -460,6 +522,11 @@ def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
                             _norm_op(rule.get("op", ">=")), float(_want(rule)), indicators)
     if "conforms" in rule:
         return ConformsMonitor(rule["conforms"], ontology, closed_world=rule.get("closed_world"))
+    if "invariant" in rule:
+        spec = rule["invariant"]
+        return InvariantMonitor(spec.get("left", {}), spec.get("right", {}),
+                                _norm_op(spec.get("op", rule.get("op", "=="))),
+                                spec.get("tol", rule.get("tol", 0.0)), indicators)
     event, where = _resolve_matcher(rule, indicators)
     return CountMonitor(event, where, _norm_op(rule.get("op", ">=")), int(_want(rule)))
 

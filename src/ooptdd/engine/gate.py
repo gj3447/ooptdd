@@ -147,6 +147,9 @@ def load_gate(path: str) -> dict:
 
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
+    if "invariant" in chk:
+        inv = chk["invariant"]
+        return "invariant:" + (inv if isinstance(inv, str) else "expr")
     if "conforms" in chk:
         return "conforms:" + str(chk["conforms"])
     if "heartbeat" in chk:
@@ -213,6 +216,11 @@ def _check_conforms(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)
 
 
+@check("invariant")
+def _check_invariant(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _run(rule, events, ctx)
+
+
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The default check (no predicate keyword): a :class:`CountMonitor` over the rule's
     event/where compared with op/target. The documented fallback when no registered
@@ -231,6 +239,7 @@ _KEY_PROBES = (
     ("present", "present"),
     ("ratioMetric", "ratioMetric"),
     ("conforms", "conforms"),
+    ("invariant", "invariant"),
 )
 
 
@@ -255,7 +264,7 @@ def _detect_check_key(rule: dict) -> str | None:
 # mental model) — a harder self-check, NOT an external oracle (see METHODOLOGY "log-free zones").
 _STRENGTH_BY_KEY = {
     "absent": "forbid", "must_order": "ordered", "ratioMetric": "ratio",
-    "heartbeat": "liveness", "conforms": "conformance",
+    "heartbeat": "liveness", "conforms": "conformance", "invariant": "invariant",
 }
 
 
@@ -457,6 +466,42 @@ def green_banner(result: dict) -> str:
         line += (" WARNING: every gating check is existence-only — proves tokens were emitted, "
                  "not that they had any effect.")
     return line
+
+
+def lint_spec(spec: dict) -> list[dict]:
+    """Static, offline strength audit of a gate spec — the "pseudo-tested gate" detector, run
+    BEFORE any events, so a vacuously-satisfiable gate is caught at author time, not after a green
+    run. Pure. Returns findings ``[{code, severity, label, message}]`` (``high`` = vacuous/blocking,
+    ``medium`` = weak):
+
+    - **VAC0** no expectations at all (`expect:` empty).
+    - **VAC1** zero *gating* checks — every check optional/pending; the gate can never fail.
+    - **VAC2** `threshold < 1.0` with no `justification:` — a quorum that licenses silent drops.
+    - **VAC3** a gating `existence-only` check — proves a token arrived, pins no field/order/forbid.
+    """
+    rules = list(spec.get("expect", []))
+    if not rules:
+        return [{"code": "VAC0", "severity": "high", "label": "(spec)",
+                 "message": "empty `expect:` — gate declares no expectations, asserts nothing."}]
+    out: list[dict] = []
+    gating = [r for r in rules if not r.get("optional") and not r.get("pending")]
+    if not gating:
+        out.append({"code": "VAC1", "severity": "high", "label": "(spec)",
+                    "message": "no gating checks — every check is optional/pending; the gate can "
+                               "never fail (vacuous). Mark at least one check gating."})
+    t = spec.get("threshold")
+    if t is not None and float(t) < 1.0 and not spec.get("justification"):
+        out.append({"code": "VAC2", "severity": "high", "label": "(spec)",
+                    "message": f"threshold {t} < 1.0 silently licenses dropping up to "
+                               f"{(1 - float(t)) * 100:.0f}% of expectations every run; add a "
+                               "`justification:` field if this quorum is intentional."})
+    for i, r in enumerate(gating):
+        if _strength(r) == "existence-only":
+            out.append({"code": "VAC3", "severity": "medium", "label": _label(r),
+                        "message": f"check #{i} ({_label(r)}) is existence-only — proves a token "
+                                   "arrived, pins no field/order/forbid. Add a `where`, "
+                                   "`must_order`, `absent`, or `invariant` to discriminate."})
+    return out
 
 
 def can_i_deploy(results: list[dict]) -> dict:
