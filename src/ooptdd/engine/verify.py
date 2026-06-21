@@ -251,8 +251,9 @@ def verify_gate(
                 if result["ok"] else None
         if result["ok"]:
             verdict = "present"
-        elif not result["reachable"] or not result.get("complete", True):
-            verdict = "inconclusive"
+        elif (not result["reachable"] or not result.get("complete", True)
+              or not result.get("probe_reachable", True)):
+            verdict = "inconclusive"  # unreachable store / truncated read / unreachable probe
         else:
             verdict = "absent"
         reasons = [

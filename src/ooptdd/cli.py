@@ -129,6 +129,9 @@ def _cmd_gate(args) -> int:
     if not res.get("complete", True):
         print("INCONCLUSIVE — readback truncated (incomplete evidence)", file=sys.stderr)
         return 2
+    if not res.get("probe_reachable", True):
+        print("INCONCLUSIVE — external probe unreachable", file=sys.stderr)
+        return 2
     if res.get("vacuous"):
         print("RED — vacuous gate: every check is optional/pending, nothing can fail "
               "(mark at least one check gating)", file=sys.stderr)
@@ -291,6 +294,8 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
     - {invariant: {left: {reduce: sum, field: amount, event: A},   # cross-event conservation
                    right: {reduce: count|sum|min|max|last, field: F, event: B},
                    op: "==", tol: 0.01}}
+    - {external: {kind: db_row, selector: {...}, op: "==", want: 42}}  # INDEPENDENT oracle (not
+                                                     #   the trace) — needs evaluate(probe=...)
     - {conforms: EVENTTYPE, closed_world: true}      # ontology conformance
     - {indicatorRef: NAME}  with top-level indicators: {NAME: {event:.., where:..}}
   optional: true / pending: true / weight: N    (per-check modifiers)
