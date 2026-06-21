@@ -192,6 +192,12 @@ class ProbeResult:
     reachable: bool
     value: object = None
     complete: bool = True
+    #: The probe author's DECLARATION that the fact comes from a genuinely separate source of
+    #: truth (a different store/service/filesystem), not the same store the system wrote — only a
+    #: separate_source=True probe counts as independent CORROBORATION (closes the relocation hole:
+    #: a probe re-reading the system's own store is self-consistency moved one layer out). ooptdd
+    #: trusts this declaration; it cannot itself prove a source is independent.
+    separate_source: bool = False
 
 
 @runtime_checkable

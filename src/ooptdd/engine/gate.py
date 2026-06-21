@@ -152,6 +152,8 @@ def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
     if "external" in chk:
         return "external:" + str(chk.get("external"))
+    if "metamorphic" in chk:
+        return "metamorphic:" + str(chk.get("metamorphic"))
     if "invariant" in chk:
         inv = chk["invariant"]
         return "invariant:" + (inv if isinstance(inv, str) else "expr")
@@ -226,6 +228,11 @@ def _check_invariant(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)
 
 
+@check("metamorphic")
+def _check_metamorphic(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _run(rule, events, ctx)  # within-run: pure, two matched subsets of the one stream
+
+
 @check("external")
 def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The independent-oracle check: assert against an external fact (ctx.probe), NOT the system's
@@ -252,7 +259,8 @@ def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
             passed = value == want
     else:
         passed = _OPS[op](value, want)
-    return {**base, "value": value, "probe_reachable": True, "passed": bool(passed)}
+    return {**base, "value": value, "probe_reachable": True,
+            "separate_source": bool(getattr(res, "separate_source", False)), "passed": bool(passed)}
 
 
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
@@ -274,6 +282,7 @@ _KEY_PROBES = (
     ("ratioMetric", "ratioMetric"),
     ("conforms", "conforms"),
     ("invariant", "invariant"),
+    ("metamorphic", "metamorphic"),
     ("external", "external"),
 )
 
@@ -300,7 +309,7 @@ def _detect_check_key(rule: dict) -> str | None:
 _STRENGTH_BY_KEY = {
     "absent": "forbid", "must_order": "ordered", "ratioMetric": "ratio",
     "heartbeat": "liveness", "conforms": "conformance", "invariant": "invariant",
-    "external": "external",
+    "metamorphic": "metamorphic", "external": "external",
 }
 
 # Discriminating-power weight per strength class — basis of the scalar strength score that turns
@@ -309,7 +318,7 @@ _STRENGTH_BY_KEY = {
 _STRENGTH_RANK = {
     "existence-only": 1, "bounded": 2, "threshold": 2,
     "value-pinned": 3, "ordered": 3, "forbid": 3,
-    "ratio": 4, "liveness": 4, "conformance": 4, "invariant": 5, "external": 6,
+    "ratio": 4, "liveness": 4, "conformance": 4, "invariant": 5, "metamorphic": 5, "external": 6,
 }
 
 
@@ -345,7 +354,8 @@ def _rule_event_names(rule: dict) -> set[str]:
         for part in rule.get(key) or []:
             names.add(part if isinstance(part, str) else
                       part.get("event") if isinstance(part, dict) else None)
-    for container, sides in (("ratioMetric", ("good", "total")), ("invariant", ("left", "right"))):
+    for container, sides in (("ratioMetric", ("good", "total")), ("invariant", ("left", "right")),
+                             ("metamorphic", ("a", "b"))):
         c = rule.get(container)
         if isinstance(c, dict):
             for side in sides:
@@ -372,6 +382,8 @@ def _check_charged(chk: dict) -> bool:
         return chk.get("total", 0) > 0
     if "invariant" in chk:
         return chk.get("reason") != "invariant_no_evidence"
+    if "metamorphic" in chk:
+        return chk.get("reason") != "metamorphic_no_evidence"
     if "external" in chk:
         return chk.get("probe_reachable") is True and chk.get("value") is not None
     if "heartbeat" in chk:
@@ -496,9 +508,11 @@ def evaluate_events(
         chk["pending"] = bool(rule.get("pending", False))
         chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
         chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
-        # grounding: where the truth comes from — `external` is CORROBORATED by an independent
-        # source; everything else is DERIVED-SELF (the system's own emit). Orthogonal to strength.
-        chk["grounding"] = "corroborated" if chk["strength"] == "external" else "derived-self"
+        # grounding: where the truth comes from — only a separate-source `external` check is
+        # CORROBORATED by an independent oracle; everything else (incl. a probe re-reading the
+        # system's own store, separate_source=False) is DERIVED-SELF. Orthogonal to strength.
+        chk["grounding"] = ("corroborated" if chk["strength"] == "external"
+                            and chk.get("separate_source") else "derived-self")
         chk["charged"] = _check_charged(chk)  # did it see matching evidence (vs pass on absence)?
         checks.append(chk)
     # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
@@ -545,12 +559,22 @@ def evaluate_events(
     # gating checks actually SAW matching evidence (vs passed on absence) — distinct from coverage.
     corroborated = sum(1 for c in gating if c.get("grounding") == "corroborated")
     charged = sum(1 for c in gating if c.get("charged"))
+    # require_corroboration (spec key or env OOPTDD_REQUIRE_CORROBORATION, default OFF): promote the
+    # single_authority SIGNAL to a GATE — a gate whose every check is the system's own self-report
+    # (zero separate-source corroboration) is not a clean pass. A fixable misconfiguration (RED),
+    # not inconclusive: add a separate-source `external:` or accept self-consistency by leaving OFF.
+    rc = spec.get("require_corroboration")
+    if rc is None:
+        rc = _truthy(os.getenv("OOPTDD_REQUIRE_CORROBORATION"))
+    rc = bool(rc)
+    uncorroborated = rc and asserts_anything and corroborated == 0
     result = {
-        "ok": reachable and complete and asserts_anything and required_ok,
+        "ok": reachable and complete and asserts_anything and required_ok and not uncorroborated,
         "reachable": reachable,
         "complete": complete,
         "probe_reachable": probe_reachable,
         "vacuous": vacuous,
+        "uncorroborated": uncorroborated,
         "cid": cid,
         "checks": checks,
         "oracle": {
@@ -558,6 +582,7 @@ def evaluate_events(
             "corroborated": corroborated,
             "derived_self": len(gating) - corroborated,
             "single_authority": corroborated == 0,
+            "enforced": rc,
         },
         "scope": {
             "gating": len(gating),

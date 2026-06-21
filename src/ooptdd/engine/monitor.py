@@ -425,6 +425,63 @@ class InvariantMonitor(Monitor):
         return self._stamp({**base, "passed": reachable and passed})
 
 
+class MetamorphicMonitor(Monitor):
+    """A metamorphic RELATION between two reductions over two matched event sets in the SAME stream
+    — the oracle-FREE escape (Chen, Cheung & Yiu 1998): a relation that holds iff the computation is
+    correct, needing NO absolute oracle. idempotency (run twice -> same total: ``equal``), scaling
+    (2x input -> 2x output: ``scaled`` factor), ``subset`` / ``monotone``. Catches a class of
+    wrong-but-strong behavior (a stub that ignores its input no longer scales) with no external
+    truth — but BOTH sides are still the system's own emit, so a fault COMMON to both runs
+    (deterministic-same-wrong: every retry double-charges by the same factor) is invisible: it
+    raises *difficulty*, not grounding. Non-monotone, so it never latches; zero evidence on a side
+    is ``metamorphic_no_evidence`` (a no-data run cannot pass)."""
+
+    def __init__(self, a, b, relation, reduce_, field, factor, tol, indicators):
+        super().__init__()
+        self.a_event, self.a_where = _resolve_matcher(a, indicators)
+        self.b_event, self.b_where = _resolve_matcher(b, indicators)
+        self.relation, self.reduce, self.field = relation, reduce_, field
+        self.factor, self.tol = float(factor), float(tol)
+        self._a_vals: list = []
+        self._b_vals: list = []
+        self._a_n = self._b_n = 0
+
+    def _take(self, ev, event, where, vals):
+        if _matches(ev, event, where):
+            v = ev.get(self.field)
+            if self.reduce != "count" and isinstance(v, (int, float)) and not isinstance(v, bool):
+                vals.append(v)
+            return 1
+        return 0
+
+    def step(self, ev, idx):
+        self._a_n += self._take(ev, self.a_event, self.a_where, self._a_vals)
+        self._b_n += self._take(ev, self.b_event, self.b_where, self._b_vals)
+
+    def _reduce(self, vals, n):
+        return n if self.reduce == "count" else (_REDUCERS[self.reduce](vals) if vals else None)
+
+    def collapse(self, reachable):
+        av, bv = self._reduce(self._a_vals, self._a_n), self._reduce(self._b_vals, self._b_n)
+        base = {"metamorphic": self.relation, "relation": self.relation, "reduce": self.reduce,
+                "left": av, "right": bv, "tol": self.tol}
+        if self.relation == "scaled":
+            base["factor"] = self.factor
+        if self._a_n == 0 or self._b_n == 0 or av is None or bv is None:
+            return self._stamp({**base, "passed": False, "reason": "metamorphic_no_evidence"})
+        if self.relation in ("equal", "idempotent"):
+            ok = abs(av - bv) <= self.tol
+        elif self.relation == "scaled":
+            ok = abs(bv - self.factor * av) <= self.tol
+        elif self.relation == "subset":
+            ok = bv <= av + self.tol
+        elif self.relation == "monotone":
+            ok = bv >= av - self.tol
+        else:
+            ok = False
+        return self._stamp({**base, "passed": reachable and ok})
+
+
 class ConformsMonitor(Monitor):
     """Ontology conformance: events of the target type must satisfy their EventType (required
     attrs, value constraints); in closed-world an undeclared in-scope event name is drift.
@@ -527,6 +584,13 @@ def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
         return InvariantMonitor(spec.get("left", {}), spec.get("right", {}),
                                 _norm_op(spec.get("op", rule.get("op", "=="))),
                                 spec.get("tol", rule.get("tol", 0.0)), indicators)
+    if "metamorphic" in rule:
+        spec = rule["metamorphic"]
+        rel = spec.get("relation", "equal")
+        return MetamorphicMonitor(spec.get("a", {}), spec.get("b", {}),
+                                  "equal" if rel == "idempotent" else rel,
+                                  spec.get("reduce", "sum"), spec.get("field"),
+                                  spec.get("factor", 1.0), spec.get("tol", 0.0), indicators)
     event, where = _resolve_matcher(rule, indicators)
     return CountMonitor(event, where, _norm_op(rule.get("op", ">=")), int(_want(rule)))
 
