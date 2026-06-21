@@ -115,12 +115,12 @@ def _cmd_verify(args) -> int:
     print(json.dumps(res, ensure_ascii=False, indent=2))
     verdict = res["verdict"]
     if res["ok"]:
-        print("GREEN — arrival confirmed", file=sys.stderr)
+        print("GREEN - arrival confirmed", file=sys.stderr)
         return 0
     if verdict == "inconclusive":
-        print(f"INCONCLUSIVE — store unreachable: {res['reasons']}", file=sys.stderr)
+        print(f"INCONCLUSIVE - store unreachable: {res['reasons']}", file=sys.stderr)
         return 2
-    print(f"RED — positive assertion failed: {res['reasons']}", file=sys.stderr)
+    print(f"RED - positive assertion failed: {res['reasons']}", file=sys.stderr)
     return 1
 
 
@@ -130,30 +130,30 @@ def _cmd_gate(args) -> int:
     res = evaluate(backend, spec, probe=_resolve_probe(spec))
     print(json.dumps(res, ensure_ascii=False, indent=2))
     if res.get("optional_failed"):
-        print(f"WARN — optional checks failed (not gating): {res['optional_failed']}",
+        print(f"WARN - optional checks failed (not gating): {res['optional_failed']}",
               file=sys.stderr)
     if res["ok"]:
         print(green_banner(res), file=sys.stderr)
         return 0
     if not res["reachable"]:
-        print("INCONCLUSIVE — store unreachable", file=sys.stderr)
+        print("INCONCLUSIVE - store unreachable", file=sys.stderr)
         return 2
     if not res.get("complete", True):
-        print("INCONCLUSIVE — readback truncated (incomplete evidence)", file=sys.stderr)
+        print("INCONCLUSIVE - readback truncated (incomplete evidence)", file=sys.stderr)
         return 2
     if not res.get("probe_reachable", True):
-        print("INCONCLUSIVE — external probe unreachable", file=sys.stderr)
+        print("INCONCLUSIVE - external probe unreachable", file=sys.stderr)
         return 2
     if res.get("vacuous"):
-        print("RED — vacuous gate: every check is optional/pending, nothing can fail "
+        print("RED - vacuous gate: every check is optional/pending, nothing can fail "
               "(mark at least one check gating)", file=sys.stderr)
         return 1
     if res.get("uncorroborated"):
-        print("RED — uncorroborated: every gating check is the system's own self-report "
+        print("RED - uncorroborated: every gating check is the system's own self-report "
               "(no separate-source external: corroboration); require_corroboration on",
               file=sys.stderr)
         return 1
-    print("RED — gate failed", file=sys.stderr)
+    print("RED - gate failed", file=sys.stderr)
     return 1
 
 
@@ -165,10 +165,10 @@ def _cmd_lint(args) -> int:
         print(f"  [{f['severity']}] {f['code']} {f['label']}: {f['message']}", file=sys.stderr)
     high = [f for f in findings if f["severity"] == "high"]
     if high:
-        print(f"VACUOUS — {len(high)} blocking finding(s); the gate is weak by construction",
+        print(f"VACUOUS - {len(high)} blocking finding(s); the gate is weak by construction",
               file=sys.stderr)
         return 1
-    print("OK — no vacuity findings" if not findings
+    print("OK - no vacuity findings" if not findings
           else f"WARN — {len(findings)} strength finding(s)", file=sys.stderr)
     return 0
 
@@ -285,7 +285,7 @@ def _cmd_verify_chain(args) -> int:
     records = _load_json_file(args.records)
     key = os.getenv(args.key_env)
     if not key:
-        print(f"ERROR — signing key env {args.key_env} is unset (secrets are env-only)",
+        print(f"ERROR - signing key env {args.key_env} is unset (secrets are env-only)",
               file=sys.stderr)
         return 2
     if args.single:

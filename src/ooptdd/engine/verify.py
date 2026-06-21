@@ -288,7 +288,7 @@ def verify_policy(v: dict, mode: str) -> dict:
             "level": "error",
             "fail_build": True,
             "message": (
-                f"FAIL forged/tampered receipt — HMAC sig invalid ({v.get('reasons')}); "
+                f"FAIL forged/tampered receipt - HMAC sig invalid ({v.get('reasons')}); "
                 "a record with the wrong signing key reached the store."
             ),
         }
@@ -307,7 +307,7 @@ def verify_policy(v: dict, mode: str) -> dict:
             "level": "warn",
             "fail_build": False,
             "message": (
-                f"WARN could not query the store (inconclusive: {v.get('reasons')}) — "
+                f"WARN could not query the store (inconclusive: {v.get('reasons')}) - "
                 "observability infra unreachable, build unaffected even in strict."
             ),
         }
@@ -317,8 +317,8 @@ def verify_policy(v: dict, mode: str) -> dict:
         "level": "error" if fail else "warn",
         "fail_build": fail,
         "message": (
-            f"{mark} arrival NOT confirmed ({v.get('reasons')}) — silent ingest loss suspected"
-            + (" — strict: session fails (exit 1)" if fail else " — re-check: ooptdd verify <cid>")
+            f"{mark} arrival NOT confirmed ({v.get('reasons')}) - silent ingest loss suspected"
+            + (" - strict: session fails (exit 1)" if fail else " - re-check: ooptdd verify <cid>")
         ),
     }
 
@@ -375,11 +375,11 @@ def session_finish(
         if mode == "strict":
             msgs.append(
                 f"FAIL strict verify is impossible: backend {name} is write-only (no query "
-                f"side) — pair it with a reader or use a queryable backend (cid={cid})"
+                f"side) - pair it with a reader or use a queryable backend (cid={cid})"
             )
             return {"shipped": len(reports), "messages": msgs, "fail_build": True}
         msgs.append(
-            f"WARN backend {name} is write-only — arrival NOT verified, ship-only "
+            f"WARN backend {name} is write-only - arrival NOT verified, ship-only "
             f"(strict would be a no-op here; cid={cid})"
         )
         return {"shipped": len(reports), "messages": msgs, "fail_build": False}
@@ -399,7 +399,7 @@ def session_finish(
         # masquerade as a clean run (silent green). Surface it as an error; under strict, a
         # broken gate must fail (you asked for enforcement you are not actually getting).
         msgs.append(
-            f"verify ERROR ({type(exc).__name__}: {exc}) — harness bug in the gate path, "
+            f"verify ERROR ({type(exc).__name__}: {exc}) - harness bug in the gate path, "
             f"NOT an unreachable store; gate integrity unknown (cid={cid})"
         )
         return {"shipped": len(reports), "messages": msgs, "fail_build": mode == "strict"}
