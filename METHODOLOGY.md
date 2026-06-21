@@ -171,3 +171,30 @@ catches inconsistency *between* the system's own events, not event-vs-territory.
 <spec>`** is a static, offline audit that refuses a vacuously-satisfiable gate *before* any run —
 no gating checks, a `threshold < 1` quorum without justification, or an existence-only gating check
 — so a weak gate is caught at author time, not after a green.
+
+One check *does* escape the boundary. **`external:`** is the single verdict input that is **not**
+the system's own emit: it asserts against a fact read from the **territory** through an
+`ExternalProbe` port — a DB row, a file, a second collector (reference adapters `FileProbe` /
+`HttpProbe` / `CallableProbe` in `ooptdd.probes`, resolved like backend drivers; write your own in
+five lines). Honesty is held on both ends: a *missing* probe is a loud misconfiguration (never a
+silent green), an *unreachable* one is `inconclusive` (never a strict fail), and — the load-bearing
+rule — a probe only counts as **corroboration** when it declares `separate_source=True`: a genuinely
+different store / service than the one the system wrote its trace to (a probe re-reading the
+system's own store is *relocation*, not independence). Corroboration is an *achievement*, not a
+check kind — an `external:` check the probe could not reach, or that *refuted* the system,
+corroborates nothing.
+
+This makes the single-authority boundary **measurable**. Every gate result carries an `oracle`
+block: how many gating checks are `corroborated` (separate-source `external:`) vs `derived_self`,
+and `single_authority` when *zero* are independently corroborated — the meta-blind-spot named, a
+green where the system only agrees with itself. **`require_corroboration`** (spec key /
+`OOPTDD_REQUIRE_CORROBORATION`) promotes that signal to a *gate*: with it on, a single-authority
+green is RED (`uncorroborated`) — a fixable misconfiguration, add a separate-source `external:`.
+
+Two further signals keep a green honest about *how much it saw*. **Charge** (`scope.charged` /
+`charge_ratio` / `uncharged`) counts how many gating checks actually *saw* matching evidence rather
+than passing on absence/emptiness (an `absent` that fired on nothing, an exists-check over an empty
+store) — orthogonal to strength and to stream-coverage (which counts how many *arrived* event-types
+the gate even names). And **`metamorphic`** joins `invariant` as a second intra-trace, oracle-free
+consistency check: a relation between two reductions over two matched subsets of the same stream
+(`sum(amount@A) == k · sum(amount@B)`), `metamorphic_no_evidence` → RED on a no-data run.
