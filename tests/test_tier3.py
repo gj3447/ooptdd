@@ -74,7 +74,9 @@ def test_heartbeat_optional_miss_surfaced_not_gating():
     res = evaluate(b, {"cid": "c1", "expect": [
         {"heartbeat": "hb", "every_s": 5, "optional": True},
     ]})
-    assert res["ok"] and res["optional_failed"] == ["heartbeat:hb@5.0s"]
+    # all-optional gate is vacuous (asserts nothing gating) -> not GREEN; miss still surfaced
+    assert res["ok"] is False and res["vacuous"] is True
+    assert res["optional_failed"] == ["heartbeat:hb@5.0s"]
 
 
 # ── #11 HMAC hash chain ───────────────────────────────────────────────────────

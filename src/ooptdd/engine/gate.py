@@ -70,12 +70,14 @@ gains is a real incremental monitor with anticipatory verdicts, surfaced per che
 from __future__ import annotations
 
 import os
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..domain.ports import Backend, Clock, QuerySpec, SystemClock, TimeWindow, fetch
 from .monitor import (  # the evaluation kernel
     _matches,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
+    _norm_op,
     _resolve_matcher,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
     compile_check,
     run_monitor,
@@ -244,6 +246,38 @@ def _detect_check_key(rule: dict) -> str | None:
     return None
 
 
+# ---- strength / scope signal (honesty, not an oracle) ----------------------- #
+# A GREEN gate must not be misread as "the system is correct": it only proves the events the
+# author NAMED arrived with the asserted shape. `_strength` classifies a check's discriminating
+# power (from the rule alone), so a gate can self-report HOW HARD it asserted — an all
+# `existence-only` gate proved tokens were emitted, pinned no field, ordered nothing, forbade
+# nothing. Higher strength is still author-vs-author (the `where` value descends from the same
+# mental model) — a harder self-check, NOT an external oracle (see METHODOLOGY "log-free zones").
+_STRENGTH_BY_KEY = {
+    "absent": "forbid", "must_order": "ordered", "ratioMetric": "ratio",
+    "heartbeat": "liveness", "conforms": "conformance",
+}
+
+
+def _strength(rule: dict) -> str:
+    """Discriminating-power class of a check (pure, total over every registry key + the default
+    count). Low→high: existence-only < bounded < value-pinned/ordered/forbid/threshold <
+    ratio/liveness/conformance."""
+    key = _detect_check_key(rule)
+    if key in _STRENGTH_BY_KEY:
+        return _STRENGTH_BY_KEY[key]
+    if key == "present":
+        ms = rule.get("present") or []
+        return "value-pinned" if any(m.get("where") for m in ms) else "existence-only"
+    # default count check (and any custom predicate without a richer shape)
+    if rule.get("where"):
+        return "value-pinned"
+    if rule.get("threshold") is not None:
+        return "threshold"
+    tight = _norm_op(rule.get("op", ">=")) in ("==", "!=", "<=", "<")
+    return "bounded" if tight else "existence-only"
+
+
 def _resolve_cid(spec: dict) -> str:
     if spec.get("cid"):
         return str(spec["cid"])
@@ -353,10 +387,17 @@ def evaluate_events(
         # drop the flag to promote it to a hard gate (see `pending_satisfied`).
         chk["pending"] = bool(rule.get("pending", False))
         chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
+        chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
         checks.append(chk)
     # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
     # misses are surfaced separately so a silently-degraded stream never reads as clean.
     gating = [c for c in checks if not c["optional"] and not c["pending"]]
+    # A gate must assert something that can FAIL to be a clean pass. The old `bool(checks)` guard
+    # only caught ZERO checks; a gate whose every check is optional/pending (gating==0) ALSO
+    # asserts nothing that can fail and must equally not be GREEN — this is the agent-loop's free
+    # weakening move (mark-optional / mark-pending to turn a gate green). `vacuous` is the reason.
+    asserts_anything = bool(gating)
+    vacuous = bool(checks) and not asserts_anything
     threshold = spec.get("threshold")
     if threshold is None:
         # all-or-nothing (default, unchanged): every gating check must pass.
@@ -369,17 +410,26 @@ def evaluate_events(
         score = (sum(c["weight"] for c in gating if c["passed"]) / wtot) if wtot else 1.0
         required_ok = score >= float(threshold)
     # A store we never reached (reachable=False) is INFRA and a truncated read
-    # (complete=False) is incomplete evidence — neither is ever a clean pass (CLI exit 2).
-    # A gate with NO checks at all (empty `expect:` and no injected forbid wing) asserts
-    # nothing — `all([])` is vacuously True — so it would report GREEN while proving nothing
-    # arrived. That is the false-green this tool exists to kill, so a check-less gate is never
-    # a clean pass. (Checks that are all optional/pending are a different, intentional case.)
+    # (complete=False) is incomplete evidence — neither is ever a clean pass (CLI exit 2). And a
+    # gate that asserts nothing GATING (empty expect, or every check optional/pending) is never a
+    # clean pass either (`asserts_anything`, above). `scope` reports what — and how hard — this
+    # verdict actually asserted, so GREEN cannot be misread as "the system is correct": it is a
+    # closed-world claim over the events the author NAMED, not over un-named behavior.
     result = {
-        "ok": reachable and complete and bool(checks) and required_ok,
+        "ok": reachable and complete and asserts_anything and required_ok,
         "reachable": reachable,
         "complete": complete,
+        "vacuous": vacuous,
         "cid": cid,
         "checks": checks,
+        "scope": {
+            "gating": len(gating),
+            "optional": sum(1 for c in checks if c["optional"]),
+            "pending": sum(1 for c in checks if c["pending"]),
+            "total": len(checks),
+            "asserts_anything": asserts_anything,
+            "by_strength": dict(Counter(c["strength"] for c in gating)),
+        },
         "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
         "pending_failed": [_label(c) for c in checks if c["pending"] and not c["passed"]],
         "pending_satisfied": [_label(c) for c in checks if c["pending"] and c["passed"]],
@@ -388,6 +438,25 @@ def evaluate_events(
         result["score"] = score
         result["threshold"] = float(threshold)
     return result
+
+
+def green_banner(result: dict) -> str:
+    """One honest line for a GREEN gate: WHAT (scope) and HOW HARD (strength) it actually
+    asserted, so green is not read as "the system is correct". Pure — shared by the CLI."""
+    sc = result.get("scope", {})
+    bys = sc.get("by_strength") or {}
+    profile = " ".join(f"{k}={v}" for k, v in sorted(bys.items())) or "none"
+    line = (
+        f"GREEN closed-world over {sc.get('total', 0)} named expectation(s): "
+        f"{sc.get('gating', 0)} gating, {sc.get('optional', 0)} optional, "
+        f"{sc.get('pending', 0)} pending [by-strength: {profile}]. Certifies the named events "
+        "ARRIVED with the asserted shape; does NOT certify the system is correct (un-named "
+        f"behavior is unobserved). (cid={result.get('cid')})"
+    )
+    if sc.get("gating") and set(bys) <= {"existence-only"}:
+        line += (" WARNING: every gating check is existence-only — proves tokens were emitted, "
+                 "not that they had any effect.")
+    return line
 
 
 def can_i_deploy(results: list[dict]) -> dict:

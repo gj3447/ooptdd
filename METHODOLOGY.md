@@ -136,3 +136,28 @@ scale (1000+ events/s) is unproven here. Keep a human in the loop on the critica
 path: ooptdd deliberately does **not** treat *absence of evidence* as automatic
 failure (`inconclusive` ≠ fail) — that is a condition of correct use, not a
 suggestion.
+
+### GREEN is a closed-world consistency claim, not a correctness claim
+
+A verdict is `f(emitted_events, spec)` where **both inputs descend from one authority** — the
+code you wrote *to emit* and the spec you wrote *to expect*. There is no second, independently
+grounded input, so ooptdd is a **derived/pseudo-oracle** (Weyuker 1982): it detects
+*disagreement* between emission and expectation, and is **structurally blind to any error common
+to both** (a wrong understanding produces a wrong emit *and* a matching wrong/absent expectation —
+GREEN). Concretely, GREEN means *“the events I **named** arrived with the asserted shape,”* never
+*“the system is correct.”* To keep this honest the gate result carries a `scope` block (`gating`/
+`optional`/`pending` counts + per-check `strength`: existence-only < bounded < value-pinned/
+ordered/forbid < ratio/liveness/conformance) and the CLI prints it on green. Two rules follow:
+
+- **`asserts_anything` (≥1 *gating* check) is necessary, not sufficient.** A gate whose every
+  check is `optional`/`pending` asserts nothing that can fail — it is `vacuous`, never a clean
+  pass (this closes the cheapest way to fake green: mark the last check optional/pending). But a
+  non-vacuous gate is still only a *closed-world* claim over the events you named; an
+  un-instrumented path emits nothing and is simply *outside* the verdict — not present, not
+  absent, not inconclusive.
+- **Higher `strength` is a harder *self*-check, not an external oracle.** `value-pinned` means a
+  `where` field matched — but that field value descends from the *same mental model* as the emit
+  (`where: {residual: 0.0}` against a stub that emits `0.0` is green forever). For the *effect*
+  behind an event (a payment actually moved, a measurement is in tolerance), you must leave ooptdd
+  and assert against the **territory** directly (principle 6 ⑤; the numeric/security/concurrency
+  log-free zones of principle 7) — an external oracle ooptdd does not have by construction.
