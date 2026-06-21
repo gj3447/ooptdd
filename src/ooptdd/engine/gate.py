@@ -76,6 +76,7 @@ from dataclasses import dataclass
 
 from ..domain.ports import Backend, Clock, QuerySpec, SystemClock, TimeWindow, fetch
 from .monitor import (  # the evaluation kernel
+    _OPS,
     _matches,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
     _norm_op,
     _resolve_matcher,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
@@ -101,6 +102,8 @@ class CheckCtx:
     indicators: dict
     ontology: object | None = None
     allow_errors: list | None = None
+    probe: object | None = None  # an ExternalProbe (independent oracle) for `external:` checks
+    cid: str | None = None
 
 
 CheckFn = Callable[[list, dict, CheckCtx], dict]
@@ -147,6 +150,8 @@ def load_gate(path: str) -> dict:
 
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
+    if "external" in chk:
+        return "external:" + str(chk.get("external"))
     if "invariant" in chk:
         inv = chk["invariant"]
         return "invariant:" + (inv if isinstance(inv, str) else "expr")
@@ -221,6 +226,35 @@ def _check_invariant(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)
 
 
+@check("external")
+def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    """The independent-oracle check: assert against an external fact (ctx.probe), NOT the system's
+    own emit. A missing probe is a loud misconfiguration (never a silent green); an unreachable
+    probe is inconclusive (surfaced via ``probe_reachable=False``, never a strict fail)."""
+    spec = rule["external"]
+    op = _norm_op(spec.get("op", "=="))
+    base = {"external": spec.get("kind", "?"), "op": op, "want": spec.get("want"),
+            "selector": spec.get("selector")}
+    if ctx.probe is None:
+        return {**base, "passed": False, "probe_reachable": None,
+                "reason": "no_external_probe_configured"}
+    res = ctx.probe.probe(spec.get("kind"), spec.get("selector"), ctx.cid)
+    if not res.reachable or not getattr(res, "complete", True):
+        return {**base, "passed": False, "probe_reachable": False, "value": None,
+                "reason": "external_probe_unreachable"}
+    value, want = res.value, spec.get("want")
+    if want is None:
+        passed = value is not None  # the external fact merely has to EXIST
+    elif op == "==":
+        try:
+            passed = abs(value - want) <= float(spec.get("tol", 0.0))
+        except TypeError:
+            passed = value == want
+    else:
+        passed = _OPS[op](value, want)
+    return {**base, "value": value, "probe_reachable": True, "passed": bool(passed)}
+
+
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The default check (no predicate keyword): a :class:`CountMonitor` over the rule's
     event/where compared with op/target. The documented fallback when no registered
@@ -240,6 +274,7 @@ _KEY_PROBES = (
     ("ratioMetric", "ratioMetric"),
     ("conforms", "conforms"),
     ("invariant", "invariant"),
+    ("external", "external"),
 )
 
 
@@ -265,14 +300,16 @@ def _detect_check_key(rule: dict) -> str | None:
 _STRENGTH_BY_KEY = {
     "absent": "forbid", "must_order": "ordered", "ratioMetric": "ratio",
     "heartbeat": "liveness", "conforms": "conformance", "invariant": "invariant",
+    "external": "external",
 }
 
 # Discriminating-power weight per strength class — basis of the scalar strength score that turns
 # "the agent weakened the gate to win" into a measurable REGRESSION (see strength_fingerprint).
+# `external` ranks highest: it is the only class whose input is NOT the system's own self-report.
 _STRENGTH_RANK = {
     "existence-only": 1, "bounded": 2, "threshold": 2,
     "value-pinned": 3, "ordered": 3, "forbid": 3,
-    "ratio": 4, "liveness": 4, "conformance": 4, "invariant": 5,
+    "ratio": 4, "liveness": 4, "conformance": 4, "invariant": 5, "external": 6,
 }
 
 
@@ -339,6 +376,7 @@ def evaluate(
     future_buffer_s: int | None = None,
     ontology=None,
     clock: Clock | None = None,
+    probe=None,
 ) -> dict:
     """Run a gate spec once: read the backend, then judge the events.
 
@@ -373,7 +411,7 @@ def evaluate(
     # getattr default keeps duck-typed/older result objects (no `complete` field) working.
     return evaluate_events(
         spec, res.events, reachable=res.reachable,
-        complete=getattr(res, "complete", True), ontology=ontology, cid=cid,
+        complete=getattr(res, "complete", True), ontology=ontology, cid=cid, probe=probe,
     )
 
 
@@ -385,6 +423,7 @@ def evaluate_events(
     complete: bool = True,
     ontology=None,
     cid: str | None = None,
+    probe=None,
 ) -> dict:
     """Judge an already-fetched event set against a gate spec (no I/O).
 
@@ -418,7 +457,8 @@ def evaluate_events(
     # read (complete=False) is incomplete evidence and gates every check, exactly like an
     # unreachable store. The top-level result still reports the true reachable/complete.
     ctx = CheckCtx(reachable=reachable and complete, indicators=indicators,
-                   ontology=ontology, allow_errors=spec.get("allow_errors"))
+                   ontology=ontology, allow_errors=spec.get("allow_errors"),
+                   probe=probe, cid=cid)
     checks = []
     for rule in rules:
         key = _detect_check_key(rule)
@@ -466,10 +506,15 @@ def evaluate_events(
     observed = {e.get("event") for e in events if e.get("event")}
     asserted = set().union(*(_rule_event_names(r) for r in rules)) if rules else set()
     named = observed & asserted
+    # An `external:` check whose probe was unreachable surfaces probe_reachable=False so the verdict
+    # layer maps it to inconclusive (?), never a strict fail — the same honesty as an unreachable
+    # store. A missing probe (no_external_probe_configured) is a loud RED, not a silent green.
+    probe_reachable = not any(c.get("probe_reachable") is False for c in checks)
     result = {
         "ok": reachable and complete and asserts_anything and required_ok,
         "reachable": reachable,
         "complete": complete,
+        "probe_reachable": probe_reachable,
         "vacuous": vacuous,
         "cid": cid,
         "checks": checks,
