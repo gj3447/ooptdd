@@ -37,7 +37,7 @@ from .config import from_mapping, load_pyproject
 from .domain.model import signature_status, verify_chain
 from .domain.ontology import Ontology, check_conformance, ontology_compat
 from .domain.ports import backend_caps
-from .engine.gate import can_i_deploy, evaluate, green_banner, load_gate
+from .engine.gate import can_i_deploy, evaluate, green_banner, lint_spec, load_gate
 from .engine.verify import verify_gate, verify_trace
 from .mutation import mutation_report
 
@@ -129,6 +129,22 @@ def _cmd_gate(args) -> int:
     return 1
 
 
+def _cmd_lint(args) -> int:
+    findings = lint_spec(load_gate(args.spec))
+    if getattr(args, "json", False):
+        print(json.dumps({"vacuity": findings}, ensure_ascii=False, indent=2))
+    for f in findings:
+        print(f"  [{f['severity']}] {f['code']} {f['label']}: {f['message']}", file=sys.stderr)
+    high = [f for f in findings if f["severity"] == "high"]
+    if high:
+        print(f"VACUOUS — {len(high)} blocking finding(s); the gate is weak by construction",
+              file=sys.stderr)
+        return 1
+    print("OK — no vacuity findings" if not findings
+          else f"WARN — {len(findings)} strength finding(s)", file=sys.stderr)
+    return 0
+
+
 def _cmd_can_i_deploy(args) -> int:
     backend = _backend(args)
     results = [evaluate(backend, load_gate(spec)) for spec in args.specs]
@@ -208,7 +224,8 @@ def _cmd_monitor(args) -> int:
     view = {"cid": res["cid"], "ok": res["ok"], "reachable": res["reachable"],
             "complete": res.get("complete", True),
             "checks": [{"label": c.get("event") or next((k for k in
-                        ("present", "absent", "must_order", "conforms", "heartbeat", "ratio")
+                        ("present", "absent", "must_order", "conforms", "heartbeat", "ratio",
+                         "invariant")
                         if k in c), "check"),
                         "verdict": c.get("verdict"), "settled_at": c.get("settled_at"),
                         "passed": c["passed"]} for c in res["checks"]]}
@@ -247,6 +264,9 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
     - {must_order: [a, b, c], within_s: S}           # sequencing (a.k.a. trajectory:)
     - {heartbeat: NAME, every_s: S}                  # liveness
     - {ratioMetric: {good: {...}, total: {...}}, op: gte, target: 0.99}
+    - {invariant: {left: {reduce: sum, field: amount, event: A},   # cross-event conservation
+                   right: {reduce: count|sum|min|max|last, field: F, event: B},
+                   op: "==", tol: 0.01}}
     - {conforms: EVENTTYPE, closed_world: true}      # ontology conformance
     - {indicatorRef: NAME}  with top-level indicators: {NAME: {event:.., where:..}}
   optional: true / pending: true / weight: N    (per-check modifiers)
@@ -294,6 +314,11 @@ def main(argv=None) -> int:
     g.add_argument("spec")
     g.add_argument("--backend")
     g.set_defaults(func=_cmd_gate)
+
+    ln = sub.add_parser("lint", help="static strength audit of a gate spec (catch vacuous gates)")
+    ln.add_argument("spec")
+    _add_json(ln)
+    ln.set_defaults(func=_cmd_lint)
 
     d = sub.add_parser("can-i-deploy", help="Pact-style multi-gate deploy decision")
     d.add_argument("specs", nargs="+")

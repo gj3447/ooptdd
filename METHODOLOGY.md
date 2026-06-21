@@ -161,3 +161,13 @@ ordered/forbid < ratio/liveness/conformance) and the CLI prints it on green. Two
   behind an event (a payment actually moved, a measurement is in tolerance), you must leave ooptdd
   and assert against the **territory** directly (principle 6 ⑤; the numeric/security/concurrency
   log-free zones of principle 7) — an external oracle ooptdd does not have by construction.
+
+Two tools push against (without escaping) this boundary. **`invariant`** asserts a *relation
+between events* — `sum(amount@payment) == sum(amount@shipment)`, `count(request) == count(response)`
+within a tolerance — the first check that rises above token-counting toward value *consistency*,
+and it kills the emit-without-effect green the moment you assert it (a `payment_authorized` with no
+`amount` yields `invariant_no_evidence`, RED). It is still **intra-trace, single-authority**: it
+catches inconsistency *between* the system's own events, not event-vs-territory. **`ooptdd lint
+<spec>`** is a static, offline audit that refuses a vacuously-satisfiable gate *before* any run —
+no gating checks, a `threshold < 1` quorum without justification, or an existence-only gating check
+— so a weak gate is caught at author time, not after a green.
