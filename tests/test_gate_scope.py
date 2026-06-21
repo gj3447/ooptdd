@@ -201,3 +201,20 @@ def test_single_authority_is_false_on_an_empty_gate():
     res = _eval([{"event": "a", "op": ">=", "count": 1, "optional": True}], [_ev("a")])
     assert res["scope"]["gating"] == 0 and res["vacuous"] is True
     assert res["oracle"]["single_authority"] is False
+
+
+def test_conforms_drift_offender_counts_as_charged_evidence():
+    """A closed-world conforms check that SAW a drift offender (an undeclared in-scope event) did
+    see evidence — it must not read as 'uncharged' (saw nothing). The drift event leaves `checked` 0
+    (it was never validated against a declared type), so charge keys off `unknown` too. Distinct
+    from ontology_not_loaded, which has unknown==[] and truly saw nothing."""
+    from ooptdd.domain.ontology import Ontology
+
+    onto = Ontology.from_dict({"event_types": {"pay": {"required": ["amount"]}},
+                               "closed_world": True})
+    res = evaluate_events({"expect": [{"conforms": "*"}]}, [_ev("ghost", 1)],
+                          reachable=True, complete=True, cid="c", ontology=onto)
+    chk = res["checks"][0]
+    assert chk["checked"] == 0 and chk["unknown"] == ["ghost"]  # saw a drift event, none declared
+    assert chk["charged"] is True
+    assert res["scope"]["charged"] == 1
