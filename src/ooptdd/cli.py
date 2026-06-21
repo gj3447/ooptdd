@@ -85,12 +85,23 @@ def _load_json_file(path: str):
         return json.load(fh)
 
 
+def _resolve_probe(spec: dict):
+    """A spec may name an external-oracle probe (``probe: {name: file, root: ...}``); resolve it
+    via the probe registry so an ``external:`` check is usable from the CLI. None if absent."""
+    p = spec.get("probe")
+    if isinstance(p, dict) and p.get("name"):
+        from .probes import get_probe
+        return get_probe(p["name"], **{k: v for k, v in p.items() if k != "name"})
+    return None
+
+
 # ── verify (pytest summary, or an arbitrary --gate spec) ───────────────────────
 def _cmd_verify(args) -> int:
     backend = _backend(args)
     if args.gate:
-        res = verify_gate(backend, args.cid, load_gate(args.gate), retries=args.retries,
-                          delay=args.delay)
+        gate = load_gate(args.gate)
+        res = verify_gate(backend, args.cid, gate, retries=args.retries,
+                          delay=args.delay, probe=_resolve_probe(gate))
         print(json.dumps(res, ensure_ascii=False, indent=2))
         v = res["verdict"]
         msg = {"present": "GREEN — arrival confirmed", "absent": "RED — not all expected "
@@ -115,7 +126,8 @@ def _cmd_verify(args) -> int:
 
 def _cmd_gate(args) -> int:
     backend = _backend(args)
-    res = evaluate(backend, load_gate(args.spec))
+    spec = load_gate(args.spec)
+    res = evaluate(backend, spec, probe=_resolve_probe(spec))
     print(json.dumps(res, ensure_ascii=False, indent=2))
     if res.get("optional_failed"):
         print(f"WARN — optional checks failed (not gating): {res['optional_failed']}",

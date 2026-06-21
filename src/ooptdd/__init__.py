@@ -49,6 +49,7 @@ from .domain import (
 )
 from .domain.model import build_outcome_records
 from .domain.ontology import EventType, Ontology, check_conformance
+from .domain.ports import ExternalProbe, ProbeResult
 from .engine.gate import can_i_deploy, check, evaluate, evaluate_events
 from .engine.monitor import LiveMonitorSet, compile_check
 from .engine.verify import (
@@ -58,6 +59,7 @@ from .engine.verify import (
     verify_policy,
     verify_trace,
 )
+from .probes import CallableProbe, ProbeRegistry, get_probe
 
 __all__ = [
     "build_outcome_records",
@@ -88,6 +90,11 @@ __all__ = [
     "Ontology",
     "EventType",
     "check_conformance",
+    "ExternalProbe",
+    "ProbeResult",
+    "CallableProbe",
+    "ProbeRegistry",
+    "get_probe",
 ]
 
 __version__ = "0.3.0"
