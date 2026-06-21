@@ -389,7 +389,9 @@ def _check_charged(chk: dict) -> bool:
     if "heartbeat" in chk:
         return chk.get("beats", 0) > 0
     if "conforms" in chk:
-        return chk.get("checked", 0) > 0
+        # evidence = it validated a declared-type event OR saw a closed-world drift offender
+        # (`unknown`). ontology_not_loaded has unknown==[] so it stays uncharged (it saw nothing).
+        return chk.get("checked", 0) > 0 or bool(chk.get("unknown"))
     if "absent" in chk:
         return chk.get("violations", 0) > 0  # absent is "charged" only if it SAW an offender
     return False
