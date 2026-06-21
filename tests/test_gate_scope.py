@@ -92,3 +92,26 @@ def test_green_banner_is_pure_and_renders_none():
     empty = {"scope": {"total": 0, "gating": 0, "optional": 0, "pending": 0, "by_strength": {}},
              "cid": "c"}
     assert "[by-strength: none]" in green_banner(empty)
+
+
+# ── stream charge-coverage (the measured closed-world gap) ─────────────────────
+def test_stream_coverage_surfaces_arrived_unobserved_event_types():
+    # 3 event types arrive; the gate names only `a` -> coverage 1/3, 2 arrived UNOBSERVED
+    res = _eval([{"event": "a", "op": ">=", "count": 1}], [_ev("a"), _ev("b"), _ev("c")])
+    sc = res["scope"]
+    assert sc["observed_event_types"] == 3 and sc["named_event_types"] == 1
+    assert sorted(sc["unasserted_observed"]) == ["b", "c"]
+    assert abs(sc["stream_coverage"] - 1 / 3) < 1e-9
+    banner = green_banner(res)
+    assert "Stream-coverage: 1/3" in banner and "UNOBSERVED: b,c" in banner
+
+
+def test_stream_coverage_full_when_gate_names_all_arrived():
+    res = _eval([{"present": [{"event": "a"}, {"event": "b"}]}], [_ev("a"), _ev("b")])
+    sc = res["scope"]
+    assert sc["stream_coverage"] == 1.0 and sc["unasserted_observed"] == []
+
+
+def test_stream_coverage_none_when_nothing_arrived():
+    res = _eval([{"event": "a", "op": ">=", "count": 1, "pending": True}], [])
+    assert res["scope"]["stream_coverage"] is None  # no events -> no coverage, no crash

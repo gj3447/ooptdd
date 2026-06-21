@@ -287,6 +287,32 @@ def _strength(rule: dict) -> str:
     return "bounded" if tight else "existence-only"
 
 
+def _rule_event_names(rule: dict) -> set[str]:
+    """Event names a single gate rule asserts on, best-effort across every check shape — used to
+    measure how much of the OBSERVED stream the gate actually names (the closed-world signal)."""
+    names: set[str] = set()
+    for key in ("present", "absent", "forbid"):
+        v = rule.get(key)
+        for m in (v if isinstance(v, list) else [v] if isinstance(v, dict) else []):
+            if isinstance(m, dict):
+                names.add(m.get("event"))
+    for key in ("must_order", "trajectory"):
+        for part in rule.get(key) or []:
+            names.add(part if isinstance(part, str) else
+                      part.get("event") if isinstance(part, dict) else None)
+    for container, sides in (("ratioMetric", ("good", "total")), ("invariant", ("left", "right"))):
+        c = rule.get(container)
+        if isinstance(c, dict):
+            for side in sides:
+                if isinstance(c.get(side), dict):
+                    names.add(c[side].get("event"))
+    names.add(rule.get("heartbeat"))
+    if isinstance(rule.get("conforms"), str):
+        names.add(rule["conforms"])
+    names.add(rule.get("event"))
+    return {n for n in names if isinstance(n, str) and n}
+
+
 def _resolve_cid(spec: dict) -> str:
     if spec.get("cid"):
         return str(spec["cid"])
@@ -424,6 +450,14 @@ def evaluate_events(
     # clean pass either (`asserts_anything`, above). `scope` reports what — and how hard — this
     # verdict actually asserted, so GREEN cannot be misread as "the system is correct": it is a
     # closed-world claim over the events the author NAMED, not over un-named behavior.
+    # Stream charge-coverage: of the event TYPES that actually arrived for this cid, how many
+    # does the gate even name? `unasserted_observed` are events the system emitted that NO check
+    # observes — a measured slice of the closed-world gap (the rest, un-emitted paths, stays
+    # invisible). A green gate that names 1 of 9 arrived types is technically green and almost
+    # blind; this puts a number on it.
+    observed = {e.get("event") for e in events if e.get("event")}
+    asserted = set().union(*(_rule_event_names(r) for r in rules)) if rules else set()
+    named = observed & asserted
     result = {
         "ok": reachable and complete and asserts_anything and required_ok,
         "reachable": reachable,
@@ -438,6 +472,10 @@ def evaluate_events(
             "total": len(checks),
             "asserts_anything": asserts_anything,
             "by_strength": dict(Counter(c["strength"] for c in gating)),
+            "observed_event_types": len(observed),
+            "named_event_types": len(named),
+            "unasserted_observed": sorted(observed - asserted)[:10],
+            "stream_coverage": (len(named) / len(observed)) if observed else None,
         },
         "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
         "pending_failed": [_label(c) for c in checks if c["pending"] and not c["passed"]],
@@ -465,6 +503,11 @@ def green_banner(result: dict) -> str:
     if sc.get("gating") and set(bys) <= {"existence-only"}:
         line += (" WARNING: every gating check is existence-only — proves tokens were emitted, "
                  "not that they had any effect.")
+    if sc.get("stream_coverage") is not None:
+        line += (f" Stream-coverage: {sc.get('named_event_types')}/"
+                 f"{sc.get('observed_event_types')} arrived event-type(s) named")
+        un = sc.get("unasserted_observed") or []
+        line += f" ({len(un)} arrived UNOBSERVED: {','.join(un[:5])})." if un else "."
     return line
 
 
