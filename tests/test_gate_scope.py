@@ -192,3 +192,12 @@ def test_require_corroboration_is_not_satisfied_by_a_refuting_oracle():
     assert res["oracle"]["corroborated"] == 0   # the refuting oracle is not corroboration
     assert res["uncorroborated"] is True        # so the mandate is UNMET
     assert res["ok"] is False                   # and the gate is RED despite meeting the quorum
+
+
+def test_single_authority_is_false_on_an_empty_gate():
+    """single_authority is a claim ABOUT the gating checks (this green rests on the system agreeing
+    with itself). An empty/vacuous gate has no gating checks and no green at all — claiming
+    single_authority would assert self-authority where there is no authority (nor pass) at all."""
+    res = _eval([{"event": "a", "op": ">=", "count": 1, "optional": True}], [_ev("a")])
+    assert res["scope"]["gating"] == 0 and res["vacuous"] is True
+    assert res["oracle"]["single_authority"] is False

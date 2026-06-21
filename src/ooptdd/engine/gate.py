@@ -587,7 +587,7 @@ def evaluate_events(
             "gating": len(gating),
             "corroborated": corroborated,
             "derived_self": len(gating) - corroborated,
-            "single_authority": corroborated == 0,
+            "single_authority": bool(gating) and corroborated == 0,
             "enforced": rc,
         },
         "scope": {
