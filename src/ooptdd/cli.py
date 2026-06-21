@@ -37,7 +37,15 @@ from .config import from_mapping, load_pyproject
 from .domain.model import signature_status, verify_chain
 from .domain.ontology import Ontology, check_conformance, ontology_compat
 from .domain.ports import backend_caps
-from .engine.gate import can_i_deploy, evaluate, green_banner, lint_spec, load_gate
+from .engine.gate import (
+    can_i_deploy,
+    compare_strength,
+    evaluate,
+    green_banner,
+    lint_spec,
+    load_gate,
+    strength_fingerprint,
+)
 from .engine.verify import verify_gate, verify_trace
 from .mutation import mutation_report
 
@@ -142,6 +150,22 @@ def _cmd_lint(args) -> int:
         return 1
     print("OK — no vacuity findings" if not findings
           else f"WARN — {len(findings)} strength finding(s)", file=sys.stderr)
+    return 0
+
+
+def _cmd_strength(args) -> int:
+    fp = strength_fingerprint(load_gate(args.spec))
+    if args.write:
+        with open(args.write, "w", encoding="utf-8") as fh:
+            json.dump(fp, fh, indent=2)
+    if args.baseline:
+        cmp = compare_strength(_load_json_file(args.baseline), fp)
+        _emit({"fingerprint": fp, **cmp}, args,
+              ("WEAKENED — " + "; ".join(cmp["regressions"])) if cmp["weakened"]
+              else f"OK — strength held (score {fp['score']} >= baseline {cmp['baseline_score']})")
+        return 1 if cmp["weakened"] else 0
+    _emit(fp, args, f"strength score={fp['score']} gating={fp['gating']} "
+          f"by_strength={fp['by_strength']} min_threshold={fp['min_threshold']}")
     return 0
 
 
@@ -319,6 +343,13 @@ def main(argv=None) -> int:
     ln.add_argument("spec")
     _add_json(ln)
     ln.set_defaults(func=_cmd_lint)
+
+    st = sub.add_parser("strength", help="gate strength fingerprint; --baseline catches weakening")
+    st.add_argument("spec")
+    st.add_argument("--baseline", help="JSON fingerprint to compare against (exit 1 if weaker)")
+    st.add_argument("--write", help="write the fingerprint JSON to this path (a new baseline)")
+    _add_json(st)
+    st.set_defaults(func=_cmd_strength)
 
     d = sub.add_parser("can-i-deploy", help="Pact-style multi-gate deploy decision")
     d.add_argument("specs", nargs="+")

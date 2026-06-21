@@ -8,7 +8,12 @@
 - ``lint_spec`` — a static, offline strength audit that flags a vacuously-satisfiable gate
   BEFORE any events (the pseudo-tested-gate detector).
 """
-from ooptdd.engine.gate import evaluate_events, lint_spec
+from ooptdd.engine.gate import (
+    compare_strength,
+    evaluate_events,
+    lint_spec,
+    strength_fingerprint,
+)
 
 
 def _ev(name, ts=1, **f):
@@ -105,3 +110,42 @@ def test_lint_vac3_existence_only_check():
 def test_lint_clean_strong_spec_has_no_blocking_findings():
     f = lint_spec({"expect": [{"event": "a", "where": {"k": "v"}}, {"must_order": ["a", "b"]}]})
     assert not any(x["severity"] == "high" for x in f)  # value-pinned + ordered, non-vacuous
+
+
+# ── strength fingerprint + weakening-diff guard ───────────────────────────────
+def test_strength_fingerprint_ranks_discriminating_power():
+    weak = strength_fingerprint({"expect": [{"event": "a"}]})  # existence-only
+    strong = strength_fingerprint({"expect": [
+        {"event": "a", "where": {"k": "v"}}, {"must_order": ["a", "b"]},
+        _inv({"reduce": "sum", "field": "x", "event": "a"},
+             {"reduce": "sum", "field": "x", "event": "b"})]})
+    assert strong["score"] > weak["score"]
+    assert weak["by_strength"] == {"existence-only": 1}
+
+
+def test_compare_strength_flags_a_dropped_where():
+    base = strength_fingerprint({"expect": [{"event": "a", "where": {"k": "v"}}]})  # value-pinned
+    weakened = strength_fingerprint({"expect": [{"event": "a"}]})                   # where dropped
+    cmp = compare_strength(base, weakened)
+    assert cmp["weakened"] is True
+    assert any("score dropped" in r for r in cmp["regressions"])
+    assert any("value-pinned" in r for r in cmp["regressions"])
+
+
+def test_compare_strength_holds_when_unchanged():
+    fp = strength_fingerprint({"expect": [{"event": "a", "where": {"k": "v"}}]})
+    assert compare_strength(fp, fp)["weakened"] is False
+
+
+def test_compare_strength_flags_marking_the_last_check_optional():
+    base = strength_fingerprint({"expect": [{"event": "a", "where": {"k": 1}}]})
+    opt = strength_fingerprint({"expect": [{"event": "a", "where": {"k": 1}, "optional": True}]})
+    cmp = compare_strength(base, opt)
+    assert cmp["weakened"] and any("gating checks dropped" in r for r in cmp["regressions"])
+
+
+def test_compare_strength_flags_lowered_threshold():
+    spec = {"expect": [{"event": "a", "where": {"k": 1}}]}
+    cmp = compare_strength(strength_fingerprint(spec),
+                           strength_fingerprint({**spec, "threshold": 0.5}))
+    assert cmp["weakened"] and any("threshold lowered" in r for r in cmp["regressions"])

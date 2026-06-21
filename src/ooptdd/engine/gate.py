@@ -267,6 +267,14 @@ _STRENGTH_BY_KEY = {
     "heartbeat": "liveness", "conforms": "conformance", "invariant": "invariant",
 }
 
+# Discriminating-power weight per strength class — basis of the scalar strength score that turns
+# "the agent weakened the gate to win" into a measurable REGRESSION (see strength_fingerprint).
+_STRENGTH_RANK = {
+    "existence-only": 1, "bounded": 2, "threshold": 2,
+    "value-pinned": 3, "ordered": 3, "forbid": 3,
+    "ratio": 4, "liveness": 4, "conformance": 4, "invariant": 5,
+}
+
 
 def _strength(rule: dict) -> str:
     """Discriminating-power class of a check (pure, total over every registry key + the default
@@ -545,6 +553,45 @@ def lint_spec(spec: dict) -> list[dict]:
                                    "arrived, pins no field/order/forbid. Add a `where`, "
                                    "`must_order`, `absent`, or `invariant` to discriminate."})
     return out
+
+
+def strength_fingerprint(spec: dict) -> dict:
+    """A scalar + profile summary of a gate's discriminating power, computed from the spec alone
+    (pure). It is the basis for catching a *weakening* — dropping a `where`, marking a check
+    optional/pending, lowering a `threshold` — as a strength REGRESSION the way CI catches a
+    coverage drop, which directly counters the agent-loop's incentive to win by weakening the gate.
+    A quorum `threshold < 1` scales the score down (it licenses dropping expectations)."""
+    rules = list(spec.get("expect", []))
+    gating = [r for r in rules if not r.get("optional") and not r.get("pending")]
+    strengths = [_strength(r) for r in gating]
+    threshold = float(spec.get("threshold", 1.0))
+    raw = sum(_STRENGTH_RANK.get(s, 1) for s in strengths)
+    return {
+        "gating": len(gating),
+        "by_strength": dict(Counter(strengths)),
+        "min_threshold": threshold,
+        "score": round(raw * threshold, 4),
+    }
+
+
+def compare_strength(baseline: dict, current: dict) -> dict:
+    """Did ``current`` get WEAKER than ``baseline``? Returns ``{weakened, regressions[], ...}`` —
+    a non-empty ``regressions`` list (fewer gating checks, a lower score/threshold, or a stronger
+    check class that disappeared) is a strength regression to fail in CI."""
+    regs: list[str] = []
+    if current["gating"] < baseline["gating"]:
+        regs.append(f"gating checks dropped {baseline['gating']} -> {current['gating']}")
+    if current["score"] < baseline["score"]:
+        regs.append(f"strength score dropped {baseline['score']} -> {current['score']}")
+    if current["min_threshold"] < baseline["min_threshold"]:
+        regs.append(f"threshold lowered {baseline['min_threshold']} -> {current['min_threshold']}")
+    bb, cb = baseline.get("by_strength", {}), current.get("by_strength", {})
+    for cls in ("invariant", "ratio", "conformance", "liveness",
+                "ordered", "forbid", "value-pinned"):
+        if cb.get(cls, 0) < bb.get(cls, 0):
+            regs.append(f"{cls} checks dropped {bb.get(cls, 0)} -> {cb.get(cls, 0)}")
+    return {"weakened": bool(regs), "regressions": regs,
+            "baseline_score": baseline["score"], "current_score": current["score"]}
 
 
 def can_i_deploy(results: list[dict]) -> dict:
