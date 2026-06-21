@@ -136,6 +136,11 @@ def _cmd_gate(args) -> int:
         print("RED — vacuous gate: every check is optional/pending, nothing can fail "
               "(mark at least one check gating)", file=sys.stderr)
         return 1
+    if res.get("uncorroborated"):
+        print("RED — uncorroborated: every gating check is the system's own self-report "
+              "(no separate-source external: corroboration); require_corroboration on",
+              file=sys.stderr)
+        return 1
     print("RED — gate failed", file=sys.stderr)
     return 1
 
@@ -294,12 +299,15 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
     - {invariant: {left: {reduce: sum, field: amount, event: A},   # cross-event conservation
                    right: {reduce: count|sum|min|max|last, field: F, event: B},
                    op: "==", tol: 0.01}}
+    - {metamorphic: {relation: equal|scaled|subset|monotone|idempotent,  # oracle-FREE relation
+                     a: {event: A}, b: {event: B}, reduce: sum, field: F, factor: 2, tol: 0.01}}
     - {external: {kind: db_row, selector: {...}, op: "==", want: 42}}  # INDEPENDENT oracle (not
                                                      #   the trace) — needs evaluate(probe=...)
     - {conforms: EVENTTYPE, closed_world: true}      # ontology conformance
     - {indicatorRef: NAME}  with top-level indicators: {NAME: {event:.., where:..}}
   optional: true / pending: true / weight: N    (per-check modifiers)
   cid: ... | cid_env: OOPTDD_CID | timeWindow: 1h | threshold: 0.9
+  require_corroboration: true    # single-authority gate (no separate-source external:) -> RED
   forbid_errors: true | error_levels: [ERROR, CRITICAL] | allow_errors: [{event: ..}]
 """
 _ONTOLOGY_SCHEMA = """ontology file (yaml) — shape:

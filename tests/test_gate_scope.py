@@ -125,16 +125,23 @@ def test_oracle_single_authority_when_all_self_emitted():
     assert "single authority" in green_banner(res)
 
 
-def test_oracle_corroborated_with_an_external_check():
+def test_oracle_corroborated_only_by_a_separate_source_external_check():
     class _P:
+        def __init__(self, separate):
+            self.separate = separate
+
         def probe(self, kind, selector, cid):
             from ooptdd.domain.ports import ProbeResult
-            return ProbeResult(reachable=True, value=42)
+            return ProbeResult(reachable=True, value=42, separate_source=self.separate)
 
-    res = evaluate_events({"expect": [{"external": {"kind": "x", "selector": {}, "want": 42}}]},
-                          [], reachable=True, complete=True, cid="c", probe=_P())
+    spec = {"expect": [{"external": {"kind": "x", "selector": {}, "want": 42}}]}
+    # a separate-source probe corroborates
+    res = evaluate_events(spec, [], reachable=True, complete=True, cid="c", probe=_P(True))
     assert res["oracle"]["corroborated"] == 1 and res["oracle"]["single_authority"] is False
     assert "independently corroborated" in green_banner(res)
+    # a probe re-reading the system's own store does NOT (relocation, not independence)
+    res2 = evaluate_events(spec, [], reachable=True, complete=True, cid="c", probe=_P(False))
+    assert res2["oracle"]["corroborated"] == 0 and res2["oracle"]["single_authority"] is True
 
 
 # ── charge-ratio (evidenced vs absence-passing) ───────────────────────────────
