@@ -37,7 +37,7 @@ from .config import from_mapping, load_pyproject
 from .domain.model import signature_status, verify_chain
 from .domain.ontology import Ontology, check_conformance, ontology_compat
 from .domain.ports import backend_caps
-from .engine.gate import can_i_deploy, evaluate, load_gate
+from .engine.gate import can_i_deploy, evaluate, green_banner, load_gate
 from .engine.verify import verify_gate, verify_trace
 from .mutation import mutation_report
 
@@ -113,7 +113,7 @@ def _cmd_gate(args) -> int:
         print(f"WARN — optional checks failed (not gating): {res['optional_failed']}",
               file=sys.stderr)
     if res["ok"]:
-        print(f"GREEN — gate passed (cid={res['cid']})", file=sys.stderr)
+        print(green_banner(res), file=sys.stderr)
         return 0
     if not res["reachable"]:
         print("INCONCLUSIVE — store unreachable", file=sys.stderr)
@@ -121,6 +121,10 @@ def _cmd_gate(args) -> int:
     if not res.get("complete", True):
         print("INCONCLUSIVE — readback truncated (incomplete evidence)", file=sys.stderr)
         return 2
+    if res.get("vacuous"):
+        print("RED — vacuous gate: every check is optional/pending, nothing can fail "
+              "(mark at least one check gating)", file=sys.stderr)
+        return 1
     print("RED — gate failed", file=sys.stderr)
     return 1
 

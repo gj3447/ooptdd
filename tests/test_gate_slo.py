@@ -128,7 +128,9 @@ def test_present_optional_miss_does_not_gate():
     res = evaluate(b, {"cid": "c1", "expect": [
         {"present": [{"event": "a"}, {"event": "b"}], "optional": True},
     ]})
-    assert res["ok"] and res["optional_failed"] == ["present:a,b"]
+    # all-optional gate is vacuous (asserts nothing gating) -> not GREEN; miss still surfaced
+    assert res["ok"] is False and res["vacuous"] is True
+    assert res["optional_failed"] == ["present:a,b"]
 
 
 # ── timeWindow parsing (OpenSLO rolling window) ───────────────────────────────

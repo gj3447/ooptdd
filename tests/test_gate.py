@@ -225,7 +225,9 @@ def test_optional_must_order_miss_surfaced():
     res = evaluate(b, {"cid": "c1", "expect": [
         {"must_order": ["a", "b"], "optional": True},
     ]})
-    assert res["ok"] is True and res["optional_failed"] == ["must_order:a>b"]
+    # all-optional gate asserts nothing GATING -> vacuous, never GREEN (miss still surfaced)
+    assert res["ok"] is False and res["vacuous"] is True
+    assert res["optional_failed"] == ["must_order:a>b"]
 
 
 # ── absent / forbid (the negative wing — error logs as failures) ──────────────
