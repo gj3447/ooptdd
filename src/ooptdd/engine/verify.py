@@ -232,6 +232,7 @@ def verify_gate(
     ontology=None,
     clock: Clock | None = None,
     sleeper: Sleeper | None = None,
+    probe=None,
 ) -> dict:
     """Poll until an *arbitrary* gate ``spec`` is satisfied for ``cid`` — generic
     arrival verification for any domain events, not just the pytest summary.
@@ -245,6 +246,7 @@ def verify_gate(
     def evaluate_prefix(events, *, reachable, complete, queried_ok, attempt, final):
         result = evaluate_events(
             spec, events, reachable=reachable, complete=complete, ontology=ontology, cid=cid,
+            probe=probe,
         )
         if not final:
             return {"ok": True, "verdict": "present", "gate": result, "reasons": []} \
