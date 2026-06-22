@@ -74,7 +74,15 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..domain.ports import Backend, Clock, QuerySpec, SystemClock, TimeWindow, fetch
+from ..domain.ports import (
+    Backend,
+    Clock,
+    QuerySpec,
+    SystemClock,
+    TimeWindow,
+    backend_identity,
+    fetch,
+)
 from .monitor import (  # the evaluation kernel
     _OPS,
     _matches,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
@@ -260,7 +268,8 @@ def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     else:
         passed = _OPS[op](value, want)
     return {**base, "value": value, "probe_reachable": True,
-            "separate_source": bool(getattr(res, "separate_source", False)), "passed": bool(passed)}
+            "separate_source": bool(getattr(res, "separate_source", False)),
+            "derived_identity": getattr(res, "derived_identity", None), "passed": bool(passed)}
 
 
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
@@ -451,6 +460,9 @@ def evaluate(
     return evaluate_events(
         spec, res.events, reachable=res.reachable,
         complete=getattr(res, "complete", True), ontology=ontology, cid=cid, probe=probe,
+        # emit provenance: WHO/WHERE these events came from — stamped into oracle{} (so a green
+        # is never a SILENT self-agreement) and used to demote a probe that re-reads this endpoint.
+        emit_backend=type(backend).__name__, emit_identity=backend_identity(backend),
     )
 
 
@@ -463,6 +475,8 @@ def evaluate_events(
     ontology=None,
     cid: str | None = None,
     probe=None,
+    emit_backend: str | None = None,
+    emit_identity: str | None = None,
 ) -> dict:
     """Judge an already-fetched event set against a gate spec (no I/O).
 
@@ -510,11 +524,25 @@ def evaluate_events(
         chk["pending"] = bool(rule.get("pending", False))
         chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
         chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
-        # grounding: where the truth comes from — only a separate-source `external` check is
-        # CORROBORATED by an independent oracle; everything else (incl. a probe re-reading the
-        # system's own store, separate_source=False) is DERIVED-SELF. Orthogonal to strength.
+        # A declared `separate_source=True` is DEMOTED to derived-self when the probe's own
+        # derived_identity equals the emit endpoint: it provably re-read the system's own store, so
+        # the independence claim is false (relocation, not corroboration). Asymmetric on purpose — a
+        # derived identity can FALSIFY a declared True but never PROMOTE a missing one, so an honest
+        # source whose identity we cannot derive (derived_identity=None, or no emit_identity to
+        # compare) keeps its declared bool. This makes `separate_source` checkable, not just trust.
+        _di = chk.get("derived_identity")
+        _same_endpoint = (
+            chk["strength"] == "external" and _di is not None and emit_identity is not None
+            and str(_di).rstrip("/") == str(emit_identity).rstrip("/")
+        )
+        if _same_endpoint and chk.get("separate_source"):
+            chk["demoted_same_endpoint"] = True  # self-explaining: the probe re-read the emit store
+        _effective_separate = bool(chk.get("separate_source")) and not _same_endpoint
+        # grounding: where the truth comes from — only a (non-demoted) separate-source `external`
+        # check is CORROBORATED by an independent oracle; everything else (incl. a probe re-reading
+        # the system's own store) is DERIVED-SELF. Orthogonal to strength.
         chk["grounding"] = ("corroborated" if chk["strength"] == "external"
-                            and chk.get("separate_source") else "derived-self")
+                            and _effective_separate else "derived-self")
         chk["charged"] = _check_charged(chk)  # did it see matching evidence (vs pass on absence)?
         checks.append(chk)
     # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
@@ -591,6 +619,13 @@ def evaluate_events(
             "derived_self": len(gating) - corroborated,
             "single_authority": bool(gating) and corroborated == 0,
             "enforced": rc,
+            # emit provenance: WHERE this verdict's events came from, so a single_authority green is
+            # never SILENT — a reviewer sees the self-agreement without reading the spec.
+            # emit_backend is the driver class; emit_identity the framework-derived endpoint.
+            # relocated counts gating `external:` checks whose separate_source claim was demoted.
+            "emit_backend": emit_backend,
+            "emit_identity": emit_identity,
+            "relocated": sum(1 for c in gating if c.get("demoted_same_endpoint")),
         },
         "scope": {
             "gating": len(gating),

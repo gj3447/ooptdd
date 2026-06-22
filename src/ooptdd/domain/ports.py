@@ -29,6 +29,7 @@ Two load-bearing honesty fields on :class:`QueryResult`:
 """
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -160,6 +161,33 @@ def backend_caps(backend) -> BackendCaps:
     return BackendCaps(queryable=queryable, write_only=not queryable)
 
 
+def backend_identity(backend) -> str:
+    """A best-effort, framework-DERIVED identity for WHERE a backend reads/writes — the basis for
+    emit provenance (``oracle.emit_identity``) and for demoting an ``external:`` probe that re-reads
+    this very endpoint (its ``separate_source`` claim then cannot be honest). Prefers a
+    driver's own ``identity()``; else the resolved endpoint URL — read *now* from the env var the
+    driver was configured with (``url_env``), i.e. the real target, not a name the backend chose to
+    report; else the class name (an in-process backend like memory has no endpoint to compare, so
+    relocation *through* it is out of scope). This is NOT a security boundary — a backend or probe
+    can still misreport — it only makes the common, honest cases comparable so a provably-same
+    endpoint can be caught. The single-authority residue (shared data lineage, a colluding source)
+    is named in METHODOLOGY.md and cannot be discharged here, only surfaced."""
+    ident = getattr(backend, "identity", None)
+    if callable(ident):
+        try:
+            got = ident()
+        except Exception:  # noqa: BLE001 — identity is best-effort; it must never break a verdict
+            got = None
+        if got:
+            return str(got)
+    url_env = getattr(backend, "url_env", None)
+    if url_env:
+        url = os.getenv(url_env)
+        if url:
+            return url.rstrip("/")
+    return type(backend).__name__
+
+
 def fetch(backend, spec: QuerySpec, clock: Clock | None = None) -> QueryResult:
     """Read a backend through one typed entry point regardless of its generation: use
     ``query_spec(spec)`` if the driver implements it, else translate the :class:`QuerySpec`
@@ -198,6 +226,14 @@ class ProbeResult:
     #: a probe re-reading the system's own store is self-consistency moved one layer out). ooptdd
     #: trusts this declaration; it cannot itself prove a source is independent.
     separate_source: bool = False
+    #: A framework-COMPARABLE identity for WHERE this fact was actually read (a path / URL / DSN).
+    #: Unlike ``separate_source`` (a bare claim), this is a value the engine can check: if it equals
+    #: the emit backend's identity, the probe demonstrably re-read the system's own endpoint, so the
+    #: ``separate_source`` claim is provably false and is DEMOTED (relocation, not independence).
+    #: The demotion is ASYMMETRIC — a derived identity can only FALSIFY a declared True, never
+    #: promote a missing one — so a genuinely-separate source whose identity the probe cannot
+    #: report (``None``) keeps its declared bool. Reference probes (file/http) report it.
+    derived_identity: str | None = None
 
 
 @runtime_checkable

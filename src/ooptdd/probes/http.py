@@ -22,19 +22,23 @@ class HttpProbe:
 
     def probe(self, kind, selector, cid) -> ProbeResult:
         sel = {"url": selector} if isinstance(selector, str) else dict(selector or {})
+        ident = sel.get("url")  # the service URL read — comparable against the emit endpoint
         req = urllib.request.Request(sel.get("url", ""), method="GET",
                                      headers=sel.get("headers") or {})
         try:
             with self._open(req, timeout=self.timeout) as r:
                 body = r.read().decode()
         except Exception:  # noqa: BLE001 — an unreachable service is inconclusive
-            return ProbeResult(reachable=False, separate_source=True)
+            return ProbeResult(reachable=False, separate_source=True, derived_identity=ident)
         if sel.get("json"):
             try:
                 value = json.loads(body)
             except json.JSONDecodeError:
-                return ProbeResult(reachable=True, value=None, complete=False, separate_source=True)
+                return ProbeResult(reachable=True, value=None, complete=False,
+                                   separate_source=True, derived_identity=ident)
             for key in str(sel["json"]).split("."):
                 value = value.get(key) if isinstance(value, dict) else None
-            return ProbeResult(reachable=True, value=value, separate_source=True)
-        return ProbeResult(reachable=True, value=body.strip(), separate_source=True)
+            return ProbeResult(reachable=True, value=value,
+                               separate_source=True, derived_identity=ident)
+        return ProbeResult(reachable=True, value=body.strip(),
+                           separate_source=True, derived_identity=ident)
