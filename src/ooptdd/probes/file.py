@@ -28,18 +28,23 @@ class FileProbe:
         if self.root:
             path = os.path.join(self.root, path)
         p = Path(path)
+        ident = str(p)  # the real location read — framework-comparable against the emit endpoint
         if sel.get("exists"):
-            return ProbeResult(reachable=True, value=p.exists(), separate_source=True)
+            return ProbeResult(reachable=True, value=p.exists(),
+                               separate_source=True, derived_identity=ident)
         try:
             text = p.read_text(encoding="utf-8")
         except OSError:
-            return ProbeResult(reachable=False, separate_source=True)
+            return ProbeResult(reachable=False, separate_source=True, derived_identity=ident)
         if sel.get("json"):
             try:
                 value = json.loads(text)
             except json.JSONDecodeError:
-                return ProbeResult(reachable=True, value=None, complete=False, separate_source=True)
+                return ProbeResult(reachable=True, value=None, complete=False,
+                                   separate_source=True, derived_identity=ident)
             for key in str(sel["json"]).split("."):
                 value = value.get(key) if isinstance(value, dict) else None
-            return ProbeResult(reachable=True, value=value, separate_source=True)
-        return ProbeResult(reachable=True, value=text.strip(), separate_source=True)
+            return ProbeResult(reachable=True, value=value,
+                               separate_source=True, derived_identity=ident)
+        return ProbeResult(reachable=True, value=text.strip(),
+                           separate_source=True, derived_identity=ident)

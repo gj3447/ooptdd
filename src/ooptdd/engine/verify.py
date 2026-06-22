@@ -40,6 +40,7 @@ from ..domain.ports import (
     SystemClock,
     TimeWindow,
     backend_caps,
+    backend_identity,
     fetch,
 )
 from .gate import evaluate_events
@@ -243,10 +244,13 @@ def verify_gate(
     where ``verdict`` is present (gate GREEN), absent (reachable+complete but RED), or
     inconclusive (never reachable, or every read truncated).
     """
+    emit_backend = type(backend).__name__
+    emit_identity = backend_identity(backend)
+
     def evaluate_prefix(events, *, reachable, complete, queried_ok, attempt, final):
         result = evaluate_events(
             spec, events, reachable=reachable, complete=complete, ontology=ontology, cid=cid,
-            probe=probe,
+            probe=probe, emit_backend=emit_backend, emit_identity=emit_identity,
         )
         if not final:
             return {"ok": True, "verdict": "present", "gate": result, "reasons": []} \
