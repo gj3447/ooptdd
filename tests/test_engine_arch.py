@@ -149,6 +149,57 @@ def test_fetch_prefers_query_spec_when_present():
     assert b.called["cid"] == "c9" and res.events[0]["event"] == "z"
 
 
+def test_fetch_drops_reserved_queryspec_fields_for_legacy_backends():
+    # Contract guard (R3): limit/cursor/where are RESERVED forward-compat fields. A legacy
+    # query-only backend receives ONLY cid+window via fetch() — the extras are silently dropped,
+    # so the engine must never rely on server-side filter/paging a legacy driver can't honour
+    # (where is filtered in Python by design). This pins the seam so it can't silently rot.
+    from ooptdd.backends.base import QueryResult
+
+    seen = {}
+
+    class _Legacy:
+        default_lookback_s = 1
+        default_future_buffer_s = 0
+
+        def ship(self, events):  # pragma: no cover
+            pass
+
+        def query(self, cid, *, since_us, until_us):
+            seen.update(cid=cid, since_us=since_us, until_us=until_us)
+            return QueryResult(reachable=True)
+
+    fetch(_Legacy(), QuerySpec(cid="c", window=TimeWindow(5, 9),
+                               limit=10, cursor="pg2", where={"event": "x"}))
+    assert seen == {"cid": "c", "since_us": 5, "until_us": 9}  # limit/cursor/where dropped
+
+
+def test_query_spec_backend_receives_the_reserved_fields():
+    # The other half of the contract: a driver that DOES implement query_spec() gets the full
+    # typed intent (limit/cursor/where), so the seam is real when a backend opts in.
+    from ooptdd.backends.base import QueryResult
+
+    got = {}
+
+    class _Spec:
+        default_lookback_s = 1
+        default_future_buffer_s = 0
+
+        def ship(self, events):  # pragma: no cover
+            pass
+
+        def query(self, cid, *, since_us, until_us):  # pragma: no cover
+            raise AssertionError("should have used query_spec")
+
+        def query_spec(self, spec):
+            got.update(limit=spec.limit, cursor=spec.cursor, where=spec.where)
+            return QueryResult(reachable=True)
+
+    fetch(_Spec(), QuerySpec(cid="c", window=TimeWindow(0, 1),
+                             limit=10, cursor="pg2", where={"event": "x"}))
+    assert got == {"limit": 10, "cursor": "pg2", "where": {"event": "x"}}
+
+
 # ── BackendRegistry: explicit + injectable ─────────────────────────────────────
 def test_registry_resolves_builtins_and_register_unregister():
     reg = BackendRegistry()

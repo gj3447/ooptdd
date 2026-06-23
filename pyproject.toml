@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ooptdd"
-version = "0.3.0"
+version = "0.4.0"
 description = "Logs/traces as the test specification and ground truth — a pytest plugin and methodology for positive (arrival-asserted) log-based TDD."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,7 +23,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-otel = ["opentelemetry-sdk>=1.20", "opentelemetry-exporter-otlp-proto-http>=1.20"]
+# >=1.38: the driver emits via the modern kwargs Logger.emit(body=, severity_number=, attributes=)
+# form, which TypeErrors on <1.38 (bisected). The prior >=1.20 floor was inaccurate — the old
+# emit(LogRecord(...)) API + the LogRecord import location both moved out from under it.
+otel = ["opentelemetry-sdk>=1.38", "opentelemetry-exporter-otlp-proto-http>=1.38"]
 dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.4", "mypy>=1.8"]
 
 [project.scripts]

@@ -6,9 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-23
+
 The gate-honesty arc: a green now reports *what*, *how hard*, and *on whose authority* it asserted,
 and several signals were promoted to gates so the cheap ways to fake a green are closed. All additive
-to the result dict / spec (backward-compatible). 288 tests green, 1 skipped.
+to the result dict / spec (backward-compatible). 314 tests green, 1 skipped.
 
 ### Added
 - **`external:` check + probe registry — the one input that is not the system's own emit.** Assert
@@ -33,6 +35,28 @@ to the result dict / spec (backward-compatible). 288 tests green, 1 skipped.
   event-types a green even names; `unasserted_observed`).
 - **`invariant` conservation check** (cross-event value consistency; `invariant_no_evidence` → RED)
   and a static anti-vacuity linter **`ooptdd lint`** (refuses a vacuously-satisfiable gate before any run).
+- **`evidence_tier(result)` — the assertion-strength ladder, computed.** Grade a whole verdict by the
+  strongest kind of evidence it mustered, on a five-rung ladder read off the existing honesty fields:
+  `local_pass` < `emitted` < `arrived` < `queryable_causal` < `external_verdict`. So "what prevents a
+  fake green" becomes answerable per-verdict — a green that only reaches `local_pass` (vacuous/unreachable)
+  or `emitted` (named, but `charge_ratio == 0`) is loudly weak. Load-bearing: a non-`separate_source`
+  `external:` check is self-consistency relocated, so it reaches only `arrived`, never `external_verdict`.
+  Exported from `ooptdd.engine.gate` (+ the flat `ooptdd.gate` shim).
+- **`assert_writeonly_backend_conforms` — conformance for write-only drivers.** `assert_backend_conforms`
+  is a ship→query round-trip, so a write-only driver (`queryable=False`, e.g. OTLP) had zero coverage.
+  This pairs the driver with a capture sink (`capture.records`, e.g. an OTLP `InMemoryLogExporter`
+  adapter) and asserts export + payload fidelity, plus that the driver is *honestly* write-only
+  (`caps.write_only`, and `query → reachable=False` — never a silent absent). Negative tests prove it
+  catches a dropping exporter and a lying read side.
+- **QuerySpec reserved-field contract pinned.** `limit` / `cursor` / `where` are now documented as
+  reserved (a per-driver `query_spec` opt-in): `fetch` drops them on the legacy `query` path, and
+  `where` is filtered in Python by design (dialect-neutral, injection-safe). Two guard tests pin the
+  contract — legacy backends drop the extras; a `query_spec` backend receives them — so the seam can't
+  silently rot.
+- **Green banner names its signature posture (`sig=…`) when signing is in play.** A GREEN now appends
+  `sig=valid` (the receipt is attested) or `sig=unverifiable` (a signature arrived but the verifier
+  holds no key), so signing is visible where it matters. Keyless zero-config (`unsigned`) stays quiet,
+  and an unsigned receipt in a keyed env is already RED (enforce-if-keyed) — never a silent green.
 
 ### Fixed
 - **Corroboration requires the external check to actually pass.** `oracle.corroborated` counted any
@@ -45,6 +69,21 @@ to the result dict / spec (backward-compatible). 288 tests green, 1 skipped.
 - **A closed-world `conforms` drift offender counts as charged evidence.** It demonstrably saw a
   forbidden event but was reported `uncharged` because the drift path never incremented `checked`;
   charge now also keys off `unknown` (`ontology_not_loaded` stays uncharged — it truly saw nothing).
+- **Enforce-if-keyed: a configured signing key now rejects unsigned receipts by default.**
+  `OOPTDD_SIGNING_KEY` and `OOPTDD_REQUIRE_SIGNATURE` were independent, so a verifier holding a key but
+  not setting the require flag still accepted *unsigned* receipts from any producer. Now
+  `require_signature` defaults ON whenever a key is configured (setting a key is the intent to reject
+  unsigned), while an explicit `OOPTDD_REQUIRE_SIGNATURE` still wins either way and keyless zero-config
+  stays lenient. Forgery/tamper were already always-RED; this closes the remaining unsigned-tolerance
+  vector for keyed environments.
+- **OTLP driver repaired against modern `opentelemetry-sdk`.** Wiring the shipped `otel` driver through
+  the new write-only conformance surfaced that it was silently broken on current SDKs (1.42): `LogRecord`
+  moved to `_internal` and the logs `emit` API went kwargs, so `emit(LogRecord(...))` shipped nothing.
+  Fixed: emit via the modern kwargs form (the SDK builds the record), an instance-scoped
+  `provider.get_logger` instead of the process-global singleton, and an injectable exporter so the
+  driver is testable. The `opentelemetry-sdk` floor is bumped `>=1.20` → `>=1.38` (the modern kwargs
+  `emit` TypeErrors on older SDKs — bisected: 1.37 fails, 1.38 works), and CI now installs the `otel`
+  extra so the conformance test actually runs instead of `importorskip`-ing itself away.
 
 ## [0.3.0] - 2026-06-20
 

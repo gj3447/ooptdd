@@ -9,6 +9,7 @@ from __future__ import annotations
 from .engine.gate import (  # noqa: F401
     _KEY_PROBES,
     CHECK_REGISTRY,
+    EVIDENCE_TIERS,
     CheckCtx,
     _detect_check_key,
     _label,
@@ -19,5 +20,6 @@ from .engine.gate import (  # noqa: F401
     duration_s,
     evaluate,
     evaluate_events,
+    evidence_tier,
     load_gate,
 )

@@ -40,6 +40,7 @@ from ..domain.ports import (
     SystemClock,
     TimeWindow,
     backend_caps,
+    backend_identity,
     fetch,
 )
 from .gate import evaluate_events
@@ -243,10 +244,13 @@ def verify_gate(
     where ``verdict`` is present (gate GREEN), absent (reachable+complete but RED), or
     inconclusive (never reachable, or every read truncated).
     """
+    emit_backend = type(backend).__name__
+    emit_identity = backend_identity(backend)
+
     def evaluate_prefix(events, *, reachable, complete, queried_ok, attempt, final):
         result = evaluate_events(
             spec, events, reachable=reachable, complete=complete, ontology=ontology, cid=cid,
-            probe=probe,
+            probe=probe, emit_backend=emit_backend, emit_identity=emit_identity,
         )
         if not final:
             return {"ok": True, "verdict": "present", "gate": result, "reasons": []} \
@@ -294,12 +298,18 @@ def verify_policy(v: dict, mode: str) -> dict:
         }
     if v.get("ok"):
         s = v.get("session", {})
+        # D1 (signing visibility floor): name the signature posture on a GREEN when signing is in
+        # play, so a valid green is attested and an unverifiable one is loud. Keyless zero-config
+        # (`unsigned`) stays quiet — no signing intent, no banner noise; an unsigned receipt in a
+        # keyed env is already RED (enforce-if-keyed), never a silent green.
+        sig = v.get("sig_status")
+        sig_note = f", sig={sig}" if sig and sig != "unsigned" else ""
         return {
             "level": "ok",
             "fail_build": False,
             "message": (
                 f"OK arrival confirmed (session {s.get('passed')}/{s.get('total')}, "
-                f"outcomes={v.get('outcomes')}, {v.get('attempts')} attempt)"
+                f"outcomes={v.get('outcomes')}, {v.get('attempts')} attempt){sig_note}"
             ),
         }
     if v.get("verdict") == "inconclusive":

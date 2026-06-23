@@ -6,7 +6,10 @@ from __future__ import annotations
 import pytest
 
 from ooptdd.backends.base import QueryResult
-from ooptdd.backends.conformance import assert_backend_conforms
+from ooptdd.backends.conformance import (
+    assert_backend_conforms,
+    assert_writeonly_backend_conforms,
+)
 from ooptdd.backends.memory import MemoryBackend, reset
 
 
@@ -64,3 +67,68 @@ def test_kit_catches_a_field_dropping_backend():
 def test_kit_catches_a_silently_truncating_backend():
     with pytest.raises(AssertionError):
         assert_backend_conforms(_SilentCapBackend)
+
+
+# ── write-only (no read side) conformance: verified via a capture sink ──────────────
+
+
+class _Capture:
+    """Stands in for a store-side reader the driver itself lacks (e.g. an OTLP
+    InMemoryLogExporter adapter): records exactly what the driver shipped."""
+    def __init__(self):
+        self.records = []
+
+    def export(self, events):
+        self.records.extend(events)
+
+
+class _WriteOnlyBackend:
+    """A conformant write-only driver (like OTLP): ships to a capture sink, no read side."""
+    default_lookback_s = 0
+    default_future_buffer_s = 0
+    queryable = False
+
+    def __init__(self, capture):
+        self._cap = capture
+
+    def ship(self, events):
+        self._cap.export(events)
+
+    def query(self, cid, *, since_us, until_us):
+        return QueryResult(reachable=False)  # honest: write-only -> inconclusive, never absent
+
+
+class _DroppingWriteOnlyBackend(_WriteOnlyBackend):
+    """Broken: silently drops on export, so the capture sink sees nothing."""
+    def ship(self, events):
+        pass
+
+
+class _LyingWriteOnlyBackend(_WriteOnlyBackend):
+    """Broken: claims a read side it does not have (reachable=True, empty) — a silent absent,
+    the false green the kit must catch (strict over it would wrongly fail or pass)."""
+    def query(self, cid, *, since_us, until_us):
+        return QueryResult(reachable=True)
+
+
+def _wo_harness(cls):
+    def make():
+        cap = _Capture()
+        return cls(cap), cap
+    return make
+
+
+def test_writeonly_backend_conforms():
+    # the reference write-only shape passes the contract it *can* honour
+    assert_writeonly_backend_conforms(_wo_harness(_WriteOnlyBackend))
+
+
+def test_writeonly_kit_catches_a_dropping_exporter():
+    with pytest.raises(AssertionError):
+        assert_writeonly_backend_conforms(_wo_harness(_DroppingWriteOnlyBackend))
+
+
+def test_writeonly_kit_catches_a_lying_read_side():
+    # a write-only driver whose query() reports reachable=True is a silent-absent liar
+    with pytest.raises(AssertionError):
+        assert_writeonly_backend_conforms(_wo_harness(_LyingWriteOnlyBackend))
