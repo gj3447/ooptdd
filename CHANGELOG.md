@@ -79,8 +79,9 @@ to the result dict / spec (backward-compatible). 314 tests green, 1 skipped.
   moved to `_internal` and the logs `emit` API went kwargs, so `emit(LogRecord(...))` shipped nothing.
   Fixed: emit via the modern kwargs form (the SDK builds the record), an instance-scoped
   `provider.get_logger` instead of the process-global singleton, and an injectable exporter so the
-  driver is testable. (The `opentelemetry-sdk>=1.20` floor may now be too low — revisit; the conformance
-  test `importorskip`s otel, so CI must run the `otel` extra for coverage.)
+  driver is testable. The `opentelemetry-sdk` floor is bumped `>=1.20` → `>=1.38` (the modern kwargs
+  `emit` TypeErrors on older SDKs — bisected: 1.37 fails, 1.38 works), and CI now installs the `otel`
+  extra so the conformance test actually runs instead of `importorskip`-ing itself away.
 
 ## [0.3.0] - 2026-06-20
 
