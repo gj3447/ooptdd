@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ..domain.ports import backend_caps
 from ..engine.gate import evaluate
 
 #: A factory returning a *fresh, write-and-read* backend bound to whatever store the author
@@ -75,3 +76,56 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str = "ooptdd-
     assert r2.reachable, "a cid with special characters must still query cleanly"
     assert any(e.get("marker") == "yes" for e in r2.events), \
         "a cid with quotes/specials must round-trip (cid binding must be escaped/parameterized)"
+
+
+#: A factory for write-only conformance: returns ``(backend, capture)`` where ``backend`` is a
+#: fresh write-only driver (``queryable=False``, e.g. OTLP) wired to ``capture`` — any object
+#: exposing a ``records: list[dict]`` of what the driver actually shipped (e.g. an OTLP
+#: ``InMemoryLogExporter`` adapter). The sink stands in for the store-side reader the driver lacks.
+WriteOnlyHarness = Callable[[], tuple]
+
+
+def assert_writeonly_backend_conforms(
+    make: WriteOnlyHarness, *, cid: str = "ooptdd-wo-cid"
+) -> None:
+    """Assert a *write-only* driver (``queryable=False``, e.g. OTLP) honours the contract it
+    *can* — there is no read side, so the round-trip :func:`assert_backend_conforms` cannot apply.
+    Instead the driver is paired with a capture sink (``capture.records``) that records what it
+    shipped, and we assert **export fidelity** against it, plus that the driver is *honestly*
+    write-only: its ``query`` returns ``reachable=False`` (inconclusive ?), never a silent
+    ``absent`` (⊥) — so ``strict`` verification over it is loudly impossible, not a false green.
+
+    Usage (in a write-only driver's own test suite)::
+
+        def test_my_otlp_driver_conforms():
+            def harness():
+                cap = InMemoryCapture()              # adapts an OTLP InMemoryLogExporter
+                return MyOTLPBackend(exporter=cap), cap
+            assert_writeonly_backend_conforms(harness)
+    """
+    backend, capture = make()
+    events = [
+        {"cid": cid, "event": "alpha", "verdict": "PASS", "n": 1},
+        {"cid": cid, "event": "beta", "verdict": "NG", "n": 2},
+    ]
+    backend.ship(events)
+
+    # 1. export fidelity: the capture sink received every shipped event.
+    recs = list(getattr(capture, "records", []))
+    assert len(recs) >= len(events), \
+        f"write-only export dropped events: shipped {len(events)}, captured {len(recs)}"
+
+    # 2. payload fidelity: arbitrary fields survive the wire format (so a reader can filter).
+    assert any(r.get("event") == "beta" and r.get("verdict") == "NG" for r in recs), \
+        "write-only export lost an event field (whole-row fidelity)"
+
+    # 3. honestly write-only: caps must say so (callers that read positively skip it loudly).
+    caps = backend_caps(backend)
+    assert caps.write_only is True, \
+        "a write-only conformance target must report caps.write_only=True (queryable=False)"
+
+    # 4. the read side is honest: query is inconclusive (reachable=False), never a silent absent.
+    # A write-only driver that returns reachable=True would let `strict` read a false ⊥ off it.
+    res = backend.query(cid, since_us=0, until_us=10**19)
+    assert res.reachable is False, \
+        "a write-only backend's query must be inconclusive (reachable=False), never a silent absent"
