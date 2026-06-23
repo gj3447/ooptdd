@@ -92,13 +92,23 @@ class QuerySpec:
     """A typed query *intent* handed to a backend, instead of loose kwargs: which cid, over
     what window, with an optional row ``limit`` / paging ``cursor`` / ``where`` filter. A
     backend that implements ``query_spec`` reads it directly; legacy backends are driven via
-    :func:`fetch`, which translates it to the two-kwarg ``query`` call."""
+    :func:`fetch`, which translates it to the two-kwarg ``query`` call.
+
+    ``cid`` + ``window`` are the **live read path**: the engine builds ``QuerySpec(cid, window)``
+    (see ``engine/gate.py`` + ``engine/verify.py``) and every shipped backend honours them.
+    ``limit`` / ``cursor`` / ``where`` are **reserved, forward-compat** fields — no shipped
+    backend implements ``query_spec`` yet, so :func:`fetch` *drops* them on the legacy ``query``
+    path. The engine must therefore never rely on server-side paging/filter a legacy driver
+    can't honour; ``where`` in particular is filtered in Python by design (dialect-neutral and
+    injection-safe — see ``BackendCaps.supports_where``). Pushing any of the three down is a
+    per-driver ``query_spec`` opt-in, not a default. The contract is pinned by
+    ``test_fetch_drops_reserved_queryspec_fields_for_legacy_backends``."""
 
     cid: str
     window: TimeWindow
-    limit: int | None = None
-    cursor: str | None = None
-    where: dict | None = None
+    limit: int | None = None  # reserved: server-side row cap (query_spec opt-in only)
+    cursor: str | None = None  # reserved: server-side paging cursor (query_spec opt-in only)
+    where: dict | None = None  # reserved: server-side filter; default path filters in Python
 
 
 # ── capabilities: typed, not ad-hoc getattr ─────────────────────────────────────
