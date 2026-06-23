@@ -760,6 +760,46 @@ def compare_strength(baseline: dict, current: dict) -> dict:
             "baseline_score": baseline["score"], "current_score": current["score"]}
 
 
+#: The assertion-strength ladder (LakatoTree element ``elem-ooptdd-assert-strength-ladder``),
+#: low→high. Unlike per-check ``_strength`` (one rule's discriminating power), this grades a whole
+#: VERDICT by the strongest *kind of evidence* it actually mustered.
+EVIDENCE_TIERS = ("local_pass", "emitted", "arrived", "queryable_causal", "external_verdict")
+
+
+def evidence_tier(result: dict) -> str:
+    """Where a verdict sits on the assertion-strength ladder — the formal answer to "what ladder
+    prevents fake-green": you can SEE which rung a green reached, computed from its own honesty
+    fields (``scope`` charge, per-check ``strength``, ``oracle`` corroboration).
+
+    - ``local_pass``       nothing asserted (vacuous) or the store was unreachable — proves only
+                           "the test ran". The fake-green floor.
+    - ``emitted``          gating checks exist but none positively witnessed evidence
+                           (``charge_ratio == 0``): every one passed on absence/emptiness. Named,
+                           not confirmed arrived.
+    - ``arrived``          ≥1 gating check positively saw matching evidence (``charge_ratio > 0``):
+                           the named events actually landed in the store.
+    - ``queryable_causal`` a cross-event consistency relation holds (a passing ``invariant`` /
+                           ``metamorphic`` check) — value consistency between events, not counts.
+    - ``external_verdict`` an independent oracle corroborated (a separate-source ``external:``
+                           check passed): the only rung whose input is NOT the system's own emit.
+
+    Returns the HIGHEST rung the evidence reaches. Orthogonal to ``ok``/RED — it grades the
+    evidence on offer, so a green that only reaches ``emitted`` is loudly weak.
+    """
+    scope = result.get("scope") or {}
+    oracle = result.get("oracle") or {}
+    if not scope.get("asserts_anything") or not result.get("reachable"):
+        return "local_pass"
+    if (oracle.get("corroborated") or 0) > 0:
+        return "external_verdict"
+    passing = {c.get("strength") for c in result.get("checks", []) if c.get("passed")}
+    if passing & {"invariant", "metamorphic"}:
+        return "queryable_causal"
+    if (scope.get("charge_ratio") or 0) > 0:
+        return "arrived"
+    return "emitted"
+
+
 def can_i_deploy(results: list[dict]) -> dict:
     """Pact ``can-i-deploy`` for ooptdd: may we ship, given a set of gate results?
 
