@@ -157,6 +157,20 @@ def test_policy_strict_fails_only_on_absent():
     assert verify_policy(incon, "strict")["fail_build"] is False
 
 
+def test_green_banner_surfaces_signature_only_when_signing_is_in_play():
+    # D1 (signing visibility floor): a GREEN names its signature posture when signing is actually
+    # in play, so a valid green is attested and an unverifiable one is loud — but keyless
+    # zero-config (unsigned) stays quiet (no signing intent => no banner noise; an unsigned
+    # receipt in a KEYED env is already RED via enforce-if-keyed).
+    base = {"ok": True, "verdict": "present", "session": {"passed": 2, "total": 2},
+            "outcomes": 2, "attempts": 1}
+    def msg(sig):
+        return verify_policy({**base, "sig_status": sig}, "warn")["message"]
+    assert "sig=valid" in msg("valid")
+    assert "sig=unverifiable" in msg("unverifiable")
+    assert "sig=" not in msg("unsigned")          # keyless zero-config stays quiet
+
+
 def test_session_finish_strict_catches_silent_loss():
     reports = [{"nodeid": f"t::{i}", "outcome": "passed", "when": "call"} for i in range(5)]
     # 5 tests "shipped" but the backend silently drops them

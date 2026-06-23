@@ -184,12 +184,26 @@ system's own store is *relocation*, not independence). Corroboration is an *achi
 check kind — an `external:` check the probe could not reach, or that *refuted* the system,
 corroborates nothing.
 
-This makes the single-authority boundary **measurable**. Every gate result carries an `oracle`
-block: how many gating checks are `corroborated` (separate-source `external:`) vs `derived_self`,
-and `single_authority` when *zero* are independently corroborated — the meta-blind-spot named, a
-green where the system only agrees with itself. **`require_corroboration`** (spec key /
-`OOPTDD_REQUIRE_CORROBORATION`) promotes that signal to a *gate*: with it on, a single-authority
-green is RED (`uncorroborated`) — a fixable misconfiguration, add a separate-source `external:`.
+`separate_source` is **checked, not merely trusted**. The framework derives WHERE it actually
+wrote (`oracle.emit_identity` — a driver's own `identity()` or its resolved endpoint URL) and a
+probe reports WHERE it actually read (`ProbeResult.derived_identity` — the file path / service URL;
+the reference `FileProbe` / `HttpProbe` fill it in). When the two are equal, the probe demonstrably
+re-read the system's own endpoint, so the `separate_source` claim is provably false and is
+**demoted** to `derived_self` (surfaced as `demoted_same_endpoint` on the check and `oracle.relocated`).
+The check is *asymmetric* — a derived identity can only **falsify** a declared `True`, never promote
+a missing one — so an honest source whose identity can't be derived keeps its declared bool. This is
+not a security boundary (a `CallableProbe` can still report any identity, and shared data lineage —
+a read-replica, a mirrored ingest — survives every check); the *irreducible residue* is that
+independence ultimately anchors in a source ooptdd cannot prove, only **name and surface**.
+
+This makes the single-authority boundary **measurable** and the green **never silent**. Every gate
+result carries an `oracle` block: how many gating checks are `corroborated` (separate-source
+`external:`) vs `derived_self`, `single_authority` when *zero* are independently corroborated — the
+meta-blind-spot named, a green where the system only agrees with itself — plus `emit_backend` /
+`emit_identity` so a reviewer sees *whose* self-agreement it is without reading the spec.
+**`require_corroboration`** (spec key / `OOPTDD_REQUIRE_CORROBORATION`) promotes that signal to a
+*gate*: with it on, a single-authority green is RED (`uncorroborated`) — a fixable misconfiguration,
+add a separate-source `external:`.
 
 Two further signals keep a green honest about *how much it saw*. **Charge** (`scope.charged` /
 `charge_ratio` / `uncharged`) counts how many gating checks actually *saw* matching evidence rather
@@ -198,3 +212,14 @@ store) — orthogonal to strength and to stream-coverage (which counts how many 
 the gate even names). And **`metamorphic`** joins `invariant` as a second intra-trace, oracle-free
 consistency check: a relation between two reductions over two matched subsets of the same stream
 (`sum(amount@A) == k · sum(amount@B)`), `metamorphic_no_evidence` → RED on a no-data run.
+
+All of these honesty fields roll up into one computable read: **`evidence_tier(result)`** grades a
+verdict on a five-rung assertion-strength ladder — `local_pass` < `emitted` < `arrived` <
+`queryable_causal` < `external_verdict` — by the strongest *kind* of evidence it actually mustered. It
+is the formal, per-verdict answer to "what prevents a fake green": a green that only reaches
+`local_pass` (vacuous or unreachable) or `emitted` (events named but `charge_ratio == 0`) is loudly
+weak, while `arrived` (positive charge), `queryable_causal` (a passing `invariant`/`metamorphic`
+relation), and `external_verdict` (a *separate-source* corroboration) climb toward real strength. It
+grades the evidence on offer, not correctness — and it keeps the single-authority boundary honest: only
+the top rung needs an oracle that is not the system's own emit, so a non-`separate_source` `external:`
+check is self-consistency relocated and reaches only `arrived`, never `external_verdict`.

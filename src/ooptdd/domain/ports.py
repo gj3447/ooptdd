@@ -29,6 +29,7 @@ Two load-bearing honesty fields on :class:`QueryResult`:
 """
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -91,13 +92,23 @@ class QuerySpec:
     """A typed query *intent* handed to a backend, instead of loose kwargs: which cid, over
     what window, with an optional row ``limit`` / paging ``cursor`` / ``where`` filter. A
     backend that implements ``query_spec`` reads it directly; legacy backends are driven via
-    :func:`fetch`, which translates it to the two-kwarg ``query`` call."""
+    :func:`fetch`, which translates it to the two-kwarg ``query`` call.
+
+    ``cid`` + ``window`` are the **live read path**: the engine builds ``QuerySpec(cid, window)``
+    (see ``engine/gate.py`` + ``engine/verify.py``) and every shipped backend honours them.
+    ``limit`` / ``cursor`` / ``where`` are **reserved, forward-compat** fields — no shipped
+    backend implements ``query_spec`` yet, so :func:`fetch` *drops* them on the legacy ``query``
+    path. The engine must therefore never rely on server-side paging/filter a legacy driver
+    can't honour; ``where`` in particular is filtered in Python by design (dialect-neutral and
+    injection-safe — see ``BackendCaps.supports_where``). Pushing any of the three down is a
+    per-driver ``query_spec`` opt-in, not a default. The contract is pinned by
+    ``test_fetch_drops_reserved_queryspec_fields_for_legacy_backends``."""
 
     cid: str
     window: TimeWindow
-    limit: int | None = None
-    cursor: str | None = None
-    where: dict | None = None
+    limit: int | None = None  # reserved: server-side row cap (query_spec opt-in only)
+    cursor: str | None = None  # reserved: server-side paging cursor (query_spec opt-in only)
+    where: dict | None = None  # reserved: server-side filter; default path filters in Python
 
 
 # ── capabilities: typed, not ad-hoc getattr ─────────────────────────────────────
@@ -160,6 +171,33 @@ def backend_caps(backend) -> BackendCaps:
     return BackendCaps(queryable=queryable, write_only=not queryable)
 
 
+def backend_identity(backend) -> str:
+    """A best-effort, framework-DERIVED identity for WHERE a backend reads/writes — the basis for
+    emit provenance (``oracle.emit_identity``) and for demoting an ``external:`` probe that re-reads
+    this very endpoint (its ``separate_source`` claim then cannot be honest). Prefers a
+    driver's own ``identity()``; else the resolved endpoint URL — read *now* from the env var the
+    driver was configured with (``url_env``), i.e. the real target, not a name the backend chose to
+    report; else the class name (an in-process backend like memory has no endpoint to compare, so
+    relocation *through* it is out of scope). This is NOT a security boundary — a backend or probe
+    can still misreport — it only makes the common, honest cases comparable so a provably-same
+    endpoint can be caught. The single-authority residue (shared data lineage, a colluding source)
+    is named in METHODOLOGY.md and cannot be discharged here, only surfaced."""
+    ident = getattr(backend, "identity", None)
+    if callable(ident):
+        try:
+            got = ident()
+        except Exception:  # noqa: BLE001 — identity is best-effort; it must never break a verdict
+            got = None
+        if got:
+            return str(got)
+    url_env = getattr(backend, "url_env", None)
+    if url_env:
+        url = os.getenv(url_env)
+        if url:
+            return url.rstrip("/")
+    return type(backend).__name__
+
+
 def fetch(backend, spec: QuerySpec, clock: Clock | None = None) -> QueryResult:
     """Read a backend through one typed entry point regardless of its generation: use
     ``query_spec(spec)`` if the driver implements it, else translate the :class:`QuerySpec`
@@ -198,6 +236,14 @@ class ProbeResult:
     #: a probe re-reading the system's own store is self-consistency moved one layer out). ooptdd
     #: trusts this declaration; it cannot itself prove a source is independent.
     separate_source: bool = False
+    #: A framework-COMPARABLE identity for WHERE this fact was actually read (a path / URL / DSN).
+    #: Unlike ``separate_source`` (a bare claim), this is a value the engine can check: if it equals
+    #: the emit backend's identity, the probe demonstrably re-read the system's own endpoint, so the
+    #: ``separate_source`` claim is provably false and is DEMOTED (relocation, not independence).
+    #: The demotion is ASYMMETRIC — a derived identity can only FALSIFY a declared True, never
+    #: promote a missing one — so a genuinely-separate source whose identity the probe cannot
+    #: report (``None``) keeps its declared bool. Reference probes (file/http) report it.
+    derived_identity: str | None = None
 
 
 @runtime_checkable

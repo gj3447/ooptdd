@@ -3,6 +3,9 @@
 Hermeticity against ambient OOPTDD_* env (so these pytester self-tests survive a full-suite
 real-store dogfood) is provided by the autouse ``_hermetic_env`` fixture in conftest.py.
 """
+import pytest
+
+from ooptdd.plugin import _resolve_require_signature
 
 
 def test_plugin_ships_and_confirms_arrival(pytester):
@@ -72,3 +75,25 @@ def test_plugin_ships_and_confirms_under_xdist(pytester):
     result = pytester.runpytest_subprocess("-n", "2")
     result.assert_outcomes(passed=3)
     result.stdout.fnmatch_lines(["*[ooptdd]*arrival confirmed*"])
+
+
+@pytest.mark.parametrize(
+    "env_value, signing_key, expected",
+    [
+        # Enforce-if-keyed: with no explicit choice, require a signature iff a key is set.
+        (None, None, False),   # zero-config (the demo / this suite): keyless, lenient — unbroken
+        (None, "k", True),     # THE FOOTGUN FIX: a key is set => unsigned receipts are rejected
+        ("", "k", True),       # blank env == "no explicit choice" => keyed default
+        # An explicit OOPTDD_REQUIRE_SIGNATURE always wins, both directions:
+        ("0", "k", False),     # opt OUT even with a key
+        ("false", "k", False),
+        ("off", "k", False),
+        ("1", None, True),     # opt IN even without a local key (verifier side)
+        ("true", None, True),
+    ],
+)
+def test_resolve_require_signature_enforce_if_keyed(env_value, signing_key, expected):
+    # The footgun (R2): OOPTDD_SIGNING_KEY and require_signature were independent, so a keyed
+    # verifier with require unset still greenlit UNSIGNED receipts. Setting a key is now itself
+    # the intent to reject unsigned — without breaking keyless zero-config.
+    assert _resolve_require_signature(env_value, signing_key) is expected

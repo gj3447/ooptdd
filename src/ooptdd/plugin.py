@@ -121,6 +121,21 @@ def _is_xdist_controller(config) -> bool:
     return not hasattr(config, "workerinput")
 
 
+def _resolve_require_signature(env_value: str | None, signing_key: str | None) -> bool:
+    """Enforce-if-keyed — close the "keyed verifier still greenlights an unsigned receipt"
+    footgun. ``OOPTDD_SIGNING_KEY`` and ``OOPTDD_REQUIRE_SIGNATURE`` used to be independent, so
+    a verifier that *had* a key but never set the require flag still accepted UNSIGNED receipts
+    from any producer. Now, when the operator makes no explicit choice, a signature is required
+    exactly when a signing key is configured — setting a key is itself the intent to reject
+    unsigned receipts. An explicit ``OOPTDD_REQUIRE_SIGNATURE`` always wins either direction:
+    ``0``/``false``/``no``/``off`` opts OUT even with a key; any other value opts IN even
+    without a local key (verifier side). Keyless + no explicit choice stays lenient, so
+    zero-config (the demo, this suite) is unbroken."""
+    if env_value is not None and env_value.strip():
+        return env_value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(signing_key)
+
+
 def pytest_collection_finish(session):
     """Ship a `session_start` heartbeat once collection is known (controller only).
 
@@ -158,6 +173,8 @@ def pytest_sessionfinish(session, exitstatus):
     except Exception as exc:
         _emit(config, [f"backend init failed ({exc}); skipping (build unaffected)"])
         return
+    # signing key is CI-only: read from env, never config/code. Absent -> unsigned no-op.
+    signing_key = os.getenv("OOPTDD_SIGNING_KEY")
     result = session_finish(
         backend,
         reports,
@@ -167,9 +184,12 @@ def pytest_sessionfinish(session, exitstatus):
         retries=s.retries,
         delay=s.delay,
         backoff=s.backoff,
-        # signing key is CI-only: read from env, never config/code. Absent -> unsigned no-op.
-        signing_key=os.getenv("OOPTDD_SIGNING_KEY"),
-        require_signature=os.getenv("OOPTDD_REQUIRE_SIGNATURE", "") not in {"", "0", "false"},
+        signing_key=signing_key,
+        # enforce-if-keyed: a configured key makes unsigned receipts a failure by default,
+        # unless OOPTDD_REQUIRE_SIGNATURE explicitly opts out (and keyless stays lenient).
+        require_signature=_resolve_require_signature(
+            os.getenv("OOPTDD_REQUIRE_SIGNATURE"), signing_key
+        ),
     )
     _emit(config, result["messages"])
     if result["fail_build"] and exitstatus == 0:
