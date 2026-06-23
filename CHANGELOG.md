@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-23
+
 The gate-honesty arc: a green now reports *what*, *how hard*, and *on whose authority* it asserted,
 and several signals were promoted to gates so the cheap ways to fake a green are closed. All additive
 to the result dict / spec (backward-compatible). 314 tests green, 1 skipped.
