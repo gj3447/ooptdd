@@ -298,12 +298,18 @@ def verify_policy(v: dict, mode: str) -> dict:
         }
     if v.get("ok"):
         s = v.get("session", {})
+        # D1 (signing visibility floor): name the signature posture on a GREEN when signing is in
+        # play, so a valid green is attested and an unverifiable one is loud. Keyless zero-config
+        # (`unsigned`) stays quiet — no signing intent, no banner noise; an unsigned receipt in a
+        # keyed env is already RED (enforce-if-keyed), never a silent green.
+        sig = v.get("sig_status")
+        sig_note = f", sig={sig}" if sig and sig != "unsigned" else ""
         return {
             "level": "ok",
             "fail_build": False,
             "message": (
                 f"OK arrival confirmed (session {s.get('passed')}/{s.get('total')}, "
-                f"outcomes={v.get('outcomes')}, {v.get('attempts')} attempt)"
+                f"outcomes={v.get('outcomes')}, {v.get('attempts')} attempt){sig_note}"
             ),
         }
     if v.get("verdict") == "inconclusive":
