@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 The gate-honesty arc: a green now reports *what*, *how hard*, and *on whose authority* it asserted,
 and several signals were promoted to gates so the cheap ways to fake a green are closed. All additive
-to the result dict / spec (backward-compatible). 313 tests green, 1 skipped.
+to the result dict / spec (backward-compatible). 314 tests green, 1 skipped.
 
 ### Added
 - **`external:` check + probe registry — the one input that is not the system's own emit.** Assert
@@ -51,6 +51,10 @@ to the result dict / spec (backward-compatible). 313 tests green, 1 skipped.
   `where` is filtered in Python by design (dialect-neutral, injection-safe). Two guard tests pin the
   contract — legacy backends drop the extras; a `query_spec` backend receives them — so the seam can't
   silently rot.
+- **Green banner names its signature posture (`sig=…`) when signing is in play.** A GREEN now appends
+  `sig=valid` (the receipt is attested) or `sig=unverifiable` (a signature arrived but the verifier
+  holds no key), so signing is visible where it matters. Keyless zero-config (`unsigned`) stays quiet,
+  and an unsigned receipt in a keyed env is already RED (enforce-if-keyed) — never a silent green.
 
 ### Fixed
 - **Corroboration requires the external check to actually pass.** `oracle.corroborated` counted any
