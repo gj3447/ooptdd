@@ -212,3 +212,14 @@ store) — orthogonal to strength and to stream-coverage (which counts how many 
 the gate even names). And **`metamorphic`** joins `invariant` as a second intra-trace, oracle-free
 consistency check: a relation between two reductions over two matched subsets of the same stream
 (`sum(amount@A) == k · sum(amount@B)`), `metamorphic_no_evidence` → RED on a no-data run.
+
+All of these honesty fields roll up into one computable read: **`evidence_tier(result)`** grades a
+verdict on a five-rung assertion-strength ladder — `local_pass` < `emitted` < `arrived` <
+`queryable_causal` < `external_verdict` — by the strongest *kind* of evidence it actually mustered. It
+is the formal, per-verdict answer to "what prevents a fake green": a green that only reaches
+`local_pass` (vacuous or unreachable) or `emitted` (events named but `charge_ratio == 0`) is loudly
+weak, while `arrived` (positive charge), `queryable_causal` (a passing `invariant`/`metamorphic`
+relation), and `external_verdict` (a *separate-source* corroboration) climb toward real strength. It
+grades the evidence on offer, not correctness — and it keeps the single-authority boundary honest: only
+the top rung needs an oracle that is not the system's own emit, so a non-`separate_source` `external:`
+check is self-consistency relocated and reaches only `arrived`, never `external_verdict`.
