@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **CLI: a missing cid or spec file is a clean error, not a traceback.** A `gate`/`monitor`/
+  `can-i-deploy` spec with no `cid:` and no `OOPTDD_CID`, or a missing spec path, used to dump an
+  uncaught `ValueError`/`FileNotFoundError` traceback. `main()` now catches both and prints a
+  one-line `ERROR - …` on the INFRA/usage rung (exit 2), leaving the 0 GREEN / 1 RED / 2 INFRA
+  verdict ladder unchanged.
+
 ## [0.4.0] - 2026-06-23
 
 The gate-honesty arc: a green now reports *what*, *how hard*, and *on whose authority* it asserted,
