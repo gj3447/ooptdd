@@ -52,6 +52,19 @@ def test_gate_green_and_red(tmp_path, capsys):
     assert main(["gate", spec]) == 0           # now GREEN
 
 
+@pytest.mark.parametrize("cmd", ["gate", "monitor"])
+def test_missing_cid_is_a_clean_error_not_a_traceback(tmp_path, capsys, cmd):
+    # A spec with no `cid:` and no OOPTDD_CID (hermetic) must NOT dump an uncaught ValueError
+    # traceback — it is a config/usage error, so it prints a clean one-line message and exits 2
+    # (the INFRA/usage rung), like the rest of the CLI.
+    spec = _spec_file(tmp_path, "service: s\nexpect:\n  - {event: a, op: '==', count: 1}\n")
+    code = main([cmd, spec])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "cid" in err.lower()
+    assert "Traceback" not in err
+
+
 def test_verify_gate_flag_for_arbitrary_events(tmp_path, capsys):
     spec = _spec_file(tmp_path, "expect:\n  - {event: cycle, op: '>=', count: 1}\n")
     MemoryBackend().ship([{"cid": "run9", "event": "cycle"}])
