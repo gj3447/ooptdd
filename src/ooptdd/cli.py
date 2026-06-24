@@ -437,7 +437,14 @@ def main(argv=None) -> int:
     )
 
     args = p.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (ValueError, FileNotFoundError) as exc:
+        # A user/config error — a spec with no cid (`OOPTDD_CID` unset and no `cid:`), or a
+        # missing spec file — is a clean one-line message on the INFRA/usage rung (exit 2), not
+        # an uncaught traceback. The verdict rungs (0 GREEN / 1 RED / 2 INFRA) are unaffected.
+        print(f"ERROR - {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
