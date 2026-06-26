@@ -122,6 +122,13 @@ return a blocking verdict before acceptance.
 event name. Target: fabricated event cannot produce a clean GREEN even if the
 gate is otherwise syntactically valid.
 
+**Status.** Implemented in the core gate layer as `require_source_bindings: true`
+plus `source_bindings` / `must_emit` metadata. The implementation is deliberately
+no-KG and stdlib-only: it resolves Python symbols by AST without importing the
+target module, optionally hashes the symbol body, and reports failures in the
+top-level `longinus` block. Arrival can pass while the final verdict is still
+RED with `source_unbound=true`.
+
 ### F2: Separate-source corroboration promotion
 
 **Prediction.** Two gates with identical event arrivals differ in evidence tier
