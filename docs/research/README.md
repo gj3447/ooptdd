@@ -12,6 +12,12 @@ web-researched and adversarially reviewed.
 | **C · Backend abstraction & portability** | [C1](ooptdd_C1_backend_official.md) | [C2](ooptdd_C2_backend_prior_art.md) | [C3](ooptdd_C3_backend_pitfalls.md) | [C4](ooptdd_C4_backend_design.md) |
 | **D · Prior-art, competition & adoption** | [D1](ooptdd_D1_adoption_official.md) | [D2](ooptdd_D2_competition_priorart.md) | [D3](ooptdd_D3_adoption_pitfalls.md) | [D4](ooptdd_D4_adoption_design.md) |
 
+Follow-up shard:
+
+- [F · LakatoTree-based meta research](ooptdd_F_lakatotree_meta_research_20260626.md)
+  re-reads ooptdd as the receipt/verifier stratum inside a Lakatos-style
+  research-programme engine and pre-registers the next falsifiable experiments.
+
 ## What the study concluded (and how this repo reflects it)
 
 **Identity (A).** ooptdd is runtime verification (LTL3 / Dwyer property patterns)
