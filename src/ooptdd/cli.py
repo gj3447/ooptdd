@@ -320,6 +320,9 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
   optional: true / pending: true / weight: N    (per-check modifiers)
   cid: ... | cid_env: OOPTDD_CID | timeWindow: 1h | threshold: 0.9
   require_corroboration: true    # single-authority gate (no separate-source external:) -> RED
+  require_source_bindings: true  # Longinus-style guard: expected events need source symbols
+  source_bindings:
+    EVENTNAME: {path: app.py, symbol: emit_event, sha256: optional_symbol_body_hash}
   forbid_errors: true | error_levels: [ERROR, CRITICAL] | allow_errors: [{event: ..}]
 """
 _ONTOLOGY_SCHEMA = """ontology file (yaml) — shape:

@@ -45,6 +45,13 @@ Spec format (``gates/*.yaml``)::
                                #   set false here to opt a spec out). Levels via `error_levels:`.
     allow_errors:              # optional (spec-level) allowlist — these matched errors are
       - {event: zdf.drop}      #   exempt (known-benign), so they don't flip the gate.
+    require_source_bindings: true  # optional Longinus-style guard: every positive gating event
+                                   #   must be bound to a real Python source symbol.
+    source_bindings:
+      payment_authorized:
+        path: app.py
+        symbol: emit_payment_authorized
+        sha256: ...                # optional body hash; mismatch => drift / RED
 
 Counting is done over the events the backend returns for ``cid`` — no
 backend-specific query language, so the same gate runs on memory, OpenObserve, or
@@ -69,10 +76,13 @@ gains is a real incremental monitor with anticipatory verdicts, surfaced per che
 """
 from __future__ import annotations
 
+import ast
+import hashlib
 import os
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..domain.ports import (
     Backend,
@@ -377,6 +387,196 @@ def _rule_event_names(rule: dict) -> set[str]:
     return {n for n in names if isinstance(n, str) and n}
 
 
+def _positive_rule_event_names(rule: dict) -> set[str]:
+    """Event names that represent positive source obligations.
+
+    Longinus/source binding should attach to emitted evidence, not to negative checks
+    like ``absent: {level: ERROR}`` or to ``external:`` territory probes. This is deliberately
+    best-effort: custom predicates can opt in by exposing ``event``.
+    """
+    names: set[str] = set()
+    for m in rule.get("present") or []:
+        if isinstance(m, dict):
+            names.add(m.get("event"))
+    for key in ("must_order", "trajectory"):
+        for part in rule.get(key) or []:
+            names.add(part if isinstance(part, str) else
+                      part.get("event") if isinstance(part, dict) else None)
+    for container, sides in (("ratioMetric", ("good", "total")), ("invariant", ("left", "right")),
+                             ("metamorphic", ("a", "b"))):
+        c = rule.get(container)
+        if isinstance(c, dict):
+            for side in sides:
+                if isinstance(c.get(side), dict):
+                    names.add(c[side].get("event"))
+    names.add(rule.get("heartbeat"))
+    if isinstance(rule.get("conforms"), str):
+        names.add(rule["conforms"])
+    if _detect_check_key(rule) is None:
+        names.add(rule.get("event"))
+    return {n for n in names if isinstance(n, str) and n and n != "*"}
+
+
+def _normalized_sha256(text: str) -> str:
+    lines = [ln.rstrip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return hashlib.sha256(("\n".join(lines).rstrip("\n") + "\n").encode()).hexdigest()
+
+
+def _resolve_ast_symbol(path: Path, symbol: str) -> tuple[bool, str | None, str | None]:
+    """Resolve ``symbol`` in a Python source file and return ``(found, sha256, reason)``.
+
+    This is the no-KG Longinus spine: a gate can require that an expected event is bound to a real
+    source symbol and, optionally, to the symbol's current body hash. It stays stdlib/offline and
+    avoids importing the target module.
+    """
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        return False, None, f"source_unreadable:{exc.__class__.__name__}"
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except SyntaxError:
+        return False, None, "source_syntax_error"
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.stack: list[str] = []
+            self.match: ast.AST | None = None
+
+        def _named(self, node: ast.AST) -> None:
+            name = getattr(node, "name", None)
+            if not isinstance(name, str):
+                return
+            self.stack.append(name)
+            if ".".join(self.stack) == symbol:
+                self.match = node
+            if self.match is None:
+                self.generic_visit(node)
+            self.stack.pop()
+
+        visit_FunctionDef = _named
+        visit_AsyncFunctionDef = _named
+        visit_ClassDef = _named
+
+    visitor = Visitor()
+    visitor.visit(tree)
+    if visitor.match is None:
+        return False, None, "symbol_not_found"
+    segment = ast.get_source_segment(text, visitor.match)
+    if segment is None:
+        lines = text.splitlines()
+        start = max(getattr(visitor.match, "lineno", 1) - 1, 0)
+        end = getattr(visitor.match, "end_lineno", start + 1)
+        segment = "\n".join(lines[start:end])
+    return True, _normalized_sha256(segment), None
+
+
+def _binding_event(binding: dict) -> str | None:
+    v = binding.get("event") or binding.get("event_type") or binding.get("type")
+    return str(v) if v else None
+
+
+def _binding_path(binding: dict) -> str | None:
+    v = (
+        binding.get("path")
+        or binding.get("file")
+        or binding.get("sourcePath")
+        or binding.get("source_path")
+    )
+    return str(v) if v else None
+
+
+def _binding_symbol(binding: dict) -> str | None:
+    v = binding.get("symbol") or binding.get("qualname") or binding.get("sourceId")
+    return str(v) if v else None
+
+
+def _binding_want_sha(binding: dict) -> str | None:
+    v = binding.get("sha256") or binding.get("hash") or binding.get("symbol_sha256")
+    return str(v) if v else None
+
+
+def _normalize_source_bindings(raw) -> list[dict]:
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        out = []
+        for event, binding in raw.items():
+            b = dict(binding or {})
+            b.setdefault("event", event)
+            out.append(b)
+        return out
+    return [dict(b) for b in raw]
+
+
+def _longinus_report(spec: dict, gating_rules: list[dict]) -> dict:
+    required = bool(spec.get("require_source_bindings") or spec.get("require_longinus"))
+    bindings = _normalize_source_bindings(
+        spec.get("source_bindings") or spec.get("longinus") or spec.get("must_emit")
+    )
+    required_events = sorted(set().union(*(_positive_rule_event_names(r) for r in gating_rules))
+                             if gating_rules else set())
+    by_event: dict[str, list[dict]] = {}
+    for b in bindings:
+        event = _binding_event(b)
+        if event:
+            by_event.setdefault(event, []).append(b)
+
+    missing = [event for event in required_events if event not in by_event]
+    checked: list[dict] = []
+    unresolved: list[dict] = []
+    drifted: list[dict] = []
+    for event in required_events:
+        for b in by_event.get(event, []):
+            rel = _binding_path(b)
+            symbol = _binding_symbol(b)
+            item = {
+                "event": event,
+                "sourceId": b.get("sourceId") or b.get("source_id") or symbol,
+                "path": rel,
+                "symbol": symbol,
+            }
+            if not rel or not symbol:
+                item["ok"] = False
+                item["reason"] = "binding_missing_path_or_symbol"
+                unresolved.append(item)
+                checked.append(item)
+                continue
+            path = Path(rel)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            found, got_sha, reason = _resolve_ast_symbol(path, symbol)
+            item["resolved"] = found
+            item["sha256"] = got_sha
+            want_sha = _binding_want_sha(b)
+            if want_sha:
+                item["expected_sha256"] = want_sha
+            if not found:
+                item["ok"] = False
+                item["reason"] = reason
+                unresolved.append(item)
+            elif want_sha and got_sha != want_sha:
+                item["ok"] = False
+                item["reason"] = "symbol_sha256_drift"
+                drifted.append(item)
+            else:
+                item["ok"] = True
+            checked.append(item)
+
+    ok = not (missing or unresolved or drifted)
+    return {
+        "enabled": required or bool(bindings),
+        "required": required,
+        "required_events": required_events,
+        "bound": sum(1 for item in checked if item.get("ok")),
+        "missing": missing,
+        "unresolved": unresolved,
+        "drifted": drifted,
+        "bindings": checked,
+        "source_bound": ok,
+    }
+
+
 def _check_charged(chk: dict) -> bool:
     """Did a check actually SEE matching evidence (positive confirmation), vs pass on absence /
     emptiness? The charge-ratio over gating checks measures how much of a green is backed by
@@ -604,15 +804,22 @@ def evaluate_events(
         rc = _truthy(os.getenv("OOPTDD_REQUIRE_CORROBORATION"))
     rc = bool(rc)
     uncorroborated = rc and asserts_anything and corroborated == 0
+    longinus = _longinus_report(spec, gating)
+    source_unbound = longinus["required"] and asserts_anything and not longinus["source_bound"]
     result = {
-        "ok": reachable and complete and asserts_anything and required_ok and not uncorroborated,
+        "ok": (
+            reachable and complete and asserts_anything and required_ok
+            and not uncorroborated and not source_unbound
+        ),
         "reachable": reachable,
         "complete": complete,
         "probe_reachable": probe_reachable,
         "vacuous": vacuous,
         "uncorroborated": uncorroborated,
+        "source_unbound": source_unbound,
         "cid": cid,
         "checks": checks,
+        "longinus": longinus,
         "oracle": {
             "gating": len(gating),
             "corroborated": corroborated,
@@ -680,6 +887,10 @@ def green_banner(result: dict) -> str:
                  if orc.get("single_authority")
                  else f" Oracle: {orc.get('corroborated')}/{orc.get('gating')} independently"
                       " corroborated.")
+    lng = result.get("longinus") or {}
+    if lng.get("enabled"):
+        line += (f" Longinus: {lng.get('bound', 0)}/{len(lng.get('required_events') or [])} "
+                 "required event binding(s) resolved.")
     if sc.get("charge_ratio") is not None:
         line += f" Charge: {sc.get('charged')}/{sc.get('gating')} gating check(s) saw evidence."
     return line
