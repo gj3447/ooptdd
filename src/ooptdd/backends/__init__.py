@@ -28,6 +28,7 @@ from .memory import reset as memory_reset
 
 _BUILTINS = {
     "memory": "ooptdd.backends.memory:MemoryBackend",
+    "jsonl": "ooptdd.backends.jsonl:JsonlBackend",  # 영속·cross-process·zero-infra queryable
     "openobserve": "ooptdd.backends.openobserve:OpenObserveBackend",
     "otel": "ooptdd.backends.otel:OtelBackend",
     "clickhouse": "ooptdd.backends.clickhouse:ClickHouseBackend",
