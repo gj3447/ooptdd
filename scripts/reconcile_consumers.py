@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,12 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 OOPTDD = _HERE.parent
 SRC = OOPTDD / "src" / "ooptdd"
+
+# Consumer checkouts resolve under OOPTDD_CONSUMERS_ROOT (default: the workspace that holds this
+# repo) + the consumer's dir, so the registry is not pinned to one machine's absolute paths — the
+# old hardcoded /mnt/hdd/... roots were dead on every other box and silently SKIPped every consumer
+# (a reconcile that finds nothing reads as "all in sync").
+_CONSUMERS_ROOT = Path(os.getenv("OOPTDD_CONSUMERS_ROOT", str(OOPTDD.parent)))
 
 VENDOR_FILES = [
     "__init__.py", "model.py", "verify.py", "config.py", "plugin.py", "cli.py",
@@ -50,21 +57,21 @@ VENDOR_FILES = [
 #  vendor rel-to-TESTFILE, manifest rel-to-TESTFILE)
 CONSUMERS = [
     {"name": "consumer_a",
-     "root": Path("<WORKSPACE>/consumer_a"),
+     "dir": "consumer_a",
      "vendor": "tests/_vendor/ooptdd",
      "manifest": "tests/_vendor/ooptdd_manifest.json",
      "test": "tests/test_ooptdd_vendor_drift.py",
      "vendor_rel": "_vendor/ooptdd",
      "manifest_rel": "_vendor/ooptdd_manifest.json"},
     {"name": "consumer_b",
-     "root": Path("<WORKSPACE>/consumer_b"),
+     "dir": "consumer_b",
      "vendor": "_vendor/ooptdd",
      "manifest": "_vendor/ooptdd_vendor_manifest.json",
      "test": "_vendor/test_ooptdd_vendor_drift.py",
      "vendor_rel": "ooptdd",
      "manifest_rel": "ooptdd_vendor_manifest.json"},
     {"name": "lakatotree",
-     "root": Path("<WORKSPACE>/lakatotree"),
+     "dir": "lakatotree",
      "vendor": "_vendor/ooptdd",
      "manifest": "_vendor/ooptdd_vendor_manifest.json",
      "test": "_vendor/test_ooptdd_vendor_drift.py",
@@ -137,9 +144,10 @@ def test_vendored_files_match_manifest():
 
 
 def test_vendored_matches_canonical_when_present():
-    canon = Path(os.getenv("OOPTDD_CANONICAL", "<WORKSPACE>/ooptdd")) / "src" / "ooptdd"
-    if not canon.exists():
-        pytest.skip("canonical ooptdd checkout absent — manifest guard covers integrity here")
+    root = os.getenv("OOPTDD_CANONICAL")
+    canon = Path(root) / "src" / "ooptdd" if root else None
+    if canon is None or not canon.exists():
+        pytest.skip("OOPTDD_CANONICAL unset or absent — offline; manifest guard covers integrity")
     for rel in _manifest()["files"]:
         c = canon / rel
         assert c.exists(), f"canonical dropped ooptdd/{{rel}} — re-vendor"
@@ -149,7 +157,7 @@ def test_vendored_matches_canonical_when_present():
 
 
 def reconcile_one(c: dict, canon_h: dict, apply: bool) -> dict:
-    root: Path = c["root"]
+    root: Path = _CONSUMERS_ROOT / c["dir"]
     vdir = root / c["vendor"]
     mpath = root / c["manifest"]
     tpath = root / c["test"]

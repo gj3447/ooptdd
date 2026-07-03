@@ -1,12 +1,23 @@
 """Drift check for the vendored ooptdd core (copied in by scripts/vendor_ooptdd.py).
 
-RED the moment a vendored file is edited away from the committed manifest. To sync
-with upstream, re-run ``python <ooptdd>/scripts/vendor_ooptdd.py <this-repo>`` —
-the manifest changes show up as a git diff to review. Pure stdlib, offline.
+Two kinds of drift, two guards:
+  * TAMPER — a vendored file edited away from the committed manifest. The manifest guards
+    below RED the moment that happens. Pure stdlib, offline.
+  * BEHIND — canonical moved on and this copy lagged. The manifest guards are BLIND to it
+    (the vendor still matches its own stale snapshot, so it stays green — exactly how a
+    consumer silently sits on an old ooptdd). ``test_vendored_matches_canonical_when_present``
+    catches it whenever a canonical checkout is reachable via ``OOPTDD_CANONICAL``; offline
+    it skips (never a false red), and the manifest guards still cover local integrity.
+
+To sync with upstream, re-run ``python <ooptdd>/scripts/vendor_ooptdd.py <this-repo>`` —
+the manifest changes show up as a git diff to review.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 _VENDOR = Path(__file__).resolve().parent           # …/_vendor
 _MANIFEST = _VENDOR / "ooptdd_vendor_manifest.json"
@@ -50,4 +61,29 @@ def test_vendored_tree_matches_manifest_set():
         f"vendored tree != manifest. extra (orphaned): {sorted(present - declared)}; "
         f"missing (un-vendored): {sorted(declared - present)}. Re-vendor from canonical: "
         "python <ooptdd>/scripts/vendor_ooptdd.py <this-repo>"
+    )
+
+
+def test_vendored_matches_canonical_when_present():
+    """The BEHIND guard. The two manifest guards above only prove the vendor matches its own
+    committed snapshot — they stay green while canonical moves on, so a consumer can silently
+    lag upstream (the real failure mode: a flagship copy stuck on an old version). When a
+    canonical ooptdd checkout is reachable via the ``OOPTDD_CANONICAL`` env (dev box / CI with
+    the source mounted), every vendored file must equal it. Offline (env unset or path absent)
+    this SKIPS — never a false red — and the manifest guards still cover local integrity."""
+    root = os.getenv("OOPTDD_CANONICAL")
+    canon = Path(root) / "src" / "ooptdd" if root else None
+    if canon is None or not canon.exists():
+        pytest.skip("OOPTDD_CANONICAL unset or absent — offline; manifest guards cover integrity")
+    manifest = json.loads(_MANIFEST.read_text())
+    behind = []
+    for rel in manifest["files"]:
+        c = canon / rel
+        assert c.exists(), f"canonical dropped ooptdd/{rel} — re-vendor this repo"
+        if _normalized_sha256(c.read_text()) != _normalized_sha256((_VENDOR / "ooptdd" / rel).read_text()):
+            behind.append(rel)
+    assert not behind, (
+        f"vendored ooptdd is BEHIND canonical on {behind}. The manifest guards passed because "
+        f"the vendor still matches its own (stale) snapshot — canonical moved on and this copy "
+        f"lagged. Re-vendor: python <ooptdd>/scripts/vendor_ooptdd.py <this-repo>"
     )
