@@ -123,8 +123,8 @@ class VictoriaLogsBackend:
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
             base = self._base()
-        except ValueError:
-            return QueryResult(reachable=False)
+        except ValueError as exc:
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
         # LogsQL: exact field match on the correlation id. start/end are unix seconds
         # (VictoriaLogs accepts fractional). SELECT-* equivalent: no field projection, so
         # whole rows come back for the Python-side gate `where:` filters.
@@ -139,8 +139,8 @@ class VictoriaLogsBackend:
         try:
             with self._open(req, timeout=self.timeout) as r:
                 payload = r.read().decode()
-        except Exception:
-            return QueryResult(reachable=False)
+        except Exception as exc:
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
         events = []
         complete = True
         for line in payload.splitlines():

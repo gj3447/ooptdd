@@ -161,7 +161,12 @@ def load_gate(path: str, *, cid: str | None = None) -> dict:
     import yaml  # PyYAML (declared dependency)
 
     with open(path) as fh:
-        spec = yaml.safe_load(fh) or {}
+        try:
+            spec = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            # YAMLError is NOT a ValueError, so it would escape the CLI's clean-error handler as an
+            # uncaught traceback (exit 1) — re-raise as ValueError so a malformed spec is exit 2.
+            raise ValueError(f"malformed gate spec {path}: {exc}") from exc
     if cid is not None:
         spec["cid"] = cid  # explicit override of the file's cid/cid_env (no monkeypatch needed)
     return spec

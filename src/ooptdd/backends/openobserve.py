@@ -89,8 +89,8 @@ class OpenObserveBackend:
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
             base, org, auth = self._endpoint()
-        except ValueError:
-            return QueryResult(reachable=False)
+        except ValueError as exc:
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
         # SELECT * so whole rows come back: arbitrary fields (verdict, level, …) for gate
         # `where:` filters and `_timestamp` for `must_order`. The cid is a single-quoted SQL
         # string literal, so it is escaped by doubling embedded quotes — it can never break
@@ -121,12 +121,13 @@ class OpenObserveBackend:
                     # `absent` (reachable=True, 0 events). Mirrors ship()'s _raise_for_status.
                     _raise_for_status(r)
                     hits = json.loads(r.read().decode()).get("hits", [])
-            except Exception:
+            except Exception as exc:
                 # A failure mid-paging means we don't have the complete set: if we already
                 # have some rows it's an incomplete read, else fully unreachable.
+                err = f"{type(exc).__name__}: {exc}"
                 if offset == 0:
-                    return QueryResult(reachable=False)
-                return QueryResult(reachable=True, events=events, complete=False)
+                    return QueryResult(reachable=False, error=err)
+                return QueryResult(reachable=True, events=events, complete=False, error=err)
             events.extend(hits)
             if len(hits) < self.page_size:
                 break  # short page → the result set is exhausted (complete read)

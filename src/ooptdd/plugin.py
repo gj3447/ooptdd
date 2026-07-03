@@ -176,8 +176,10 @@ def pytest_collection_finish(session):
         backend.ship([build_session_start(
             config._ooptdd_cid, service=s.service, expected_total=len(session.items)
         )])
-    except Exception:  # noqa: BLE001 — heartbeat is best-effort, never gates collection
-        pass
+    except Exception as exc:  # noqa: BLE001 — heartbeat is best-effort, never gates collection
+        # Surface the swallow (it changes what a later 'summary lost' diagnosis can conclude) —
+        # but never re-raise into collection.
+        _emit(config, [f"ooptdd session_start heartbeat not shipped: {type(exc).__name__}: {exc}"])
 
 
 def pytest_sessionfinish(session, exitstatus):
