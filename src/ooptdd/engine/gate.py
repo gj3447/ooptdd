@@ -525,6 +525,15 @@ def evaluate_events(
         levels = spec.get("error_levels") or ["ERROR", "CRITICAL"]
         rules.append({"absent": [{"where": {"level": lv}} for lv in levels],
                       "_auto": "forbid_errors"})
+    # pin_service (opt-in spec key): assert every counted event carries service==<value>, so a
+    # service-drifted or service-missing emitter reds the gate. Injected as a conservation
+    # invariant — count(all) == count(where service==pinned) — reusing the existing monitor.
+    ps = spec.get("pin_service")
+    if ps:
+        rules.append({"invariant": {"left": {"reduce": "count"},
+                                    "right": {"where": {"service": ps}, "reduce": "count"},
+                                    "op": "=="},
+                      "label": f"pin_service={ps}", "_auto": "pin_service"})
     # Dispatch each rule through the check-predicate registry (the extension seam):
     # detect the rule's predicate keyword, look up its handler (else the default count
     # check). A check passes only over a *clean* read — reachable AND complete; a truncated

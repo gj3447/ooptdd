@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import threading
 
 # When one test produces several phase reports (setup/call/teardown) we keep the
 # most severe outcome for the session tally.
@@ -215,6 +216,37 @@ def verify_chain(records: list[dict], key: str, *, evolve: bool = False) -> dict
         if evolve:
             k = _evolve(k)
     return {"ok": True, "broken_index": None, "reason": None}
+
+
+def build_event(cid: str, event: str, *, service: str = "ooptdd.tests", **attrs) -> dict:
+    """The generic emit envelope (pure): one structured event under all three correlation aliases,
+    stamped with the wire ``spec_version``, plus a ``service`` and any event-specific ``attrs``.
+    This is what a consumer ships instead of hand-rolling a flat dict per verb — the same shape the
+    pytest builders produce, so one gate grammar reads them all."""
+    return {**correlation_keys(cid), "spec_version": ENVELOPE_SPEC_VERSION,
+            "service": service, "event": event, **attrs}
+
+
+class Emitter:
+    """A thin, thread-safe emit seam over an injected backend: ``emit(event, cid, **attrs)`` builds
+    one :func:`build_event` and ships it. ``backend`` is duck-typed (anything with ``ship(list)``)
+    so this stays a pure-domain leaf — it never imports ``ooptdd.backends``. The lock serializes
+    only the ``ship`` call (no re-entrancy/callback), so it cannot deadlock a backend that does its
+    own locking."""
+
+    def __init__(self, backend, service: str = "ooptdd.tests"):
+        self._backend = backend
+        self.service = service
+        self._lock = threading.Lock()
+
+    def build(self, event: str, cid: str, **attrs) -> dict:
+        return build_event(cid, event, service=self.service, **attrs)
+
+    def emit(self, event: str, cid: str, **attrs) -> dict:
+        rec = self.build(event, cid, **attrs)
+        with self._lock:
+            self._backend.ship([rec])
+        return rec
 
 
 def build_outcome_records(
