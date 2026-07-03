@@ -554,6 +554,7 @@ def evaluate_events(
         chk["pending"] = bool(rule.get("pending", False))
         chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
         chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
+        chk["kind"] = key or "count"  # stable identity for programmatic RED diagnosis
         if "label" in rule and "label" not in chk:
             chk["label"] = rule["label"]  # a rule-declared label follows into the result
         # A declared `separate_source=True` is DEMOTED to derived-self when the probe's own
@@ -714,6 +715,14 @@ def evaluate_events(
         result["score"] = score
         result["threshold"] = float(threshold)
     return result
+
+
+def failed_checks(result: dict) -> list[dict]:
+    """The GATING checks that failed — the RED contributors, for programmatic diagnosis. Excludes
+    optional/pending checks (they never gate ``ok``). Each carries a stable ``kind`` so a consumer
+    keys off ``c["kind"]`` instead of string-matching the raw check shape."""
+    return [c for c in result.get("checks", [])
+            if not c.get("passed") and not c.get("optional") and not c.get("pending")]
 
 
 def green_banner(result: dict) -> str:

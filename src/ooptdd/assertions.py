@@ -14,7 +14,7 @@ keeping the rule that an infra outage is not a falsification.
 from __future__ import annotations
 
 from .backends import Backend, get_backend
-from .engine.gate import _label, evaluate
+from .engine.gate import _label, evaluate, failed_checks
 
 
 class TraceAssertionError(AssertionError):
@@ -51,6 +51,39 @@ def assert_gate(spec: dict, *, backend: Backend | None = None, ontology=None,
             f"trace gate RED (cid={res['cid']}): {_gating_failures(res)}"
         )
     return res
+
+
+def assert_gate_red(spec: dict, *, backend: Backend | None = None, ontology=None,
+                    strict_infra: bool = False) -> dict:
+    """The inverse of :func:`assert_gate`: raise unless the gate is genuinely RED — a reachable,
+    complete miss. A GREEN gate raises ``TraceAssertionError`` (a passing gate does not satisfy
+    "assert red"). An unreachable/incomplete store is INCONCLUSIVE — it cannot confirm RED, so it
+    is skipped (``pytest.skip``) rather than counted as red, unless ``strict_infra``. Returns the
+    result on a confirmed RED (useful for asserting the specific failing kinds)."""
+    backend = backend or get_backend("memory")
+    res = evaluate(backend, spec, ontology=ontology)
+    if not res["reachable"] or not res.get("complete", True):
+        if strict_infra:
+            raise TraceAssertionError(
+                f"store unreachable or read incomplete for cid={res['cid']} — cannot confirm RED"
+            )
+        import pytest  # only reached in a test context; keeps assertions import-light otherwise
+        pytest.skip(f"inconclusive (store unreachable/incomplete) — cannot confirm RED "
+                    f"for cid={res['cid']}")
+    if res["ok"]:
+        raise TraceAssertionError(f"expected trace gate RED but it was GREEN (cid={res['cid']})")
+    return res
+
+
+def explain(result: dict) -> str:
+    """A one-line human summary of a gate result: GREEN, INCONCLUSIVE, or RED with the failing
+    checks named by their stable ``kind`` — the readable form of :func:`failed_checks`."""
+    if not result.get("reachable", True) or not result.get("complete", True):
+        return f"INCONCLUSIVE (store unreachable/incomplete) cid={result.get('cid')}"
+    if result.get("ok"):
+        return f"GREEN cid={result.get('cid')}"
+    parts = [f"{c.get('kind', '?')}:{_label(c)}" for c in failed_checks(result)]
+    return f"RED cid={result.get('cid')}: " + ", ".join(parts)
 
 
 def assert_present(cid: str, *matchers: dict, backend: Backend | None = None,
