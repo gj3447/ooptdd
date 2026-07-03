@@ -92,11 +92,12 @@ def _brief(ev: dict) -> dict:
 
 
 def stream_key(ev: dict):
-    """Sort key putting events without a store timestamp first, then by ``_timestamp``.
-    The kernel consumes events in this order so first-occurrence/sequencing checks see
-    the true arrival order."""
+    """Sort key putting events without a store timestamp first, then by ``_timestamp``, then by the
+    backend's per-event ``_seq`` — the tie-break that keeps same-batch events (which share one
+    wall-clock ``_timestamp``) in ship order. Events without ``_seq`` sort as 0 (concurrent)."""
     ts = ev.get("_timestamp")
-    return (ts is None, ts if ts is not None else 0)
+    seq = ev.get("_seq")
+    return (ts is None, ts if ts is not None else 0, seq if seq is not None else 0)
 
 
 # ── monitor automata ─────────────────────────────────────────────────────────── #
@@ -236,12 +237,19 @@ class OrderMonitor(Monitor):
         self.seq = list(seq)
         self.within_s = within_s
         self.firsts: dict = {name: None for name in self.seq}
+        # Ordering is compared on a composite (ts, seq) key so same-batch events (identical ts) are
+        # ordered by the backend's per-event seq — not vacuously "concurrent". `firsts` stays plain
+        # ts (its reported shape is a contract); the seq only sharpens the *order* comparison.
+        self._keys: dict = {name: None for name in self.seq}
 
     def _firsts_list(self):
         return [(name, self.firsts[name]) for name in self.seq]
 
+    def _order_keys(self):
+        return [self._keys[name] for name in self.seq]
+
     def _ordered_so_far(self) -> bool:
-        known = [ts for _, ts in self._firsts_list() if ts is not None]
+        known = [k for k in self._order_keys() if k is not None]
         return all(known[i] <= known[i + 1] for i in range(len(known) - 1))
 
     def _gaps_exceeded(self):
@@ -263,6 +271,8 @@ class OrderMonitor(Monitor):
             return  # only timestamped, in-sequence events move the automaton
         if self.firsts[name] is None:
             self.firsts[name] = ts
+            s = ev.get("_seq")
+            self._keys[name] = (ts, s if s is not None else 0)
         # inevitable VIOL: a known first-occurrence is now out of order, or a bounded gap
         # has already been exceeded — neither can be undone by later events.
         if not self._ordered_so_far() or self._gaps_exceeded():
@@ -274,8 +284,9 @@ class OrderMonitor(Monitor):
     def collapse(self, reachable):
         fl = self._firsts_list()
         missing = [name for name, ts in fl if ts is None]
+        keys = self._order_keys()  # (ts, seq) composite so a same-batch inversion is not "ordered"
         ordered = not missing and all(
-            fl[i][1] <= fl[i + 1][1] for i in range(len(fl) - 1)
+            keys[i] <= keys[i + 1] for i in range(len(keys) - 1)
         )
         gaps = self._gaps_exceeded() if ordered else []
         chk = {

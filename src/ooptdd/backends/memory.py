@@ -13,12 +13,17 @@ it perfect for reproducing the silent-ingest-loss bug on purpose.
 """
 from __future__ import annotations
 
+import itertools
 import time
 
 from .base import BackendCaps, QueryResult
 
-# process-global store: cid -> list[(stored_us, event)]
-_STORE: dict[str, list[tuple[int, dict]]] = {}
+# process-global monotonic sequence, stamped per shipped event. Survives reset() so ordering stays
+# globally monotonic within a process — this is what breaks a same-batch wall-clock tie (every event
+# in one ship() shares now_us, but each gets a distinct, increasing _seq).
+_SEQ = itertools.count()
+# process-global store: cid -> list[(stored_us, seq, event)]
+_STORE: dict[str, list[tuple[int, int, dict]]] = {}
 
 
 def reset() -> None:
@@ -47,15 +52,15 @@ class MemoryBackend:
         now_us = int(time.time() * 1_000_000)
         for ev in events:
             cid = ev.get("cid") or ev.get("correlation_id") or ev.get("cycle_id") or ""
-            _STORE.setdefault(cid, []).append((now_us, ev))
+            _STORE.setdefault(cid, []).append((now_us, next(_SEQ), ev))
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         # Stamp each returned event with its store-receive time under ``_timestamp``
         # (µs), mirroring OpenObserve's native column, so ordering checks
         # (gate ``must_order``) work uniformly across backends. Copy, don't mutate.
         hits = [
-            {**ev, "_timestamp": ts}
-            for (ts, ev) in _STORE.get(cid, [])
+            {**ev, "_timestamp": ts, "_seq": seq}
+            for (ts, seq, ev) in _STORE.get(cid, [])
             if since_us <= ts <= until_us
         ]
         return QueryResult(reachable=True, events=hits)
