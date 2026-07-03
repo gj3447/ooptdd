@@ -31,7 +31,13 @@ Public API:
     assert_gate, assert_present   DeepEval-style in-test trace assertions
     Backend, QueryResult, MemoryBackend
 """
-from .assertions import TraceAssertionError, assert_gate, assert_present
+from .assertions import (
+    TraceAssertionError,
+    assert_gate,
+    assert_gate_red,
+    assert_present,
+    explain,
+)
 from .backends import (
     Backend,
     BackendCaps,
@@ -59,6 +65,7 @@ from .engine.gate import (
     evaluate,
     evaluate_events,
     evidence_tier,
+    failed_checks,
     green_banner,
     lint_spec,
     load_gate,
@@ -99,10 +106,13 @@ __all__ = [
     "can_i_deploy",
     "check",
     "unregister",
+    "failed_checks",
     "compile_check",
     "LiveMonitorSet",
     "assert_gate",
+    "assert_gate_red",
     "assert_present",
+    "explain",
     "TraceAssertionError",
     "Backend",
     "QueryResult",

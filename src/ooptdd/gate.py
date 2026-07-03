@@ -21,6 +21,7 @@ from .engine.gate import (  # noqa: F401
     evaluate,
     evaluate_events,
     evidence_tier,
+    failed_checks,
     load_gate,
     unregister,
 )
