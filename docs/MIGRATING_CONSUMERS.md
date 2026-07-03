@@ -45,6 +45,31 @@
 Env contract changes: `OO_URL/OO_PASS/AIRO_LOGS_E2E` → `OOPTDD_OO_URL/OOPTDD_OO_PASSWORD/OOPTDD_ENABLED`.
 Graceful: where ooptdd (vendored) is absent, the plugin simply doesn't load → tests run, LTDD off.
 
+### Making absence RED (required-presence lanes)
+
+Fail-open is the right *default*, but it has a trap: because receipts guard with
+`pytest.importorskip("ooptdd…")`, a missing vendored copy, a fail-open install, or **a `.venv`
+rebuilt without ooptdd** turns every receipt into a SKIP — so a CI lane can report green having
+verified nothing. There is no signal that the substrate went missing. For the lanes that MUST
+have receipts, make absence loud with **either**:
+
+- **Force the plugin** — add `-p ooptdd.plugin` to that lane's pytest invocation (or `addopts`).
+  pytest fails at startup if `ooptdd.plugin` can't be imported, so absence is a hard error, not a
+  skip. (Do NOT combine with `-p no:ooptdd`, which is for suppressing the *dev-box auto-ship*.)
+- **Drop in the canary** — copy `scripts/templates/conftest_ooptdd_required.py` next to your
+  receipts (or merge its body into an existing `conftest.py`) and set `OOPTDD_REQUIRED` on the
+  required lanes:
+
+  ```
+  OOPTDD_REQUIRED=1                              # require `ooptdd`
+  OOPTDD_REQUIRED=ooptdd.backends,ooptdd_loop    # require exactly these
+  ```
+
+  It imports the named modules at collection time, so absence aborts the session. It is a no-op
+  when the env is unset, so it is safe to commit everywhere. See
+  `tests/test_required_presence.py` for the three states it guarantees (absent+unset → skip-green;
+  absent+required → red; present+required → runs).
+
 ## Per-consumer touchpoints (scouted 2026-06-16)
 
 ### 1. lakatotree (`/mnt/hdd/kjra/lakatotree`, branch `master`) — canary
