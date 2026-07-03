@@ -103,10 +103,8 @@ def test_require_signature_accepts_a_fully_signed_stream(monkeypatch):
     assert res.get("unauthenticated") in (None, False)   # never falsely flagged
 
 
-# ── RED-first targets: xfail(strict) today, XPASS (=> remove marker) once wired ──────
+# ── formerly RED-first (audit 비평-1), now wired: the gate path verifies the chain ──────
 
-@pytest.mark.xfail(strict=True, reason="gap 비평-1: evaluate_events has no signature axis; "
-                   "the forged unsigned event is counted as truth")
 def test_require_signature_rejects_a_forged_event(monkeypatch):
     """The core of the gap: with enforcement ON, a stream whose gated evidence is an
     UNSIGNED injected event must NOT be a clean pass — the injection breaks the hash chain
@@ -120,8 +118,6 @@ def test_require_signature_rejects_a_forged_event(monkeypatch):
     assert res.get("unauthenticated") is True
 
 
-@pytest.mark.xfail(strict=True, reason="gap 비평-1: a same-count payload tamper is invisible "
-                   "to the gate path — only a real signature check catches it")
 def test_require_signature_rejects_a_tampered_payload(monkeypatch):
     """Revert-proof guard: proves detection depends on the actual signature, not a constant
     `authenticated=True`. We mutate a NON-event field of an otherwise-legit signed record

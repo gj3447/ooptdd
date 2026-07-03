@@ -74,6 +74,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from ..domain.model import verify_chain
 from ..domain.ports import (
     Backend,
     Clock,
@@ -604,13 +605,40 @@ def evaluate_events(
         rc = _truthy(os.getenv("OOPTDD_REQUIRE_CORROBORATION"))
     rc = bool(rc)
     uncorroborated = rc and asserts_anything and corroborated == 0
+    # require_signature (spec key or env OOPTDD_REQUIRE_SIGNATURE, default OFF): promote emit
+    # PROVENANCE to a GATE, mirroring require_corroboration above. When ON, the events for this cid
+    # must form an intact tamper-evident hash chain (domain.model.sign_chain) under the key in
+    # OOPTDD_SIGNING_KEY — an unsigned injected event breaks the prev-link and a post-sign edit breaks
+    # the MAC, so a forged GREEN (a positive check satisfied by an off-chain event) is no longer a
+    # clean pass. This closes the gap that require_signature was ONLY enforced on the pytest-summary
+    # path (engine.verify), never on the gate path every consumer counts domain events through. Strict
+    # like that path: required-but-unverifiable (no key) or an unsigned/broken stream is
+    # `unauthenticated`, never a silent green. Backend-stamped `_*` fields (e.g. `_timestamp`, added on
+    # read, after signing) are excluded from the canonical form. Keyless/OFF is unchanged — opt-in, so
+    # no existing consumer flips. `authenticated` is True/False when enforced, None when not.
+    rs = spec.get("require_signature")
+    if rs is None:
+        rs = _truthy(os.getenv("OOPTDD_REQUIRE_SIGNATURE"))
+    rs = bool(rs)
+    authenticated = None
+    if rs and asserts_anything:
+        sig_key = os.getenv("OOPTDD_SIGNING_KEY")
+        if sig_key:
+            chain = [{k: v for k, v in e.items() if not k.startswith("_")} for e in events]
+            authenticated = bool(verify_chain(chain, sig_key)["ok"])
+        else:
+            authenticated = False  # required but unverifiable (no key) — never a clean pass
+    unauthenticated = rs and asserts_anything and authenticated is not True
     result = {
-        "ok": reachable and complete and asserts_anything and required_ok and not uncorroborated,
+        "ok": reachable and complete and asserts_anything and required_ok
+        and not uncorroborated and not unauthenticated,
         "reachable": reachable,
         "complete": complete,
         "probe_reachable": probe_reachable,
         "vacuous": vacuous,
         "uncorroborated": uncorroborated,
+        "unauthenticated": unauthenticated,
+        "authenticated": authenticated,
         "cid": cid,
         "checks": checks,
         "oracle": {
@@ -626,6 +654,7 @@ def evaluate_events(
             "emit_backend": emit_backend,
             "emit_identity": emit_identity,
             "relocated": sum(1 for c in gating if c.get("demoted_same_endpoint")),
+            "signature_enforced": rs,
         },
         "scope": {
             "gating": len(gating),
