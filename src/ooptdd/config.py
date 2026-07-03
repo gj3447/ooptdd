@@ -7,9 +7,30 @@ The plugin reads `[tool.ooptdd]` via pytest's ini machinery; the CLI reads
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
 
 _VERIFY_MODES = {"off", "warn", "strict"}
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+
+
+def parse_bool(value, default: bool = False) -> bool:
+    """The single boolean convention for ooptdd config/env: case- and whitespace-insensitive,
+    accepting {1,true,yes,on} / {0,false,no,off}. Empty/None returns ``default`` silently (no
+    opinion); an unrecognized spelling returns ``default`` with a one-time warning, so a typo like
+    ``OOPTDD_ENABLED=of`` is loud instead of silently flipping a verdict."""
+    if value is None:
+        return default
+    s = str(value).strip().lower()
+    if not s:
+        return default
+    if s in _TRUE:
+        return True
+    if s in _FALSE:
+        return False
+    warnings.warn(f"ooptdd: unrecognized boolean {value!r}; using default {default}", stacklevel=2)
+    return default
 
 
 @dataclass
@@ -25,17 +46,17 @@ class Settings:
     backend_options: dict = field(default_factory=dict)
 
     def is_enabled(self) -> bool:
-        """`auto`: on for zero-infra backends (memory), on for network backends
-        only when the gate env is set; explicit `1`/`0` always wins."""
-        flag = str(self.enabled).lower()
-        if flag in {"1", "true", "yes", "on"}:
-            return True
-        if flag in {"0", "false", "no", "off"}:
-            return False
+        """`auto`: on for zero-infra backends (memory), on for network backends only when
+        OOPTDD_ENABLED parses truthy; an explicit `enabled` flag always wins. All boolean reads go
+        through :func:`parse_bool`, so ``off``/``no``/``FALSE`` disable (they used to enable a
+        network backend under `auto` via a case-sensitive membership test)."""
+        flag = str(self.enabled).strip().lower()
+        if flag not in ("auto", ""):
+            return parse_bool(flag, default=False)
         # auto
         if self.backend == "memory":
             return True
-        return os.getenv("OOPTDD_ENABLED", "") not in {"", "0", "false"}
+        return parse_bool(os.getenv("OOPTDD_ENABLED"), default=False)
 
     @property
     def mode(self) -> str:

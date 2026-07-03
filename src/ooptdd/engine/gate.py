@@ -682,6 +682,10 @@ def evaluate_events(
             "emit_identity": emit_identity,
             "relocated": sum(1 for c in gating if c.get("demoted_same_endpoint")),
             "signature_enforced": rs,
+            # verdict provenance: was the negative wing (forbid ERROR/CRITICAL) enforced for this
+            # run? Stamped like `enforced`/`signature_enforced` so a judge reads the posture off the
+            # receipt instead of re-deriving it from the (env-dependent) spec.
+            "forbid_errors": bool(fe),
         },
         "scope": {
             "gating": len(gating),
