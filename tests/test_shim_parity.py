@@ -48,7 +48,8 @@ def test_root_exports_the_primary_flow():
     missing_all = ROOT_REQUIRED - set(ooptdd.__all__)
     assert not missing_all, f"root __all__ is missing primary-flow names: {sorted(missing_all)}"
     not_importable = {n for n in ROOT_REQUIRED if not hasattr(ooptdd, n)}
-    assert not not_importable, f"named in __all__ but not importable from root: {sorted(not_importable)}"
+    assert not not_importable, (
+        f"named in __all__ but not importable from root: {sorted(not_importable)}")
 
 
 def test_root_all_entries_are_importable():
@@ -62,7 +63,8 @@ def test_each_shim_is_a_faithful_subset_of_its_canonical_module():
     rename/removal upstream can't leave a shim silently exporting a stale symbol."""
     for shim, canon in _SHIM_PAIRS:
         extra = _public(shim) - _public(canon)
-        assert not extra, f"{shim.__name__} exports names absent from {canon.__name__}: {sorted(extra)}"
+        assert not extra, (
+            f"{shim.__name__} exports names absent from {canon.__name__}: {sorted(extra)}")
 
 
 def test_signing_primitives_reach_the_root_identically():
