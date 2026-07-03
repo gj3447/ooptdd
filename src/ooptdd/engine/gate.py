@@ -157,11 +157,14 @@ def duration_s(v) -> int | None:
     return int(s)  # bare numeric string -> seconds
 
 
-def load_gate(path: str) -> dict:
+def load_gate(path: str, *, cid: str | None = None) -> dict:
     import yaml  # PyYAML (declared dependency)
 
     with open(path) as fh:
-        return yaml.safe_load(fh) or {}
+        spec = yaml.safe_load(fh) or {}
+    if cid is not None:
+        spec["cid"] = cid  # explicit override of the file's cid/cid_env (no monkeypatch needed)
+    return spec
 
 
 def _label(chk: dict) -> str:
@@ -442,6 +445,7 @@ def evaluate(
     ontology=None,
     clock: Clock | None = None,
     probe=None,
+    cid: str | None = None,
 ) -> dict:
     """Run a gate spec once: read the backend, then judge the events.
 
@@ -461,7 +465,7 @@ def evaluate(
     This function owns the *read*; :func:`evaluate_events` owns the *judgement* and is the
     seam the arrival-poller (:func:`ooptdd.engine.verify.verify_gate`) reuses per poll.
     """
-    cid = _resolve_cid(spec)
+    cid = cid if cid is not None else _resolve_cid(spec)  # kwarg overrides spec cid/cid_env
     if ontology is None and spec.get("ontology"):
         from ..domain.ontology import Ontology  # file-first; offline, no KG dependency
         ontology = Ontology.from_file(spec["ontology"])

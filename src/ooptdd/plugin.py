@@ -24,9 +24,31 @@ from __future__ import annotations
 import os
 import uuid
 
-from .backends import get_backend
+import pytest
+
+from .backends import get_backend, memory_reset
 from .config import Settings, from_mapping, load_pyproject
 from .engine.verify import session_finish
+
+
+@pytest.fixture
+def ooptdd_memory_reset():
+    """Clear the process-global in-memory store around a test — the reset half of the setup
+    consumers used to hand-roll. Opt-in (request it); NOT autouse, so a consumer that manages its
+    own store lifecycle is never surprised by a hidden reset."""
+    memory_reset()
+    yield
+    memory_reset()
+
+
+@pytest.fixture
+def ooptdd_cid(monkeypatch, ooptdd_memory_reset):
+    """A unique correlation id for this test, also exported as ``OOPTDD_CID`` so a gate spec using
+    ``cid_env`` resolves to it — replaces the ``monkeypatch.setenv('OOPTDD_CID', …)`` + manual
+    store-reset dance. Depends on the reset fixture, so requesting a cid also isolates the store."""
+    cid = f"test-{uuid.uuid4().hex[:12]}"
+    monkeypatch.setenv("OOPTDD_CID", cid)
+    return cid
 
 
 def pytest_addoption(parser):
