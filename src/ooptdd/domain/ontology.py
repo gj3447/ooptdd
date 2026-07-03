@@ -51,7 +51,7 @@ _NUMBER = (int, float)
 # is closed (`additional_properties: false`) these are never counted as "unexpected"
 # attributes — closed-world polices the *payload* you declared, not the carrier.
 ENVELOPE_KEYS = frozenset({
-    "cid", "correlation_id", "cycle_id", "service", "level", "event",
+    "cid", "correlation_id", "cycle_id", "spec_version", "service", "level", "event",
     "_timestamp", "sig", "sig_alg", "sig_chain", "prev_sig",
     # W3C trace context (model.with_trace_context)
     "trace_id", "span_id",
