@@ -132,6 +132,13 @@ def check(*keys: str) -> Callable[[CheckFn], CheckFn]:
     return deco
 
 
+def unregister(key: str) -> CheckFn | None:
+    """Remove a check predicate (inverse of :func:`check`); returns the handler or None. Lets a
+    test drop a custom key it registered, and makes a built-in overridable (unregister then
+    re-register) — the duplicate-key guard in ``check`` otherwise forbids it."""
+    return CHECK_REGISTRY.pop(key, None)
+
+
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
@@ -159,6 +166,8 @@ def load_gate(path: str) -> dict:
 
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
+    if "label" in chk:  # a custom check/rule may name itself; honored for both result & rule dicts
+        return str(chk["label"])
     if "external" in chk:
         return "external:" + str(chk.get("external"))
     if "metamorphic" in chk:
@@ -336,6 +345,9 @@ def _strength(rule: dict) -> str:
     """Discriminating-power class of a check (pure, total over every registry key + the default
     count). Low→high: existence-only < bounded < value-pinned/ordered/forbid/threshold <
     ratio/liveness/conformance."""
+    d = rule.get("strength")  # a custom check may declare its own discriminating-power class
+    if isinstance(d, str) and d:
+        return d
     key = _detect_check_key(rule)
     if key in _STRENGTH_BY_KEY:
         return _STRENGTH_BY_KEY[key]
@@ -375,6 +387,8 @@ def _rule_event_names(rule: dict) -> set[str]:
     if isinstance(rule.get("conforms"), str):
         names.add(rule["conforms"])
     names.add(rule.get("event"))
+    for n in rule.get("events") or []:  # a custom check may declare the event names it asserts on
+        names.add(n if isinstance(n, str) else None)
     return {n for n in names if isinstance(n, str) and n}
 
 
@@ -382,6 +396,8 @@ def _check_charged(chk: dict) -> bool:
     """Did a check actually SEE matching evidence (positive confirmation), vs pass on absence /
     emptiness? The charge-ratio over gating checks measures how much of a green is backed by
     observed events rather than by nothing happening — distinct from stream-coverage."""
+    if "charged" in chk:  # a custom handler may report its own charge (present only if it set it;
+        return bool(chk["charged"])  # the engine's own chk['charged'] is assigned AFTER this call)
     if "got" in chk:
         return chk["got"] > 0
     if "present" in chk:
@@ -518,6 +534,15 @@ def evaluate_events(
         key = _detect_check_key(rule)
         handler = CHECK_REGISTRY[key] if key is not None else _eval_count
         chk = handler(events, rule, ctx)
+        # Enforce the check-result contract at the seam (not as a deep KeyError three sites later):
+        # every handler must return a dict carrying a bool 'passed'. Names the handler + key so a
+        # custom-check author sees exactly what to fix.
+        if not isinstance(chk, dict) or "passed" not in chk:
+            raise ValueError(
+                f"check handler {getattr(handler, '__name__', repr(handler))!r} (key={key!r}) "
+                f"returned a result without the required 'passed' key; a check result must be a "
+                f"dict with a bool 'passed'. Got: {chk!r}"
+            )
         chk["optional"] = bool(rule.get("optional", False))
         # Pact "pending pacts": a `pending` expectation is verified and surfaced but does
         # NOT gate the build — for an event whose emitter isn't wired yet. Once it passes,
@@ -525,6 +550,8 @@ def evaluate_events(
         chk["pending"] = bool(rule.get("pending", False))
         chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
         chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
+        if "label" in rule and "label" not in chk:
+            chk["label"] = rule["label"]  # a rule-declared label follows into the result
         # A declared `separate_source=True` is DEMOTED to derived-self when the probe's own
         # derived_identity equals the emit endpoint: it provably re-read the system's own store, so
         # the independence claim is false (relocation, not corroboration). Asymmetric on purpose — a
@@ -608,14 +635,14 @@ def evaluate_events(
     # require_signature (spec key or env OOPTDD_REQUIRE_SIGNATURE, default OFF): promote emit
     # PROVENANCE to a GATE, mirroring require_corroboration above. When ON, the events for this cid
     # must form an intact tamper-evident hash chain (domain.model.sign_chain) under the key in
-    # OOPTDD_SIGNING_KEY — an unsigned injected event breaks the prev-link and a post-sign edit breaks
-    # the MAC, so a forged GREEN (a positive check satisfied by an off-chain event) is no longer a
-    # clean pass. This closes the gap that require_signature was ONLY enforced on the pytest-summary
-    # path (engine.verify), never on the gate path every consumer counts domain events through. Strict
-    # like that path: required-but-unverifiable (no key) or an unsigned/broken stream is
-    # `unauthenticated`, never a silent green. Backend-stamped `_*` fields (e.g. `_timestamp`, added on
-    # read, after signing) are excluded from the canonical form. Keyless/OFF is unchanged — opt-in, so
-    # no existing consumer flips. `authenticated` is True/False when enforced, None when not.
+    # OOPTDD_SIGNING_KEY — an unsigned injected event breaks the prev-link and a post-sign edit
+    # breaks the MAC, so a forged GREEN (a positive check satisfied by an off-chain event) is no
+    # longer a clean pass. This closes the gap that require_signature was ONLY enforced on the
+    # pytest-summary path (engine.verify), never on the gate path every consumer counts domain
+    # events through. Strict like that path: required-but-unverifiable (no key) or an unsigned /
+    # broken stream is `unauthenticated`, never a silent green. Backend-stamped `_*` fields (e.g.
+    # `_timestamp`, added on read after signing) are excluded from the canonical form. Keyless/OFF
+    # is unchanged — opt-in. `authenticated` is True/False when enforced, None when not.
     rs = spec.get("require_signature")
     if rs is None:
         rs = _truthy(os.getenv("OOPTDD_REQUIRE_SIGNATURE"))
