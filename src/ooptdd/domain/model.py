@@ -74,6 +74,36 @@ def cloudevents_envelope(rec: dict, *, source: str | None = None) -> dict:
     return out
 
 
+# ── ooptdd event-envelope wire contract ─────────────────────────────────────────
+# A versioned, machine-readable schema for the envelope EVERY shipped record carries — distinct
+# from CE_SPECVERSION (the CloudEvents floor above, which versions only the 4 CE context attrs).
+# Out-of-process emitters (p333's Rust, omd) previously re-implemented the envelope by imitation
+# and drifted; this is the single source of truth they validate against. Stamped into every
+# builder record as `spec_version`; the on-disk docs/schema/envelope.schema.json is a mirror kept
+# honest by tests/test_wire_contract.py (the package constant is authoritative — the JSON is not
+# vendored, so the CLI emits from here, never by reading the file).
+ENVELOPE_SPEC_VERSION = "1.0.0"
+ENVELOPE_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/airobotics-ailab/ooptdd/schema/envelope.schema.json",
+    "title": "ooptdd event envelope",
+    "type": "object",
+    "required": ["spec_version", "cid", "correlation_id", "cycle_id", "service", "level", "event"],
+    "properties": {
+        "spec_version": {"const": ENVELOPE_SPEC_VERSION},
+        "cid": {"type": "string"},
+        "correlation_id": {"type": "string"},
+        "cycle_id": {"type": "string"},
+        "service": {"type": "string"},
+        "level": {"type": "string", "enum": ["INFO", "ERROR"]},
+        "event": {"type": "string"},
+    },
+    # Records also carry event-specific payload (duration_s/error/total/sig/trace_id/…); the
+    # envelope contract pins the carrier, not the payload — so extra keys are allowed.
+    "additionalProperties": True,
+}
+
+
 def with_trace_context(rec: dict, trace_id: str, span_id: str | None = None) -> dict:
     """Attach W3C trace context (``trace_id``/``span_id``) to an event (non-destructive).
 
@@ -211,6 +241,7 @@ def build_outcome_records(
         outcome = r["outcome"]
         rec = {
             **correlation_keys(cid),
+            "spec_version": ENVELOPE_SPEC_VERSION,
             "service": service,
             "level": "ERROR" if outcome == "failed" else "INFO",
             "event": "test_outcome",
@@ -233,6 +264,7 @@ def build_outcome_records(
     skipped = sum(1 for o in by_test.values() if o == "skipped")
     session = {
         **correlation_keys(cid),
+        "spec_version": ENVELOPE_SPEC_VERSION,
         "service": service,
         "level": "ERROR" if failed else "INFO",
         "event": "test_session",
@@ -264,6 +296,7 @@ def build_session_start(
     """
     rec = {
         **correlation_keys(cid),
+        "spec_version": ENVELOPE_SPEC_VERSION,
         "service": service,
         "level": "INFO",
         "event": "session_start",

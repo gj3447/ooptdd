@@ -1,0 +1,43 @@
+{
+  "$id": "https://github.com/airobotics-ailab/ooptdd/schema/envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "cid": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "cycle_id": {
+      "type": "string"
+    },
+    "event": {
+      "type": "string"
+    },
+    "level": {
+      "enum": [
+        "INFO",
+        "ERROR"
+      ],
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "spec_version": {
+      "const": "1.0.0"
+    }
+  },
+  "required": [
+    "spec_version",
+    "cid",
+    "correlation_id",
+    "cycle_id",
+    "service",
+    "level",
+    "event"
+  ],
+  "title": "ooptdd event envelope",
+  "type": "object"
+}

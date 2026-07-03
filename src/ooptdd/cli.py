@@ -34,7 +34,7 @@ import sys
 from . import __version__
 from .backends import default_registry, get_backend
 from .config import from_mapping, load_pyproject
-from .domain.model import signature_status, verify_chain
+from .domain.model import ENVELOPE_SCHEMA, signature_status, verify_chain
 from .domain.ontology import Ontology, check_conformance, ontology_compat
 from .domain.ports import backend_caps
 from .engine.gate import (
@@ -333,6 +333,9 @@ _ONTOLOGY_SCHEMA = """ontology file (yaml) — shape:
 
 
 def _cmd_schema(args) -> int:
+    if args.kind == "envelope":  # the machine-readable wire contract — emit the schema doc itself
+        print(json.dumps(ENVELOPE_SCHEMA, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
     text = _ONTOLOGY_SCHEMA if args.kind == "ontology" else _GATE_SCHEMA
     if getattr(args, "json", False):
         print(json.dumps({"kind": args.kind, "doc": text}, ensure_ascii=False, indent=2))
@@ -427,8 +430,8 @@ def main(argv=None) -> int:
     _add_json(vc)
     vc.set_defaults(func=_cmd_verify_chain)
 
-    sc = sub.add_parser("schema", help="print the gate or ontology spec cheat-sheet")
-    sc.add_argument("kind", nargs="?", choices=["gate", "ontology"], default="gate")
+    sc = sub.add_parser("schema", help="print the gate/ontology cheat-sheet or the envelope schema")
+    sc.add_argument("kind", nargs="?", choices=["gate", "ontology", "envelope"], default="gate")
     _add_json(sc)
     sc.set_defaults(func=_cmd_schema)
 

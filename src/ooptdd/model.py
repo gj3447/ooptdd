@@ -5,6 +5,8 @@ Re-exports only; new code should import from :mod:`ooptdd.domain.model`.
 from __future__ import annotations
 
 from .domain.model import (  # noqa: F401
+    ENVELOPE_SCHEMA,
+    ENVELOPE_SPEC_VERSION,
     SIG_ALG,
     build_outcome_records,
     build_session_start,
