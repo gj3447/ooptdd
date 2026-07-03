@@ -13,7 +13,8 @@ import sys
 import textwrap
 from pathlib import Path
 
-CANARY = Path(__file__).resolve().parents[1] / "scripts" / "templates" / "conftest_ooptdd_required.py"
+CANARY = (Path(__file__).resolve().parents[1]
+          / "scripts" / "templates" / "conftest_ooptdd_required.py")
 ABSENT = "ooptdd_substrate_that_is_not_installed_zzz"
 
 

@@ -53,8 +53,7 @@ expect:
 Assert on it:
 
 ```python
-from ooptdd.backends import MemoryBackend
-from ooptdd.gate import evaluate, load_gate
+from ooptdd import MemoryBackend, evaluate, load_gate
 
 def test_flow():
     backend = MemoryBackend()

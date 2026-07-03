@@ -40,4 +40,5 @@ def test_docs_do_not_promise_a_bare_pip_install():
         for i, line in enumerate(doc.read_text().splitlines(), 1):
             if "pip install ooptdd" in line and "publish" not in line.lower():
                 offenders.append(f"{doc.name}:{i}: {line.strip()}")
-    assert not offenders, "bare (uncaveated) `pip install ooptdd` promises:\n" + "\n".join(offenders)
+    assert not offenders, (
+        "bare (uncaveated) `pip install ooptdd` promises:\n" + "\n".join(offenders))

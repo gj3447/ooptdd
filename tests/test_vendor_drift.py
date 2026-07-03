@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "scripts" / "templates" / "test_ooptdd_vendor_drift.py"
+TEMPLATE = (Path(__file__).resolve().parents[1]
+            / "scripts" / "templates" / "test_ooptdd_vendor_drift.py")
 _CANON_GUARD = "test_vendored_matches_canonical_when_present"
 
 
