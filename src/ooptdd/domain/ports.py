@@ -46,11 +46,15 @@ class QueryResult:
     complete:  True iff the backend returned *every* matching row for the window. False iff a
                paging/row cap was hit and the set is partial — incomplete evidence, which the
                verdict layer must not treat as a clean pass. A full read leaves this True.
+    error:     None on a clean round-trip; else a short "TypeError: msg" attribution of WHY the
+               query failed (a 401 vs a DNS failure vs an unconfigured store), so a reachable=False
+               is diagnosable instead of an anonymous outage. Never gates the verdict — advisory.
     """
 
     reachable: bool
     events: list[dict] = field(default_factory=list)
     complete: bool = True
+    error: str | None = None
 
 
 # ── time: an injectable Clock port + a typed query window ───────────────────────

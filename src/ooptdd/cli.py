@@ -254,8 +254,12 @@ def _cmd_backends(args) -> int:
         return 0
     res = backend.query("__ooptdd_doctor_probe__", since_us=0, until_us=1)
     info["reachable"] = res.reachable
-    _emit(info, args, f"{'OK' if res.reachable else 'UNREACHABLE'} — {info['backend']} "
-          f"reachable={res.reachable}")
+    info["error"] = getattr(res, "error", None)  # WHY it failed (401 vs DNS vs unconfigured)
+    human = (f"{'OK' if res.reachable else 'UNREACHABLE'} — {info['backend']} "
+             f"reachable={res.reachable}")
+    if info["error"]:
+        human += f" ({info['error']})"
+    _emit(info, args, human)
     return 0 if res.reachable else 2
 
 

@@ -110,8 +110,8 @@ class ClickHouseBackend:
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
             base = self._base()  # noqa: F841 — validates config before the network call
-        except ValueError:
-            return QueryResult(reachable=False)
+        except ValueError as exc:
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
         # SELECT * (whole rows) with a *parameterized* cid — injection-safe. Time-window
         # bounding is store-receive-stamped; the cid is the real discriminator (one cid per
         # run), matching the OpenObserve driver. FORMAT JSON yields {"data":[...]}.
@@ -131,8 +131,8 @@ class ClickHouseBackend:
             with self._post(params, b"", headers) as r:
                 _raise_for_status(r)
                 payload = json.loads(r.read().decode())
-        except Exception:
-            return QueryResult(reachable=False)
+        except Exception as exc:
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
         data = payload.get("data", [])
         complete = len(data) <= self.max_rows
         events = []
