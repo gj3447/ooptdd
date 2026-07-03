@@ -63,6 +63,7 @@ from .engine.gate import (
     lint_spec,
     load_gate,
     strength_fingerprint,
+    unregister,
 )
 from .engine.monitor import LiveMonitorSet, compile_check
 from .engine.verify import (
@@ -97,6 +98,7 @@ __all__ = [
     "verify_chain",
     "can_i_deploy",
     "check",
+    "unregister",
     "compile_check",
     "LiveMonitorSet",
     "assert_gate",
