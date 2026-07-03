@@ -54,7 +54,14 @@ from .backends import (
 from .domain import (
     semconv as _semconv,  # noqa: F401  # registers the "gen_ai" builtin preset (Ontology.register_preset)
 )
-from .domain.model import build_outcome_records, sign_chain, verify_chain
+from .domain.model import (
+    Emitter,
+    build_event,
+    build_outcome_records,
+    correlation_keys,
+    sign_chain,
+    verify_chain,
+)
 from .domain.ontology import EventType, Ontology, check_conformance
 from .domain.ports import ExternalProbe, ProbeResult
 from .engine.gate import (
@@ -84,6 +91,9 @@ from .probes import CallableProbe, ProbeRegistry, get_probe
 
 __all__ = [
     "build_outcome_records",
+    "build_event",
+    "Emitter",
+    "correlation_keys",
     "verify_trace",
     "verify_gate",
     "poll_until_present",
