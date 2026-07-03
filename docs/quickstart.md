@@ -4,8 +4,14 @@ Five minutes, no infrastructure.
 
 ## 1. Install
 
+ooptdd is not on PyPI yet — install it from a sibling checkout (editable), as a
+path dependency, or vendor a copy:
+
 ```bash
-pip install ooptdd
+uv pip install -e path/to/ooptdd      # editable; auto-registers as a pytest plugin
+# pyproject:  [tool.uv.sources]  ooptdd = { path = "path/to/ooptdd", editable = true }
+# vendor:     python path/to/ooptdd/scripts/vendor_ooptdd.py <your-repo>
+# (once published to PyPI:  pip install ooptdd)
 ```
 
 It auto-registers as a pytest plugin. With the default `memory` backend there is

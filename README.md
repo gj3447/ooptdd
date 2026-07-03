@@ -7,8 +7,12 @@
 > read back from an external store, instead of trusting a return value — or an
 > AI agent's "done!".
 
-```
-pip install ooptdd        # auto-registers as a pytest plugin, zero config
+```bash
+# Not on PyPI yet — install from a sibling checkout, a path dependency, or vendor it:
+uv pip install -e ../ooptdd          # editable; auto-registers as a pytest plugin, zero config
+# pyproject:  [tool.uv.sources]  ooptdd = { path = "../ooptdd", editable = true }
+# vendor:     python ../ooptdd/scripts/vendor_ooptdd.py <your-repo>
+# (once published to PyPI:  pip install ooptdd)
 ```
 
 ---
@@ -23,8 +27,7 @@ ooptdd refuses to believe the self-report. It reads the store back and
 *positively asserts* the events arrived:
 
 ```python
-from ooptdd.backends import MemoryBackend
-from ooptdd.gate import evaluate, load_gate
+from ooptdd import MemoryBackend, evaluate, load_gate
 from app import process_order            # your code
 
 def test_order_is_actually_processed():
