@@ -44,7 +44,7 @@ from ..domain.ports import (
     fetch,
 )
 from .gate import evaluate_events
-from .monitor import stream_key
+from .monitor import SAT, stream_key
 
 #: A prefix evaluator: given the events queried this poll (stream-ordered) plus the poll
 #: context, return a settled verdict body (a dict) to stop now, or None to keep polling.
@@ -219,6 +219,39 @@ def verify_trace(
     )
 
 
+def _settled_green(result: dict) -> bool:
+    """Is this GREEN gate result *irrevocable* over the prefix — i.e. safe to settle
+    'present' on a NON-final poll?
+
+    A non-final poll sees only a prefix of the trace. A gate that is ``ok`` over that
+    prefix can still be flipped by later-arriving events whenever it carries an
+    anti-monotone check: ``absent``/``forbid`` (incl. the injected ``forbid_errors``
+    wing), an exact/upper-bound count (``==``/``<=``/``<``/``!=``), ``heartbeat``,
+    ``ratioMetric``, ``invariant``, ``metamorphic``, ``conforms`` — all of which pass
+    vacuously/provisionally on a violation-free-so-far prefix. Settling early there is
+    the forgery path the 2026-07-08 audit named (residual #1): the late violation never
+    reaches the verdict.
+
+    The kernel already answers monotonicity per check: LTL₃ ``SAT`` means "no extension
+    of this prefix can falsify" (:data:`ooptdd.engine.monitor.SAT`), and only the
+    monotone-positive automata (``>=``/``>`` counts, ``present``, ``must_order``) ever
+    latch it. So a prefix green is settled iff every gating check reports
+    ``verdict == SAT``. A check without a kernel verdict (``external:``, custom
+    ``@check`` predicates) is conservatively treated as revocable — fail-closed.
+    Signature enforcement (``require_signature``) verifies the WHOLE hash chain, which
+    a later off-chain event still breaks, so it forbids early settle as well.
+    """
+    if not result["ok"]:
+        return False
+    if (result.get("oracle") or {}).get("signature_enforced"):
+        return False
+    return all(
+        c.get("verdict") == SAT
+        for c in result["checks"]
+        if not c.get("optional") and not c.get("pending") and not c.get("tautological")
+    )
+
+
 def verify_gate(
     backend: Backend,
     cid: str,
@@ -240,9 +273,13 @@ def verify_gate(
 
     Each poll re-judges the freshly-queried prefix with the very same monitor dispatch the
     one-shot gate uses (:func:`ooptdd.engine.gate.evaluate_events`), so a verified arrival and
-    a gate evaluation can never diverge. Returns ``{ok, verdict, gate, reasons, attempts}``
-    where ``verdict`` is present (gate GREEN), absent (reachable+complete but RED), or
-    inconclusive (never reachable, or every read truncated).
+    a gate evaluation can never diverge. A non-final poll settles GREEN only when the green is
+    *irrevocable* (every gating check latched LTL₃ SAT — see :func:`_settled_green`); a gate
+    carrying any anti-monotone check (forbid/absent, exact counts, ...) waits for the final
+    poll so a late-arriving violation still flips the verdict. Returns
+    ``{ok, verdict, gate, reasons, attempts}`` where ``verdict`` is present (gate GREEN),
+    absent (reachable+complete but RED), or inconclusive (never reachable, or every read
+    truncated).
     """
     emit_backend = type(backend).__name__
     emit_identity = backend_identity(backend)
@@ -253,8 +290,12 @@ def verify_gate(
             probe=probe, emit_backend=emit_backend, emit_identity=emit_identity,
         )
         if not final:
+            # Early settle ONLY on an irrevocable green: every gating check latched LTL₃
+            # SAT (monotone-positive — no later event can falsify). A green that merely
+            # has no violation YET (an anti-monotone check passing on the prefix) keeps
+            # polling to the final attempt, so a late-arriving offender still flips it.
             return {"ok": True, "verdict": "present", "gate": result, "reasons": []} \
-                if result["ok"] else None
+                if _settled_green(result) else None
         if result["ok"]:
             verdict = "present"
         elif (not result["reachable"] or not result.get("complete", True)
