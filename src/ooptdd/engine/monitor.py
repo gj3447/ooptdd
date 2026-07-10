@@ -172,6 +172,10 @@ class CountMonitor(Monitor):
             "event": self.event, "where": self.where, "op": self.op,
             "want": self.want, "got": self.got,
             "passed": reachable and _OPS[self.op](self.got, self.want),
+            # `>= n` with n<=0 is satisfied by any prefix incl. the empty one — a failure-
+            # incapable check. Flagged so the gate excludes it from `gating` (a tautology must
+            # not make a gate assert-anything) and lint can warn at author time.
+            "tautological": self.op == ">=" and self.want <= 0,
         })
 
 

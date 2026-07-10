@@ -119,11 +119,15 @@ class ClickHouseBackend:
         # is incomplete (surfaced as complete=False) instead of unbounded-loading or silently
         # returning a subset. The cid stays a parameter (injection-safe).
         sql = (f"SELECT * FROM {self.table} WHERE cycle_id = {{cid:String}} "
+               f"AND _timestamp >= fromUnixTimestamp64Micro({{since:Int64}}) "
+               f"AND _timestamp <= fromUnixTimestamp64Micro({{until:Int64}}) "
                f"LIMIT {self.max_rows + 1} FORMAT JSON")
         params = {
             "database": self.database,
             "query": sql,
             "param_cid": cid,
+            "param_since": since_us,
+            "param_until": until_us,
             "default_format": "JSON",
         }
         headers = {**self._headers(), "Content-Type": "text/plain; charset=utf-8"}
@@ -148,5 +152,6 @@ class ClickHouseBackend:
             else:
                 ev = dict(row)
             ev.setdefault("_timestamp", row.get("_timestamp") if isinstance(row, dict) else None)
+            ev["_seq"] = len(events)  # deterministic tie-break: preserve server return order
             events.append(ev)
         return QueryResult(reachable=True, events=events, complete=complete)
