@@ -128,7 +128,9 @@ class OpenObserveBackend:
                 if offset == 0:
                     return QueryResult(reachable=False, error=err)
                 return QueryResult(reachable=True, events=events, complete=False, error=err)
-            events.extend(hits)
+            for h in hits:
+                h["_seq"] = len(events)  # deterministic tie-break: preserve server return order
+                events.append(h)
             if len(hits) < self.page_size:
                 break  # short page → the result set is exhausted (complete read)
             offset += len(hits)
