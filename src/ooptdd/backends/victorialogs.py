@@ -155,6 +155,7 @@ class VictoriaLogsBackend:
                 ts = _parse_time_us(row.get("_time"))
                 if ts is not None:
                     row["_timestamp"] = ts
+            row["_seq"] = len(events)  # deterministic tie-break: preserve server return order
             events.append(row)
             if len(events) >= self.max_rows:
                 complete = False  # ceiling hit — surfaced, never a silent subset

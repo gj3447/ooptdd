@@ -594,7 +594,11 @@ def evaluate_events(
         checks.append(chk)
     # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
     # misses are surfaced separately so a silently-degraded stream never reads as clean.
-    gating = [c for c in checks if not c["optional"] and not c["pending"]]
+    # `not c.get("tautological")` excludes a failure-incapable check (e.g. `count >= 0`): it is
+    # not optional/pending, but it can never fail, so counting it as gating would let a gate whose
+    # ONLY check is `count >= 0` read GREEN while asserting nothing. `scope.total` still counts it.
+    gating = [c for c in checks
+              if not c["optional"] and not c["pending"] and not c.get("tautological")]
     # A gate must assert something that can FAIL to be a clean pass. The old `bool(checks)` guard
     # only caught ZERO checks; a gate whose every check is optional/pending (gating==0) ALSO
     # asserts nothing that can fail and must equally not be GREEN — this is the agent-loop's free
@@ -800,6 +804,13 @@ def lint_spec(spec: dict) -> list[dict]:
                                f"{(1 - float(t)) * 100:.0f}% of expectations every run; add a "
                                "`justification:` field if this quorum is intentional."})
     for i, r in enumerate(gating):
+        _cnt = r.get("count", r.get("want", 1))
+        if r.get("op") == ">=" and isinstance(_cnt, int) and _cnt <= 0:
+            out.append({"code": "VAC4", "severity": "high", "label": _label(r),
+                        "message": f"check #{i} ({_label(r)}) is `count >= {_cnt}` — counts are "
+                                   "non-negative, so it is always satisfied and can never fail "
+                                   "(tautology). Use `>= 1`, a `where`, or a real threshold."})
+            continue
         if _strength(r) == "existence-only":
             out.append({"code": "VAC3", "severity": "medium", "label": _label(r),
                         "message": f"check #{i} ({_label(r)}) is existence-only — proves a token "
@@ -824,6 +835,17 @@ def strength_fingerprint(spec: dict) -> dict:
         "by_strength": dict(Counter(strengths)),
         "min_threshold": threshold,
         "score": round(raw * threshold, 4),
+        # Enforcement posture (spec-declared, pure): the negative/provenance wings that DON'T
+        # show up in `expect` strength. Disabling any of these — or WIDENING the allow_errors
+        # allowlist — weakens the gate without moving the strength score, so compare_strength
+        # must diff them; this closes the hole where an agent flips `require_signature: true`
+        # to false (or drops the key) for an unchanged fingerprint.
+        "enforcement": {
+            "require_signature": bool(spec.get("require_signature")),
+            "require_corroboration": bool(spec.get("require_corroboration")),
+            "forbid_errors": bool(spec.get("forbid_errors")),
+            "allow_errors": len(spec.get("allow_errors") or []),
+        },
     }
 
 
@@ -843,6 +865,18 @@ def compare_strength(baseline: dict, current: dict) -> dict:
                 "ordered", "forbid", "value-pinned"):
         if cb.get(cls, 0) < bb.get(cls, 0):
             regs.append(f"{cls} checks dropped {bb.get(cls, 0)} -> {cb.get(cls, 0)}")
+    # Enforcement-axis downgrade: disabling a required wing (signature / corroboration /
+    # forbid_errors) or WIDENING the allow_errors allowlist weakens the gate without touching
+    # the strength score. Guarded on both sides being present so a pre-enforcement baseline
+    # (an old fingerprint JSON without this key) never false-flags.
+    be, ce = baseline.get("enforcement"), current.get("enforcement")
+    if isinstance(be, dict) and isinstance(ce, dict):
+        for axis in ("require_signature", "require_corroboration", "forbid_errors"):
+            if be.get(axis) and not ce.get(axis):
+                regs.append(f"{axis} enforcement dropped {be.get(axis)} -> {ce.get(axis)}")
+        if ce.get("allow_errors", 0) > be.get("allow_errors", 0):
+            regs.append(f"allow_errors widened {be.get('allow_errors', 0)} "
+                        f"-> {ce.get('allow_errors', 0)}")
     return {"weakened": bool(regs), "regressions": regs,
             "baseline_score": baseline["score"], "current_score": current["score"]}
 
