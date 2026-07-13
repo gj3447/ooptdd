@@ -7,7 +7,7 @@ The standalone `gj3447/ooptdd` repository requires a **killer demo, docs roadmap
 ## Sub-findings (3-5 with confidence)
 
 ### 1. Killer Demo Must Reduce Silent-Failure Category to <60s Runnable (HIGH confidence)
-The demo should reproduce the **real 401 silent-loss bug** from consumer_a/consumer_b (22 hours of inspection tests logged locally, silently dropped server-side, only caught by manual oo.trace_cycle query). Concretely:
+The demo should reproduce the **real 401 silent-loss bug** from consumer-a/consumer-b (22 hours of inspection tests logged locally, silently dropped server-side, only caught by manual oo.trace_cycle query). Concretely:
 - **Setup**: Tiny event-emitting app (e.g., 5-test pytest suite calling a sync logger)
 - **Spec**: YAML trace with 5 expected test outcomes (arrival + cardinality gates)
 - **Fault injection**: Enable `skip_post=True` to simulate silent ingest loss while logger says "shipped OK"
@@ -22,7 +22,7 @@ The existing 16 research shards (A–D, E deepening) + METHODOLOGY.md contain ex
 - **Quickstart/**: "5-min setup" guide — copy oo_sink.py + oo_verify.py, write ONE gate YAML, pass conftest hook
 - **Theory/**: Link to academic RV/LTL3/Dwyer patterns; link to E shard for practitioners who want math
 - **Backends/**: Memory backend (docs), OpenObserve endpoint (docs + example .env), extensibility for Loki/Elastic
-- **Cookbook/**: consumer_b cycle (worked example from E.5) + "detecting partial loss" + "temporal ordering without sequence" + "agent failure mode" (per E.7-③)
+- **Cookbook/**: consumer-b cycle (worked example from E.5) + "detecting partial loss" + "temporal ordering without sequence" + "agent failure mode" (per E.7-③)
 - **FAQ/**: "Why not Tracetest?" / "Why correlation_id not just trace ID?" / "Isn't this just OTel?" (competition table)
 
 ### 3. Repository Layout Should Embrace Minimalist Core + Pluggable Backends (HIGH confidence)
@@ -38,7 +38,7 @@ ooptdd/
 │       ├── verify.py (oo_verify.py origin)
 │       └── backends/
 │           ├── memory.py (in-mem store for demo + offline tests)
-│           ├── openobserve.py (consumer_a production)
+│           ├── openobserve.py (consumer-a production)
 │           └── [loki|elastic] (v0.3+ defer)
 ├── docs/
 │   ├── concepts.md / quickstart.md / theory.md / cookbook.md
@@ -103,11 +103,11 @@ ooptdd/
 
 2. **UI-first (Tracetest model)**: Ship with web dashboard + trace query UI before pytest plugin. *Con*: Higher onboarding friction; developer has to leave pytest. *Rationale*: Some teams prefer visual RCA. *Adoption*: Defer to v0.2+ if demand signals.
 
-3. **Merge into consumer_a codebase** (instead of standalone repo): Keep oo_* under consumer_b + bpc-specific docs. *Con*: No cross-project adoption; external teams see "consumer_b internal tool." *Decision*: v6 protocol requires standalone for reusability.
+3. **Merge into consumer-a codebase** (instead of standalone repo): Keep oo_* under consumer-b + bpc-specific docs. *Con*: No cross-project adoption; external teams see "consumer-b internal tool." *Decision*: v6 protocol requires standalone for reusability.
 
 ## Counter-arguments / Caveats
 
-1. **"This is just OTel with extra gates"**: Partially true. ooptdd assumes OTel-exportable traces (oo_sink.py uses generic JSON envelope, E.4.1 carbon-copy between consumer_a/lakatotree). Difference is *outcome-based verification* (read-back proof) + *agent-aware* silent-failure detection (E.7-③ oracle problem). OTel alone doesn't detect dropped ingest; ooptdd does. Marketing: "OTel for the test layer, with outcome verification built in."
+1. **"This is just OTel with extra gates"**: Partially true. ooptdd assumes OTel-exportable traces (oo_sink.py uses generic JSON envelope, E.4.1 carbon-copy between consumer-a/lakatotree). Difference is *outcome-based verification* (read-back proof) + *agent-aware* silent-failure detection (E.7-③ oracle problem). OTel alone doesn't detect dropped ingest; ooptdd does. Marketing: "OTel for the test layer, with outcome verification built in."
 
 2. **"LTL3 + Dwyer patterns are too academic for most developers"**: Valid. Docs must hide complexity: Quickstart says "write count>=1 gate" without mentioning LTL; Theory shard is optional. E.6's "EXISTENCE is prefix-monotone, ABSENCE is not" should be **cookbook rules of thumb**, not formal semantics.
 
@@ -115,7 +115,7 @@ ooptdd/
 
 4. **"Requires external .env coordination (OO_URL, OO_PASS)"**: Yes, but intentional (E.4.2 no-baked-defaults rule prevents production misconfiguration). Quickstart must show how to run offline with `export OO_PASS= OO_URL=` (noop mode) for first-time users.
 
-5. **"Silent failures in agents are rare if you instrument well"** (counterargument to killer demo thesis): Observability is usually *insufficient*, not complete. The consumer_b 22h case (401 on ingest endpoint) happened *despite* shipping logging code that thought it succeeded. E.7-④ "what falsifies the value claim" identifies this: "if strict-mode false-fail rate > silent-loss detection gain, method fails." Killer demo must show *measured* replay of 22h scenario at scale (defer to v0.2).
+5. **"Silent failures in agents are rare if you instrument well"** (counterargument to killer demo thesis): Observability is usually *insufficient*, not complete. The consumer-b 22h case (401 on ingest endpoint) happened *despite* shipping logging code that thought it succeeded. E.7-④ "what falsifies the value claim" identifies this: "if strict-mode false-fail rate > silent-loss detection gain, method fails." Killer demo must show *measured* replay of 22h scenario at scale (defer to v0.2).
 
 ## Search Trail (queries used)
 

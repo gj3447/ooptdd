@@ -8,9 +8,9 @@ Distributing `pytest-ooptdd` as a pip-installable plugin requires:
 3. **Configuration surface** via `pytest_addoption` + `[tool.pytest.ini_options]` in pyproject.toml
 4. **PEP 517/621 compliance** with src-layout (no setup.py)
 5. **Plugin testing** using `pytester` fixture
-6. **Release pipeline** via twine + trusted publishing (or private index for acme-internal)
+6. **Release pipeline** via twine + trusted publishing (or private index for internal)
 
-Current ooptdd consumer_a `tests/_oo_ltdd/` harness is production-ready; only **packaging wrapper** needed (no code changes).
+Current ooptdd consumer-a `tests/_oo_ltdd/` harness is production-ready; only **packaging wrapper** needed (no code changes).
 
 ## Sub-findings (3-5 with confidence)
 
@@ -69,11 +69,11 @@ Current ooptdd consumer_a `tests/_oo_ltdd/` harness is production-ready; only **
 
 ### Alt-1: Skip pip Distribution; Use Private Index (Acme-Internal)
 If pytest-ooptdd is **never** released to public PyPI, skip build/publish overhead. Instead, commit `src/pytest_ooptdd/` to `vision3d_test/` repo directly, users install via `pip install -e /path/to/vision3d_test`. Avoids version-number lock and twine/trusted-publishing CI config.
-**Trade-off:** No version isolation; users depend on latest main; less "product" feel. Suitable for acme-internal only.
+**Trade-off:** No version isolation; users depend on latest main; less "product" feel. Suitable for internal only.
 
-### Alt-2: Monorepo Pattern (pytest-ooptdd + consumer_a in Same Repo)
-Package both `pytest-ooptdd` and `consumer_a` as subentries in a single workspace (e.g., `pyproject.toml` with `[tool.hatch.build.targets.wheel] packages = ["src/pytest_ooptdd", "src/consumer_a"]`). One version lock, one release cadence.
-**Trade-off:** Users installing `consumer_a` get `pytest-ooptdd` automatically; less modular. Fits only if ooptdd and consumer_a release together.
+### Alt-2: Monorepo Pattern (pytest-ooptdd + consumer-a in Same Repo)
+Package both `pytest-ooptdd` and `consumer-a` as subentries in a single workspace (e.g., `pyproject.toml` with `[tool.hatch.build.targets.wheel] packages = ["src/pytest_ooptdd", "src/consumer-a"]`). One version lock, one release cadence.
+**Trade-off:** Users installing `consumer-a` get `pytest-ooptdd` automatically; less modular. Fits only if ooptdd and consumer-a release together.
 
 ### Alt-3: Lazy Import of OpenObserve (No-Op if SDK Missing)
 Instead of declaring `openobserve-python-sdk` as a required dependency, import it in `pytest_sessionfinish` with try-except. If SDK not found, warn and skip shipping.

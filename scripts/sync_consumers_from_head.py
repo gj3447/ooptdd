@@ -41,13 +41,13 @@ def vendor_files() -> list[str]:
                   if ln.startswith(pre) and ln.endswith(".py"))
 
 CONSUMERS = [
-    {"name": "consumer_a",
-     "vendor": Path("<WORKSPACE>/consumer_a/tests/_vendor/ooptdd"),
-     "manifest": Path("<WORKSPACE>/consumer_a/tests/_vendor/ooptdd_manifest.json"),
-     "hash": "raw"},        # consumer_a's test hashes raw bytes
-    {"name": "consumer_b",
-     "vendor": Path("<WORKSPACE>/consumer_b/_vendor/ooptdd"),
-     "manifest": Path("<WORKSPACE>/consumer_b/_vendor/ooptdd_vendor_manifest.json"),
+    {"name": "consumer-a",
+     "vendor": Path("<WORKSPACE>/consumer-a/tests/_vendor/ooptdd"),
+     "manifest": Path("<WORKSPACE>/consumer-a/tests/_vendor/ooptdd_manifest.json"),
+     "hash": "raw"},        # consumer-a's test hashes raw bytes
+    {"name": "consumer-b",
+     "vendor": Path("<WORKSPACE>/consumer-b/_vendor/ooptdd"),
+     "manifest": Path("<WORKSPACE>/consumer-b/_vendor/ooptdd_vendor_manifest.json"),
      "hash": "normalized"},
     {"name": "lakatotree",
      "vendor": Path("<WORKSPACE>/lakatotree/_vendor/ooptdd"),

@@ -9,12 +9,12 @@
    the open hardening items (#2/#5/#7/#10), so each is built once here, not N times across forks.
 2. **Distribution = vendored core + drift-check** (not pip/private-index, not git+ssh). Each consumer
    vendors the small core it needs; a drift-detector test fails loudly if the vendored copy diverges
-   from this repo. Rationale: zero infra, works in every env incl. the consumer_b **Windows field PC**,
+   from this repo. Rationale: zero infra, works in every env incl. the consumer-b **Windows field PC**,
    no private-repo auth. (pip/git+ssh rejected: private-repo install auth in CI/field; index rejected:
    infra to stand up.)
-3. **Sequence:** lakatotree (canary) → consumer_a → consumer_b. Then build #7 → #10 → #5 → #2 *here*.
+3. **Sequence:** lakatotree (canary) → consumer-a → consumer-b. Then build #7 → #10 → #5 → #2 *here*.
 4. **`#1/#4/#9` are already in this repo** (cid gate, 3-valued verdict, exponential backoff). The
-   parallel twin commits (consumer_a `1c40e26`, consumer_b `521064c`) are now redundant hardening of
+   parallel twin commits (consumer-a `1c40e26`, consumer-b `521064c`) are now redundant hardening of
    soon-to-retire twins — they retire with the twins.
 
 ## The vendored + drift-check mechanism
@@ -79,11 +79,11 @@ have receipts, make absence loud with **either**:
 - Tests to rewrite: `test_oo_verify.py` (opener= API), `test_p7d_ops_robustness.py` (OPS-INIT-1 URL assertions → `OOPTDD_OO_URL`), `test_marquez_sink.py` (homolog pattern), `test_longinus_bindings.py` (**KG spans** `span_lakatotree_oo_sink/_conftest` — update Longinus bindings).
 - ⚠ shared/concurrent repo — commit only own files; no rebase/reset of others' work.
 
-### 2. consumer_a (`<WORKSPACE>/consumer_a`, branch `develop`)
-- Delete `tests/_oo_ltdd/` (5 files). Remove `tests/conftest.py:96-153` hooks (keep the L78-94 alias shim — unrelated). Add `[tool.ooptdd]` to `pyproject.toml` (`backend="openobserve"`, `service="consumer_a.tests"`, `verify="warn"`, `cid_env="CONSUMER_A_TEST_CID"`).
+### 2. consumer-a (`<WORKSPACE>/consumer-a`, branch `develop`)
+- Delete `tests/_oo_ltdd/` (5 files). Remove `tests/conftest.py:96-153` hooks (keep the L78-94 alias shim — unrelated). Add `[tool.ooptdd]` to `pyproject.toml` (`backend="openobserve"`, `service="consumer-a.tests"`, `verify="warn"`, `cid_env="CONSUMER_A_TEST_CID"`).
 - **`consumer_a_core/testing/consumer_trace.py` (the `consumer_l3` marker, 3 tests) is a SEPARATE concern** — it asserts the *production inspection cycle* event sequence, not test outcomes. Keep it; optionally have it call `ooptdd.verify_trace(backend, cid)` internally in a later pass. Not a blocker.
 
-### 3. consumer_b (`<WORKSPACE>/consumer_b`, branch `user`)
+### 3. consumer-b (`<WORKSPACE>/consumer-b`, branch `<user>`)
 - `scripts/oo_gate.py` — **partially blocked**: this repo's gates filter on *fields* (`WHERE verdict='NG'`, `WHERE level='ERROR'`); ooptdd's `gate.py` counts by `event` only → those gates are **not expressible**. Either keep `oo_gate.py` for field-filter gates, or build **#11 (field-filter in ooptdd gate)** first. Pure event-count gates can migrate.
 - `test/conftest.py` `oo_trace` fixture (per-test assertion) → ooptdd plugin / `verify_trace`.
 - `scripts/gates/*.yaml` — convert event-count gates to ooptdd's `expect:` spec; field-filter gates now
@@ -94,7 +94,7 @@ have receipts, make absence loud with **either**:
 Done first (on purpose: consumers migrate once, to a complete package). All TDD, 44 tests + ruff clean.
 
 - **#11 field-filter** ✅ `19fc316` — `where: {field: value}` (+ optional `event`) in `gate.py`; OpenObserve
-  `SELECT *` so whole rows come back. Unblocks consumer_b's `WHERE verdict=…`/`level=…` gates.
+  `SELECT *` so whole rows come back. Unblocks consumer-b's `WHERE verdict=…`/`level=…` gates.
 - **#7 must_order** ✅ `10f3dce` — declarative `must_order: [a,b,c]`, checked in Python over returned
   events' `_timestamp` (memory backend now stamps it) — no per-backend SQL.
 - **#10 optional** ✅ `516aa13` — per-check `optional:` (miss surfaced via `optional_failed`, not gating);
@@ -114,7 +114,7 @@ A trap surfaced during the canary: **decision #2 (vendored, no pip) and "delete 
 for *pip-installed distributions*. A vendored copy under `_vendor/` is NOT installed, so it never
 auto-registers. Worse, on a dev box where ooptdd *is* pip-installed, that installed plugin
 auto-ships — so a naive vendored consumer would either (a) have no LTDD in the field, or (b)
-double-ship in dev. The resolved canonical pattern (used by consumer_a + consumer_b):
+double-ship in dev. The resolved canonical pattern (used by consumer-a + consumer-b):
 
 1. **Disable the auto-plugin**: `addopts = … -p no:ooptdd` in the consumer's pytest config. The dev
    pip-installed copy can no longer auto-ship; the vendored library is the single source in *every*
@@ -125,22 +125,22 @@ double-ship in dev. The resolved canonical pattern (used by consumer_a + consume
    Backend = `openobserve` when an oo target is set, else zero-infra `memory`.
 3. **Gate on an explicit opt-in** (`CONSUMER_LOGS_E2E=1` or `OOPTDD_ENABLED`), NOT on `OO_URL` presence —
    a dev shell that merely exports `OO_URL` must not auto-ship every run.
-4. **Make `_vendor`'s drift-check collectable**: add `_vendor` to `testpaths` (consumer_b) or place it
-   in the test dir (consumer_a). It REDs the moment the vendored copy diverges from canonical.
-5. **Separate concern stays put**: a *per-test domain-event* assertion (consumer_a `consumer_trace.py`,
-   consumer_b `oo_trace` fixture + `consumer_log_sink`) asserts the production event sequence, not test
+4. **Make `_vendor`'s drift-check collectable**: add `_vendor` to `testpaths` (consumer-b) or place it
+   in the test dir (consumer-a). It REDs the moment the vendored copy diverges from canonical.
+5. **Separate concern stays put**: a *per-test domain-event* assertion (consumer-a `consumer_trace.py`,
+   consumer-b `oo_trace` fixture + `consumer_log_sink`) asserts the production event sequence, not test
    outcomes — keep it; it is NOT a twin of ooptdd. Optional later: delegate its ship/query to a
    vendored `OpenObserveBackend` to dedup network code (lakatotree did this for its `oo_sink`).
 
 ## Migration status (2026-06-16)
 
-- **consumer_a** ✅ MIGRATED (develop) — `tests/_vendor/ooptdd` + `-p no:ooptdd` + conftest library hooks.
+- **consumer-a** ✅ MIGRATED (develop) — `tests/_vendor/ooptdd` + `-p no:ooptdd` + conftest library hooks.
 - **lakatotree** ✅ FUNCTIONAL (branch `ooptdd-migration`) — canary proven RED→GREEN through real oo
   (`verify=strict`). Two commits: conftest/cli onto ooptdd + the twin (`oo_sink`/`oo_verify`) made a
   thin delegator to vendored core. ⚠ Reconcile-to-pattern + merge to master deferred: a parallel
   `server/` refactor is mid-flux in the working tree; my early conftest used dev=pip/field=vendored
   (the pre-pattern shape) — re-point it at the §canonical pattern when the concurrency settles.
-- **consumer_b** ✅ MIGRATED (branch `user`) — `_vendor/ooptdd` (additive) + session-level LTDD via the
+- **consumer-b** ✅ MIGRATED (branch `<user>`) — `_vendor/ooptdd` (additive) + session-level LTDD via the
   vendored library + `-p no:ooptdd`. `oo_trace`/`consumer_log_sink` kept (separate concern). `scripts/oo_gate.py`
   kept: it is a raw-SQL aggregate gate runner (arbitrary SQL + `${CID}`), NOT expressible in ooptdd's
   declarative event/where/count model — complementary, not a twin.

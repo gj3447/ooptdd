@@ -2,7 +2,7 @@
 
 ## Summary
 
-Extracted from consumer_a's vendored `tests/_oo_ltdd/` (103L oo_sink.py + 124L oo_verify.py + conftest hooks), the OOPTDD harness requires a standalone distribution `pytest-ooptdd` with modular structure supporting:
+Extracted from consumer-a's vendored `tests/_oo_ltdd/` (103L oo_sink.py + 124L oo_verify.py + conftest hooks), the OOPTDD harness requires a standalone distribution `pytest-ooptdd` with modular structure supporting:
 - **Core LTDD**: sink (structured-log record building), verify (polling + arrival assertion), session orchestration
 - **Pytest integration**: pytest11 entry point (auto-discovery), fixtures, hooks, per-project config
 - **Log backends**: stdlib default (HTTP POST to OpenObserve), plus pluggable extras (OpenTelemetry, Loki)
@@ -37,7 +37,7 @@ Canonical layout = **src/ooptdd/** (modern Python packaging), public API surface
 
 5. **Migration path = carbon-copy, zero behavior change** (HIGH)
    - Vendored `tests/_oo_ltdd/` → installed `pip install pytest-ooptdd`; conftest.py imports shift from relative to absolute.
-   - Pytest's entry-point auto-discovery + backward-compat env vars (CONSUMER_LOGS_E2E, OO_PASS, OO_URL, etc.) mean consumer_a/lakatotree/consumer_b drop 1 line (remove try/except import fallback) and gain pinned upstream.
+   - Pytest's entry-point auto-discovery + backward-compat env vars (CONSUMER_LOGS_E2E, OO_PASS, OO_URL, etc.) mean consumer-a/lakatotree/consumer-b drop 1 line (remove try/except import fallback) and gain pinned upstream.
    - Golden: Longinus test suite (tests/_oo_ltdd/test_oo_sink.py + test_oo_verify.py) moves into plugin repo as source-of-truth.
 
 ---
@@ -80,7 +80,7 @@ Canonical layout = **src/ooptdd/** (modern Python packaging), public API surface
 
 3. **Single `conftest.py` in client repo (no pytest11 entry point), user manually imports hooks**
    - Pros: User has explicit control; no magic discovery.
-   - Cons: Boilerplate duplication across consumer_a/lakatotree/consumer_b; breakage if user forgets import; doesn't scale (third-party packages can't auto-enable).
+   - Cons: Boilerplate duplication across consumer-a/lakatotree/consumer-b; breakage if user forgets import; doesn't scale (third-party packages can't auto-enable).
    - Verdict: REJECTED. Entry-point auto-discovery is a core pytest feature; vendor removal requires it.
 
 4. **Separate console_script CLI as a distinct package (e.g., pytest-ooptdd-cli)**
@@ -132,7 +132,7 @@ Canonical layout = **src/ooptdd/** (modern Python packaging), public API surface
 
 **Domain:** Packaging design for standalone pytest-ooptdd plugin.
 
-**Original baseline** (from consumer_b/PROM16 METHODOLOGY.md): Vendor code extraction, zero behavior change.
+**Original baseline** (from consumer-b/PROM16 METHODOLOGY.md): Vendor code extraction, zero behavior change.
 
 **Expansion:** Canonical repo structure + pyproject.toml + extras hierarchy + testing strategy + migration runbook.
 

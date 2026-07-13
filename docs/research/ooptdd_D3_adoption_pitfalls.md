@@ -2,7 +2,7 @@
 
 ## Summary
 
-ooptdd (observability-oriented positive TDD) is an internal methodology combining logs-as-spec with pytest integration. Extracting it to a semi-public repo risks standard open-source failure modes: single-maintainer bus factor (94% of OSS ≤10 devs), infrastructure coupling (dependency on edge-host/Neo4j/OO-MCP before first green), cognitive load from new paradigm (BDD adoption took 5+ years for industry traction), and proprietary leakage (Tailscale IPs, consumer_a references, KG anchors). Success hinges on (1) zero-infra quickstart (in-memory backend shipping with package), (2) scrubbing company-specific assumptions before publish, (3) documentation parity with Cucumber (maturity signal), and (4) explicit adoption roadmap (internal dogfood → clean core → docs → announce).
+ooptdd (observability-oriented positive TDD) is an internal methodology combining logs-as-spec with pytest integration. Extracting it to a semi-public repo risks standard open-source failure modes: single-maintainer bus factor (94% of OSS ≤10 devs), infrastructure coupling (dependency on edge-host/Neo4j/OO-MCP before first green), cognitive load from new paradigm (BDD adoption took 5+ years for industry traction), and proprietary leakage (Tailscale IPs, consumer-a references, KG anchors). Success hinges on (1) zero-infra quickstart (in-memory backend shipping with package), (2) scrubbing company-specific assumptions before publish, (3) documentation parity with Cucumber (maturity signal), and (4) explicit adoption roadmap (internal dogfood → clean core → docs → announce).
 
 ## Sub-findings (HIGH/MEDIUM/LOW confidence)
 
@@ -12,18 +12,18 @@ ooptdd (observability-oriented positive TDD) is an internal methodology combinin
 
 ### SF2: Infrastructure coupling is adoption kill-switch
 **Claim**: Internal tools extracted to OSS often fail because they assume in-house infra (logs → OpenObserve, edge-host SSH, Neo4j KG, Tailscale VPN). First-time user hits "install fails + need acme-robotics credentials + need log backend" and abandons. Zero-config tools (Jest, TestCafe) succeeded because they work out-of-box; Zerocode/Cypress same pattern. ooptdd must ship with in-memory log backend + mock observability server as default.
-**Confidence**: HIGH. Multiple sources (Jest, TestCafe success stories; observability adoption friction reports). Existing ooptdd consumer_a/lakatotree already couples to `oo-mcp:55014`. Public version must decouple.
+**Confidence**: HIGH. Multiple sources (Jest, TestCafe success stories; observability adoption friction reports). Existing ooptdd consumer-a/lakatotree already couples to `oo-mcp:55014`. Public version must decouple.
 
 ### SF3: New testing paradigm requires 5+ year adoption curve
 **Claim**: Cucumber (BDD leader) launched 2008; mainstream adoption ~2013–2015 (5–7 year lag). Obstacles: Gherkin syntax learning curve steeper for non-scripting teams; scenario maintenance burden grows; teams trained on unit-test-first resistance; need for cross-functional (dev+tester+BA) alignment. ooptdd introduces similar cognitive friction: "logs-as-spec" is unfamiliar to most testing teams; LTDD acronym is opaque; red/yellow/strict gates non-obvious.
 **Confidence**: MEDIUM-HIGH. Cucumber adoption data academic + industry consensus. ooptdd lacks Cucumber's 16+ year head-start. Mitigation: analogies to industry-known tools (pytest fixtures, log aggregation); avoid jargon in user-facing docs.
 
 ### SF4: Proprietary-code leakage kills credibility
-**Claim**: Before open-sourcing internal tools, companies must scrub: hardcoded IPs (Tailscale localhost:55013), internal hostnames (edge-host, acme-1), service names (consumer_a_bs, consumer_b, part_375), credentials patterns (KG anchors, lesson-* IDs). If leaked, users assume tool is still tied to vendor; contributes cannot fork independently; licensing ambiguity. Netflix/Airbnb/Uber all had legal review before DBLog/Chronon/CDC publish.
-**Confidence**: HIGH. Standard legal + OSS governance practice (TODO Group guides, SPDX). Current ooptdd code references `edge-host`, `consumer_a`, `Neo4j` configs inline. Must be scrubbed before PyPI publish.
+**Claim**: Before open-sourcing internal tools, companies must scrub: hardcoded IPs (Tailscale localhost:55013), internal hostnames (edge-host, acme-1), service names (consumer_a_bs, consumer-b, part_375), credentials patterns (KG anchors, lesson-* IDs). If leaked, users assume tool is still tied to vendor; contributes cannot fork independently; licensing ambiguity. Netflix/Airbnb/Uber all had legal review before DBLog/Chronon/CDC publish.
+**Confidence**: HIGH. Standard legal + OSS governance practice (TODO Group guides, SPDX). Current ooptdd code references `edge-host`, `consumer-a`, `Neo4j` configs inline. Must be scrubbed before PyPI publish.
 
 ### SF5: Documentation quality directly gates adoption speed
-**Claim**: Open-source projects with "Getting Started" sections in top-tier docs see 3–5× faster new-user conversion vs. sparse README. Barriers to adoption include "works ≠ documented", "spec-as-instruction is not helpful", "unreviewed casual contributions OK". ooptdd currently has METHODOLOGY.md + inline PROM16 references (consumer_a code examples, KG URIs), which will confuse public users. Benchmark: Cucumber docs have dedicated intro + runnable multi-language examples; pytest has "Writing plugins" + plugin lifecycle clear.
+**Claim**: Open-source projects with "Getting Started" sections in top-tier docs see 3–5× faster new-user conversion vs. sparse README. Barriers to adoption include "works ≠ documented", "spec-as-instruction is not helpful", "unreviewed casual contributions OK". ooptdd currently has METHODOLOGY.md + inline PROM16 references (consumer-a code examples, KG URIs), which will confuse public users. Benchmark: Cucumber docs have dedicated intro + runnable multi-language examples; pytest has "Writing plugins" + plugin lifecycle clear.
 **Confidence**: HIGH. Multiple industry sources (Opensource.com, Google OSS Blog, DEV Community). ooptdd lacks comparable docs for public audience.
 
 ### SF6: "Is this just observability + asserts?" skeptic barrier
@@ -65,7 +65,7 @@ ooptdd (observability-oriented positive TDD) is an internal methodology combinin
 ## Alternative Recommendations
 
 ### Alt1: Deferred public release (internal-only for 2+ years)
-Accept single-maintainer risk initially; dogfood in consumer_a/lakatotree/jgbpc until bus-factor naturally improves via team onboarding. Publish only once ≥3 independent maintainers have real skin in game. **Pros**: no rush, no scrubbing urgency, long runway for documentation. **Cons**: delays potential adoption signal; other teams may build competing tools; consumer_b/consumer_a remain proprietary coupling; opportunity cost.
+Accept single-maintainer risk initially; dogfood in consumer-a/lakatotree/jgbpc until bus-factor naturally improves via team onboarding. Publish only once ≥3 independent maintainers have real skin in game. **Pros**: no rush, no scrubbing urgency, long runway for documentation. **Cons**: delays potential adoption signal; other teams may build competing tools; consumer-b/consumer-a remain proprietary coupling; opportunity cost.
 
 ### Alt2: Publish as "experimental" with no adoption guarantees
 Release on PyPI with BSD/Apache license + prominent "EXPERIMENTAL" tag; accept will attract 0–5 early adopters; no SLA on maintenance. Let ecosystem trial it before committing to roadmap. **Pros**: low commitment, real feedback from wild. **Cons**: experimental tag signals immaturity; may damage credibility if gaps found; lack of documentation gatekeeps even enthusiasts.

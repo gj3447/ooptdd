@@ -55,7 +55,7 @@ def test_where_filter_counts_only_matching_field():
 
 
 def test_where_filter_event_omitted_matches_any_event():
-    # consumer_b `WHERE level='ERROR'` pattern — no event name, pure field filter.
+    # consumer-b `WHERE level='ERROR'` pattern — no event name, pure field filter.
     b = MemoryBackend()
     _ship(b, "c1", {"event": "a", "level": "ERROR"}, {"event": "b", "level": "INFO"},
           {"event": "c", "level": "ERROR"})
@@ -66,7 +66,7 @@ def test_where_filter_event_omitted_matches_any_event():
 
 
 def test_where_filter_ng_zero_gate():
-    # consumer_b `WHERE verdict='NG'` == 0 (no NG cycles) — the canonical field-filter gate.
+    # consumer-b `WHERE verdict='NG'` == 0 (no NG cycles) — the canonical field-filter gate.
     b = MemoryBackend()
     _ship(b, "c1", {"event": "cycle", "verdict": "PASS"})
     res = evaluate(b, {"cid": "c1", "expect": [

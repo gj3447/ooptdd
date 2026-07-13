@@ -51,7 +51,7 @@ Establishing `gj3447/ooptdd` as a credible, citable methodology+tool repository 
 ### 8. Methodology repo precedent: Hypothesis + Schemathesis hybrid model (MEDIUM)
 - **Hypothesis** (property-based testing library): README → theory docs (strategies, shrinking, examples) → API reference. Pure tool repo with pedagogical prose.
 - **Schemathesis** (API testing on Hypothesis): README → "explanations" (data generation philosophy) → "guides" (how-to for OpenAPI/GraphQL) → "API" (CLI + Python SDK). Theory + pragmatic tooling.
-- **ooptdd precedent**: Pair `docs/methodology/` (LTDD principles, arrival polling, log-as-spec) with `docs/api/` (pytest hooks, LogCapture fixture, trace format). Include `/examples/` (worked repo case studies: consumer_a, consumer_b, lakatotree).
+- **ooptdd precedent**: Pair `docs/methodology/` (LTDD principles, arrival polling, log-as-spec) with `docs/api/` (pytest hooks, LogCapture fixture, trace format). Include `/examples/` (worked repo case studies: consumer-a, consumer-b, lakatotree).
 - Avoid **dead code** or aspirational docs (e.g., "future YAML schema"); only document **what is implemented and actively used**.
 
 ### 9. .github defaults + branch protection (MEDIUM)
@@ -61,7 +61,7 @@ Establishing `gj3447/ooptdd` as a credible, citable methodology+tool repository 
 
 ### 10. Privacy vs. public: initial semi-private strategy (MEDIUM)
 - Start as `gj3447/ooptdd` (private or "internal" GitHub org access only) to avoid premature API commitments.
-- When methodology is stable + pytest plugin passes production use in 3+ internal repos (consumer_a, consumer_b, lakatotree), make public + announce via blog/Twitter.
+- When methodology is stable + pytest plugin passes production use in 3+ internal repos (consumer-a, consumer-b, lakatotree), make public + announce via blog/Twitter.
 - At public launch, add `topics: ["testing", "methodology", "pytest-plugin"]` to repo metadata (enables discovery in GitHub search).
 
 ## Raw Quotes

@@ -48,7 +48,7 @@ ooptdd (OO Positive-TDD via OpenObserve, v1.1 stable 2026-06-10) occupies a **sp
 
 **ooptdd unique**: `_default_poll` signature (6 retries × 2.0s default; strict=8×2.0s) with `verify_trace(cid, horizon=14s_strict / 4.5s_warn, clock_skew_future=5min)`. Temporal logic basis (LTL3: ⊤/⊥/?) means prefix observation can be ambiguous (→ `warn` mode default).
 
-**Caveat**: Tested only in production consumer_b cycle (single day); large-scale (1000+ span/s) unvalidated. Langfuse/LangSmith may have equivalent internal retry logic (not public).
+**Caveat**: Tested only in production consumer-b cycle (single day); large-scale (1000+ span/s) unvalidated. Langfuse/LangSmith may have equivalent internal retry logic (not public).
 
 ---
 
@@ -111,7 +111,7 @@ ooptdd (OO Positive-TDD via OpenObserve, v1.1 stable 2026-06-10) occupies a **sp
 - Arize Phoenix: On-prem option; still requires separate server
 - pytest-opentelemetry: Plugin only; gates are still pytest assertions (not external spec)
 
-**ooptdd unique**: `@pytest.fixture def oo_trace(cycle_id, cid)` + `gates/bpc_smoke.yaml` in repo + `conftest` hook. OO_URL is env-var (must be set); if env absent, test gate exits 0 (complete no-op). **Portability**: lakatotree ↔ consumer_a using same oo_sink/oo_verify stubs (only conftest glue differs).
+**ooptdd unique**: `@pytest.fixture def oo_trace(cycle_id, cid)` + `gates/bpc_smoke.yaml` in repo + `conftest` hook. OO_URL is env-var (must be set); if env absent, test gate exits 0 (complete no-op). **Portability**: lakatotree ↔ consumer-a using same oo_sink/oo_verify stubs (only conftest glue differs).
 
 **Caveat**: Requires external OpenObserve instance (or equivalent log store). Smallest deployment is still non-trivial (edge-host colo).
 
@@ -253,7 +253,7 @@ ooptdd (OO Positive-TDD via OpenObserve, v1.1 stable 2026-06-10) occupies a **sp
 
 **Trade-off**: Requires pytest-opentelemetry maintainer buy-in (chrisguidry); low adoption risk if declined.
 
-**Action**: Proposed in future. Current monolithic ooptdd is more maintainable for single team (consumer_b).
+**Action**: Proposed in future. Current monolithic ooptdd is more maintainable for single team (consumer-b).
 
 ---
 
@@ -261,7 +261,7 @@ ooptdd (OO Positive-TDD via OpenObserve, v1.1 stable 2026-06-10) occupies a **sp
 
 ### C1: Single-Day Validation, No Long-Term Ops Data
 
-ooptdd was validated in *one cycle* (2026-06-10) with known actors (user + Claude agents). Risks not yet observed:
+ooptdd was validated in *one cycle* (2026-06-10) with known actors (<user> + Claude agents). Risks not yet observed:
 - Clock-skew failure modes under >1000 span/s load
 - Ingest-loss patterns over months (only one 401 incident documented)
 - Agent gaming the `warn` mode (non-fatal silent failures become invisible)
@@ -280,7 +280,7 @@ While semconv is CNCF-backed, adoption by downstream platforms (Langfuse, LangSm
 
 ### C3: Arrival-Polling Window Tuning is Fragile
 
-`verify_trace()` defaults (strict=14s, warn=4.5s) were tuned for consumer_b cycle (single agent, 20-view E2E ≤12s). Different agent architectures (multi-threaded, distributed) may require per-cycle tuning. No principled formula.
+`verify_trace()` defaults (strict=14s, warn=4.5s) were tuned for consumer-b cycle (single agent, 20-view E2E ≤12s). Different agent architectures (multi-threaded, distributed) may require per-cycle tuning. No principled formula.
 
 **Mitigation**: Expose horizon as YAML parameter; document empirical derivation in `gates/bpc_smoke.yaml` comments.
 

@@ -6,14 +6,14 @@ WHY this exists (measured 2026-06-16): the three consumers were vendored with
 uniformly re-vendor them, and two of them silently lag canonical:
 
     consumer     vendored dir         manifest                       drift test loc   canonical-compare guard
-    consumer_a      tests/_vendor/ooptdd ooptdd_manifest.json           tests/           YES  (catches lag -> RED now)
-    consumer_b       _vendor/ooptdd       ooptdd_vendor_manifest.json    _vendor/         NO   (in sync, so green)
+    consumer-a      tests/_vendor/ooptdd ooptdd_manifest.json           tests/           YES  (catches lag -> RED now)
+    consumer-b       _vendor/ooptdd       ooptdd_vendor_manifest.json    _vendor/         NO   (in sync, so green)
     lakatotree   _vendor/ooptdd       ooptdd_vendor_manifest.json    _vendor/         NO   (BEHIND but green = silent stale)
 
 Measured lag vs *committed* canonical (HEAD), independent of any uncommitted WIP:
-    consumer_a, lakatotree  : behind on verify.py + backends/{base,memory,openobserve,otel}.py
+    consumer-a, lakatotree  : behind on verify.py + backends/{base,memory,openobserve,otel}.py
                            (= the committed SOLID-P2 "no silent green" fix, not yet vendored)
-    consumer_b               : in sync
+    consumer-b               : in sync
 
 This tool standardizes ALL consumers on: normalized-sha256 manifest + the strong
 2-guard drift test (manifest integrity + canonical-compare), each written at that
@@ -56,15 +56,15 @@ VENDOR_FILES = [
 # (root, vendor_dir rel-to-root, manifest rel-to-root, test rel-to-root,
 #  vendor rel-to-TESTFILE, manifest rel-to-TESTFILE)
 CONSUMERS = [
-    {"name": "consumer_a",
-     "dir": "consumer_a",
+    {"name": "consumer-a",
+     "dir": "consumer-a",
      "vendor": "tests/_vendor/ooptdd",
      "manifest": "tests/_vendor/ooptdd_manifest.json",
      "test": "tests/test_ooptdd_vendor_drift.py",
      "vendor_rel": "_vendor/ooptdd",
      "manifest_rel": "_vendor/ooptdd_manifest.json"},
-    {"name": "consumer_b",
-     "dir": "consumer_b",
+    {"name": "consumer-b",
+     "dir": "consumer-b",
      "vendor": "_vendor/ooptdd",
      "manifest": "_vendor/ooptdd_vendor_manifest.json",
      "test": "_vendor/test_ooptdd_vendor_drift.py",

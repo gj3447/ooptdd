@@ -105,7 +105,7 @@ The ooptdd harness—when packaged as a pytest plugin (`pytest-ooptdd` via entry
 ## Alternative Recommendations
 
 ### Alt-1: Conftest-Only, No Entry Point (Lower Risk)
-Instead of `pytest-ooptdd` as a published plugin, distribute as a vendored `conftest.py` or thin import-from-one-place wrapper (`from consumer_a._testing import ooptdd_conftest`). Avoids entry-point discovery pitfalls, plugin clobbering, and version conflicts. Trade: loses automatic discovery; users must explicitly import in their `conftest.py`.
+Instead of `pytest-ooptdd` as a published plugin, distribute as a vendored `conftest.py` or thin import-from-one-place wrapper (`from consumer-a._testing import ooptdd_conftest`). Avoids entry-point discovery pitfalls, plugin clobbering, and version conflicts. Trade: loses automatic discovery; users must explicitly import in their `conftest.py`.
 
 **Why consider**: Lower surface area. Plugin discovery is the #1 source of pytest failures in large codebases.
 

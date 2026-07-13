@@ -8,7 +8,7 @@ script also drops in) fails loudly if the vendored copy is edited away from the
 manifest; re-running this script re-vendors from canonical and rewrites the
 manifest, so a canonical change surfaces as a git diff.
 
-Pure stdlib + cross-platform (the consumer_b field PC is Windows — no bash):
+Pure stdlib + cross-platform (the consumer-b field PC is Windows — no bash):
 
     python scripts/vendor_ooptdd.py /path/to/consumer
 """
