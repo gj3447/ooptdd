@@ -146,6 +146,20 @@ Ontology.builtin("my_vocab")                 # resolves it; built-ins (e.g. "gen
 A duplicate predicate key raises at registration (loud, not silent). Presets require
 importing the `ooptdd` package (which wires the shipped built-ins), not just a submodule.
 
+## Verification
+
+The canonical `main` checkout was re-run at commit `e4fe4b14315f` on
+2026-07-15:
+
+```bash
+uv run --extra dev pytest -q
+# 436 passed, 2 skipped
+```
+
+The suite uses the configured `memory` backend and dogfoods the plugin's arrival
+readback. This receipt covers the local self-test path; it is not evidence for
+long-horizon production operation or every external backend.
+
 ## Status & honesty
 
 `0.4.0`, extracted from internal harnesses (a service monorepo, a research
