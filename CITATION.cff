@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "ooptdd"
+abstract: "ooptdd — log-as-first-class-consumer measurement library: ships structured behaviour events to a store, reads them back, and renders a three-valued verdict."
+authors:
+  - family-names: "Ra"
+    given-names: "Gyeongjun"
+    alias: "gj3447"
+    affiliation: "Independent Researcher"
+repository-code: "https://github.com/gj3447/ooptdd"
+license: Apache-2.0
+date-released: "2026-07-15"
+keywords:
+  - agent-harness
+  - loop-engineering
+  - metahumotonic
