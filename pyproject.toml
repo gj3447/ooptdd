@@ -8,13 +8,13 @@ version = "0.4.0"
 description = "Logs/traces as the test specification and ground truth — a pytest plugin and methodology for positive (arrival-asserted) log-based TDD."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "Acme AI Lab" }]
 keywords = ["pytest", "testing", "tdd", "observability", "logs", "traces", "runtime-verification", "agents"]
 classifiers = [
   "Framework :: Pytest",
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: Apache Software License",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
   "Topic :: Software Development :: Testing",
   "Intended Audience :: Developers",
 ]
