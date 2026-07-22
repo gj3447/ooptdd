@@ -57,7 +57,10 @@ backend-specific query language, so the same gate runs on memory, OpenObserve, o
 any future driver. ``where`` filters on arbitrary event fields (e.g. ``verdict``,
 ``level``) by partial-dict equality — only the listed keys must match, like
 ``pytest-structlog``'s ``log.has(evt, **ctx)``. ``must_order`` checks sequencing
-using each event's ``_timestamp`` (store-receive time); ``present`` asserts a
+using each event's ``_timestamp`` (store-receive time) — so an ordering verdict is only as
+trustworthy as the transport's order-preservation: out-of-order ingest can flip it (see
+METHODOLOGY.md "Ordering rests on store-receive time"; prefer ``invariant`` or ``external:``
+when the transport can reorder and the ordering itself is under test). ``present`` asserts a
 subset occurred in *any* order (``testfixtures.check_present(order_matters=False)``).
 
 The vocabulary (``op: gte``, ``target``, ``timeWindow``, ``indicators``/``indicatorRef``,

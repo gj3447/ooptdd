@@ -223,3 +223,36 @@ relation), and `external_verdict` (a *separate-source* corroboration) climb towa
 grades the evidence on offer, not correctness — and it keeps the single-authority boundary honest: only
 the top rung needs an oracle that is not the system's own emit, so a non-`separate_source` `external:`
 check is self-consistency relocated and reaches only `arrived`, never `external_verdict`.
+
+### Ordering rests on store-receive time, which transport can reorder
+
+`must_order` / `trajectory` / `within_s` and the streaming monitors all order events by the
+**store's receive timestamp** (`_timestamp`, tie-broken by a per-event sequence). That is a
+deliberate choice — it is the one clock every backend agrees on, and it makes "A happened before B"
+a property of *arrival*, not of a producer clock the agent could lie about. But it means an
+**ordering verdict is only as trustworthy as the transport's order-preservation**, and two honest
+limitations follow (both confirmed by adversarial review; neither is a fixable bug, so they are
+stated rather than hidden):
+
+- **Batch ordering can flip on out-of-order ingest.** If a producer emits A then B but B's ship
+  batch lands first (network reordering, a retried flush, a backend whose per-query return order is
+  not receive order — e.g. OpenObserve returns rows per query, so a cross-batch inversion is
+  possible), a `must_order: [A, B]` gate reads VIOL on that read. This is a *transport* fault the
+  gate correctly surfaces, but it can also make a genuinely-ordered run flake RED under load. Two
+  mitigations already hold the line where it matters: within a single `evaluate()` the stream is
+  timestamp-sorted before judging (so one read is internally consistent), and the arrival poller
+  (`verify_gate`) **never early-settles an order check** — an ordered SAT is reorder-revocable, so a
+  gate with a gating order check polls to the full window instead of latching on a lucky prefix.
+  What remains irreducible: if the store's *final* order does not match production order, the verdict
+  reflects the store, not the producer. For latency-sensitive ordering, prefer an `invariant`
+  (count/sum conservation, order-free) or assert against the territory via `external:`.
+- **The live/resident path assumes a time-sorted feed.** `LiveMonitorSet` (feeding monitors an
+  event stream as it arrives, for a resident monitor) cannot re-sort a prefix the way batch
+  `evaluate()` does, so its verdict equals the batch verdict **only when the live feed is already in
+  timestamp order**. Feed it out-of-order and a heartbeat gap or an order check can read differently
+  from the batch re-evaluation of the same events. Treat `LiveMonitorSet` as a first-alert signal
+  over an ordered stream, and let the batch gate be the authority.
+
+The rule of thumb: **use ordering checks for milestone sequencing where receive-order tracks
+production-order, and reach for `invariant`/`metamorphic` (order-free) or `external:` when the
+ordering itself is the thing under test and the transport can reorder.**
