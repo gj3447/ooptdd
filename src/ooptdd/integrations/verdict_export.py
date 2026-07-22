@@ -8,6 +8,7 @@ competitors become display surfaces.
 """
 from __future__ import annotations
 
+from ..domain.model import build_event
 from ..engine.gate import _label
 
 #: Attribute namespace. ooptdd.* is ours; the values follow the LTL3 vocabulary.
@@ -48,15 +49,21 @@ def emit_verdict_event(backend, result: dict) -> dict:
     anything tailing the stream. Phoenix's annotation vocabulary would call this
     an ``annotator_kind=CODE`` annotation bound to the trace."""
     cid = str(result.get("cid"))
-    event = {
-        "event": "ooptdd.verdict",
-        "cid": cid, "correlation_id": cid, "cycle_id": cid,
-        "verdict": _verdict_word(result),
-        "ok": bool(result.get("ok")),
-        "checks_total": len(result.get("checks", [])),
-        "checks_failed": len(_failed_labels(result)),
-        "failed_labels": _failed_labels(result),
-        "annotator_kind": "CODE",  # Phoenix vocabulary: deterministic, not LLM/HUMAN
-    }
+    failed = _failed_labels(result)
+    # build_event, not a hand-rolled dict: the verdict lands in the SAME cid it annotates,
+    # so it must honor the envelope contract (spec_version/service/level) — a bare dict
+    # here poisons pin_service / closed-world `conforms:` gates over that cid (grill
+    # finding). level stays INFO even for an `absent` verdict: the exported verdict is
+    # information ABOUT a failure, not an error event, and must not trip forbid_errors.
+    event = build_event(
+        cid, "ooptdd.verdict", service="ooptdd.gate",
+        level="INFO",
+        verdict=_verdict_word(result),
+        ok=bool(result.get("ok")),
+        checks_total=len(result.get("checks", [])),
+        checks_failed=len(failed),
+        failed_labels=failed,
+        annotator_kind="CODE",  # Phoenix vocabulary: deterministic, not LLM/HUMAN
+    )
     backend.ship([event])
     return event

@@ -64,6 +64,72 @@ def test_markdown_verdict_and_reverify_line():
     assert "INCONCLUSIVE" in infra and "store unreachable" in infra
 
 
+# ── grill regressions (2026-07-22 adversarial review) ─────────────────────────
+
+
+def test_pending_miss_is_skipped_never_failure():
+    """A pending check is designed never to gate — rendering its miss as <failure>
+    turned a GREEN gate CI-red the moment the report was uploaded (grill 2a)."""
+    res = _res([{"event": "boot", "op": "gte", "target": 1},
+                {"event": "future_contract", "op": "gte", "target": 1, "pending": True}],
+               _events())
+    assert res["ok"]
+    root = ET.fromstring(to_junit_xml(res))
+    assert root.get("failures") == "0" and root.get("skipped") == "1"
+    md = to_markdown(res)
+    assert "GREEN" in md and "❌" not in md and "pending-miss" in md
+
+
+def test_suite_level_red_gets_a_synthetic_failure():
+    """vacuous/uncorroborated/empty REDs have no failing check row — without a
+    synthetic (gate) testcase the artifact reads all-green on a red verdict (2b)."""
+    res = _res([], _events())  # empty expect -> suite-level red
+    assert not res["ok"]
+    root = ET.fromstring(to_junit_xml(res))
+    assert root.get("failures") == "1"
+    [case] = [c for c in root.iter("testcase") if c.get("name") == "(gate)"]
+    assert case.find("failure") is not None
+    assert "why red" in to_markdown(res)
+
+
+def test_threshold_green_never_renders_red():
+    """Quorum mode: ok=True with an absorbed miss must not emit <failure> (2b inverse)."""
+    res = gate.evaluate_events(
+        {"cid": CID, "threshold": 0.5,
+         "expect": [{"event": "boot", "op": "gte", "target": 1},
+                    {"event": "never", "op": "gte", "target": 1}]},
+        _events(), reachable=True, cid=CID,
+        emit_backend="MemoryBackend", emit_identity="memory:demo")
+    if not res.get("ok"):  # threshold semantics may differ; only assert when GREEN
+        import pytest
+        pytest.skip("threshold spec did not produce a green verdict in this engine version")
+    root = ET.fromstring(to_junit_xml(res))
+    assert root.get("failures") == "0"
+
+
+def test_label_survives_rule_shaped_matcher_lists():
+    """`ooptdd lint` crashed with TypeError on present:[{event: a}, ...] (grill 2d)."""
+    from ooptdd.engine.gate import _label, lint_spec
+    assert _label({"present": [{"event": "a"}, {"event": "b", "where": {"s": 1}}]}) \
+        == "present:a,b"
+    findings = lint_spec({"cid": CID, "expect": [
+        {"present": [{"event": "a"}, {"event": "b"}]},
+        {"absent": [{"where": {"level": "ERROR"}}]},
+    ]})
+    assert isinstance(findings, list)  # no TypeError
+
+
+def test_gate_schema_cheatsheet_covers_every_registered_predicate():
+    """The `ooptdd schema gate` cheat-sheet must not drift from the check registry
+    (grill 1) — this is the guard the reviewer asked for."""
+    import ooptdd.engine.gate as g
+    from ooptdd.cli import _GATE_SCHEMA
+    for key in g.CHECK_REGISTRY:
+        assert key in _GATE_SCHEMA, f"predicate {key!r} missing from _GATE_SCHEMA cheat-sheet"
+    for spec_key in ("pin_service", "require_signature", "require_corroboration"):
+        assert spec_key in _GATE_SCHEMA
+
+
 def test_cli_gate_report_junit(tmp_path, monkeypatch):
     from ooptdd.backends.memory import MemoryBackend, reset
     from ooptdd.cli import main

@@ -281,9 +281,9 @@ def _cmd_monitor(args) -> int:
     res = evaluate(backend, load_gate(args.spec))
     view = {"cid": res["cid"], "ok": res["ok"], "reachable": res["reachable"],
             "complete": res.get("complete", True),
-            "checks": [{"label": c.get("event") or next((k for k in
+            "checks": [{"label": c.get("label") or c.get("event") or next((k for k in
                         ("present", "absent", "must_order", "conforms", "heartbeat", "ratio",
-                         "invariant")
+                         "invariant", "tool_calls", "forbidden_tools", "aggregate")
                         if k in c), "check"),
                         "verdict": c.get("verdict"), "settled_at": c.get("settled_at"),
                         "passed": c["passed"]} for c in res["checks"]]}
@@ -331,9 +331,15 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
                                                      #   the trace) — needs evaluate(probe=...)
     - {conforms: EVENTTYPE, closed_world: true}      # ontology conformance
     - {indicatorRef: NAME}  with top-level indicators: {NAME: {event:.., where:..}}
+    - {tool_calls: {expected: [search, {name: t, args: {...}}],  # agent trajectory:
+                    match: subset|ordered|exact, compare: [name, args]}}  # arrived tool calls
+    - {forbidden_tools: [rm, delete_db]}             # arrival of a forbidden tool = RED
+    - {aggregate: {fn: sum|max|min|avg, attr: F, target: N, event: E}}  # rollup budget
   optional: true / pending: true / weight: N    (per-check modifiers)
   cid: ... | cid_env: OOPTDD_CID | timeWindow: 1h | threshold: 0.9
   require_corroboration: true    # single-authority gate (no separate-source external:) -> RED
+  pin_service: NAME              # events must carry this service (provenance pin)
+  require_signature: true        # events must carry a valid HMAC chain (see verify-chain)
   forbid_errors: true | error_levels: [ERROR, CRITICAL] | allow_errors: [{event: ..}]
 """
 _ONTOLOGY_SCHEMA = """ontology file (yaml) — shape:

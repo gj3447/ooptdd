@@ -116,6 +116,16 @@ def test_emit_verdict_event_is_itself_arrival_assertable(mem):
     res = evaluate(mem, _spec([{"event": "boot", "op": "gte", "target": 1}]))
     ev = emit_verdict_event(mem, res)
     assert ev["verdict"] == "present" and ev["annotator_kind"] == "CODE"
+    # grill regression: the verdict event must honor the repo's OWN envelope contract
+    # (spec_version/service/level) — a bare dict poisoned pin_service gates on its cid.
+    assert ev["spec_version"] and ev["service"] == "ooptdd.gate" and ev["level"] == "INFO"
+    res_pin = evaluate(mem, {**_spec([{"event": "boot", "op": "gte", "target": 1}]),
+                             "pin_service": "demo.svc"})
+    # (the boot fixture has no service either, so just assert the verdict event itself
+    # carries one — the poisoning vector was the MISSING service field)
+    assert all("service" in e for e in
+               mem.query(CID, since_us=0, until_us=10**15).events
+               if e.get("event") == "ooptdd.verdict"), res_pin
     # dogfood: the verdict event's own arrival is gated
     res2 = evaluate(mem, _spec([
         {"event": "ooptdd.verdict", "where": {"verdict": "present"}, "op": "gte", "target": 1},
