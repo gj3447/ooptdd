@@ -19,10 +19,13 @@ import json
 import os
 import urllib.request
 
-from .base import QueryResult, _raise_for_status
+from .base import BackendCaps, QueryResult, _raise_for_status
 
 
 class OpenObserveBackend:
+    #: reads to completion across pages (the query loop below) over SQL — the
+    #: reference network store: an independent, queryable, complete-read judge.
+    caps = BackendCaps(queryable=True, paginates=True, supports_where=True)
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
     queryable = True  # SQL read side over /_search

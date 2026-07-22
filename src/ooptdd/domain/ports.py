@@ -125,12 +125,17 @@ class BackendCaps:
     paginates:     reads to completion across pages (so ``complete`` is meaningful).
     supports_where: can filter server-side (informational; ooptdd filters in Python anyway).
     write_only:    convenience inverse of ``queryable`` for call sites that read positively.
+    independent:   the read side is a separate store the process under test cannot rewrite
+                   in-memory — the "external judge" positioning claim, as data. memory (same
+                   process) and jsonl (same-host, author-writable file) are NOT independent:
+                   they prove gate mechanics, not arrival.
     """
 
     queryable: bool = True
     paginates: bool = False
     supports_where: bool = False
     write_only: bool = False
+    independent: bool = True
 
 
 DEFAULT_CAPS = BackendCaps()

@@ -35,10 +35,12 @@ import os
 import urllib.parse
 import urllib.request
 
-from .base import QueryResult, _raise_for_status
+from .base import BackendCaps, QueryResult, _raise_for_status
 
 
 class ClickHouseBackend:
+    #: single bounded read (LIMIT max_rows+1 sentinel -> honest `complete`), no paging.
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True)
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
 

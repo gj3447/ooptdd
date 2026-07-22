@@ -24,7 +24,9 @@ But the events never landed in your store — a silent `401` dropped ingest and
 nobody noticed for 22 hours. A return-value test is **green and blind**.
 
 ooptdd refuses to believe the self-report. It reads the store back and
-*positively asserts* the events arrived:
+*positively asserts* the events arrived. (That incident is reproducible:
+`examples/openobserve_demo/` replays it — and its two honest neighbors,
+PRESENT and INCONCLUSIVE — against a real OpenObserve in under a minute.)
 
 ```python
 from ooptdd import MemoryBackend, evaluate, load_gate
@@ -86,14 +88,23 @@ pytest-native + gate-as-YAML**. That cell is ooptdd's.
 ## Backends (portability)
 
 Write is portable (OTLP); **query is not** — LogQL/TraceQL/SQL/ES-DSL all differ,
-so backends declare what they support honestly.
+so backends declare what they support honestly, as typed `BackendCaps` on the
+driver class. The full capability matrix is **generated from those declarations**
+(`docs/backends.md`, pinned by a test — a hand-written matrix would itself be an
+uncorroborated claim).
 
-| backend | ship | query | status |
-|---|---|---|---|
-| `memory` | ✅ | ✅ | first-class — default, zero infra, used by the demo & this repo's own tests |
-| `openobserve` | ✅ | ✅ (SQL) | first-class — reference network driver, env-only secrets |
-| `otel` | ✅ (OTLP) | — | write-only; pair with a store-specific reader |
-| `loki` / `elastic` / … | — | — | community drivers via the `ooptdd.backends` entry point |
+The split that matters — which backend proves what:
+
+- **`memory` / `jsonl` prove gate *mechanics*** — zero infra, great for TDD and
+  this repo's own tests, but the judge lives in the same process / same host
+  file: a green there does not prove arrival.
+- **`openobserve` (reference) / `clickhouse` / `signoz` / `victorialogs` prove
+  *arrival*** — an independent, queryable store the system under test cannot
+  rewrite in memory. Production-grade ooptdd means one of these.
+- **`otel` proves portable *writing* only** — OTLP has no read side; pair it
+  with a queryable store.
+
+Community drivers plug in via the `ooptdd.backends` entry point.
 
 Configure in `pyproject.toml` (secrets stay in the environment, never here):
 

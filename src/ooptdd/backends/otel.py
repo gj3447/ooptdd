@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import os
 
-from .base import QueryResult
+from .base import BackendCaps, QueryResult
 
 
 class OtelBackend:
     default_lookback_s = 3600
     default_future_buffer_s = 300
     queryable = False  # OTLP is write-only — no read side, so arrival can't be verified here
+    caps = BackendCaps(queryable=False, write_only=True, independent=False)
 
     def __init__(
         self,

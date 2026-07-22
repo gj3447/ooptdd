@@ -39,7 +39,8 @@ class MemoryBackend:
     queryable = True  # in-process store reads back deterministically
     # The reference backend: reads everything in one shot (always complete) and filters in
     # Python, so the conformance kit validates the typed-caps contract against it.
-    caps = BackendCaps(queryable=True, paginates=False, supports_where=True)
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True,
+                       independent=False)  # in-process: proves mechanics, not arrival
 
     def __init__(self, *, drop: bool = False, **_ignored):
         # ``drop=True`` silently discards everything shipped — this is how the

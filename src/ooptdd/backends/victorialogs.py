@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from .base import QueryResult, _raise_for_status
+from .base import BackendCaps, QueryResult, _raise_for_status
 
 
 def _logsql_str(value: str) -> str:
@@ -59,6 +59,8 @@ def _parse_time_us(value) -> int | None:
 
 
 class VictoriaLogsBackend:
+    #: single LogsQL read; exact-field filter server-side, no paging loop.
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True)
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
     queryable = True  # LogsQL read side over /select/logsql/query

@@ -39,7 +39,8 @@ class JsonlBackend:
     default_future_buffer_s = 0
     queryable = True
     # 전체 파일을 한 번에 읽어 Python 에서 필터 → 항상 complete (paging 없음), where 는 상위에서.
-    caps = BackendCaps(queryable=True, paginates=False, supports_where=True)
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True,
+                       independent=False)  # same-host author-writable file: not an external judge
 
     def __init__(
         self,
