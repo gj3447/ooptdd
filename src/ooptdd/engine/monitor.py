@@ -316,33 +316,31 @@ class HeartbeatMonitor(Monitor):
     (the gap is fixed once both beats are seen); the property is never inevitably SAT over an
     unbounded future, so it stays PEND until violated or the stream ends.
 
-    Liveness is measured across the cid's FULL observed span, not just between beats: the
-    silence from the window start (first event of ANY kind) to the first beat, and from the
-    last beat to the window end (last event of any kind), are edge-silence violations if they
-    exceed ``every_s``. Without this, a heartbeat that died while the system kept emitting
-    other events read GREEN (grill F3). Consequence to know: scoping a heartbeat gate over a
-    cid whose stream extends far past the service's beating phase (a late unrelated event)
-    will RED it — that IS a liveness violation for that span; scope the cid to the phase you
-    mean to police.  No ``now`` is needed — the stream's own min/max timestamp is the window."""
+    By default only INTER-BEAT gaps are policed. Edge silence — from the window start to the
+    first beat, or from the last beat to the window end — is a genuine "did the heartbeat
+    stop?" signal, but the window can only be inferred from the stream's own span, and an
+    ``init``/``setup`` event before the first beat or a ``done``/``teardown`` marker after the
+    last are perfectly healthy patterns that a span-based edge check false-REDs (grill F3
+    over-correction, caught by adversarial verification). So edge silence is OPT-IN via
+    ``edge_silence: true`` on the heartbeat check, for cids the author has scoped to the
+    liveness phase (no init/teardown brackets); under it, leading AND trailing silence beyond
+    ``every_s`` RED the gate. Default OFF keeps the common shapes green."""
 
-    def __init__(self, name, every_s):
+    def __init__(self, name, every_s, edge_silence=False):
         super().__init__()
         self.name = name
         self.every_s = float(every_s)
+        self.edge_silence = bool(edge_silence)
         self.beats = 0
         self.first_ts: int | None = None
         self.last_ts: int | None = None
         self.max_gap_us = 0
-        # the observed window, inferred from the WHOLE stream's time span (any event) — so
-        # leading/trailing silence can be checked without threading `now` into collapse.
         self.stream_min_ts: int | None = None
         self.stream_max_ts: int | None = None
 
     def step(self, ev, idx):
         ts = ev.get("_timestamp")
-        if ts is not None:
-            # every timestamped event bounds the observation window (a beat that only fires
-            # in the middle third of its cid's activity was passing — grill F3).
+        if ts is not None and self.edge_silence:
             self.stream_min_ts = ts if self.stream_min_ts is None else min(self.stream_min_ts, ts)
             self.stream_max_ts = ts if self.stream_max_ts is None else max(self.stream_max_ts, ts)
         if ev.get("event") != self.name or ts is None:
@@ -363,18 +361,13 @@ class HeartbeatMonitor(Monitor):
                 "heartbeat": self.name, "every_s": self.every_s, "beats": 0,
                 "max_gap_s": None, "passed": False, "reason": "no_beat",
             })
-        # leading/trailing silence: a gap from the window start to the first beat, or from the
-        # last beat to the window end, that exceeds every_s is a liveness violation the
-        # inter-beat check alone is blind to (heartbeat dead before the first / after the last
-        # observed event while the system kept emitting). Uses the stream's own span, so it
-        # needs no `now`; a single-event stream (min==max) has no edge silence.
-        # beats>=1 here, so first_ts/last_ts and the stream span are all set (a beat is a
-        # timestamped event that also bounds the stream); the `is not None` guards keep the
-        # type checker happy and are defensively correct.
-        lead = (self.first_ts - self.stream_min_ts) if (
-            self.first_ts is not None and self.stream_min_ts is not None) else 0
-        trail = (self.stream_max_ts - self.last_ts) if (
-            self.stream_max_ts is not None and self.last_ts is not None) else 0
+        lead = trail = 0
+        if self.edge_silence:
+            # opt-in only: bound liveness by the stream's own span (beats>=1 ⇒ all set).
+            lead = (self.first_ts - self.stream_min_ts) if (
+                self.first_ts is not None and self.stream_min_ts is not None) else 0
+            trail = (self.stream_max_ts - self.last_ts) if (
+                self.stream_max_ts is not None and self.last_ts is not None) else 0
         edge_gap = max(lead, trail)
         effective = max(self.max_gap_us, edge_gap)
         ok = effective <= self.every_s * 1_000_000
@@ -382,11 +375,12 @@ class HeartbeatMonitor(Monitor):
             "heartbeat": self.name, "every_s": self.every_s, "beats": self.beats,
             "max_gap_s": round(effective / 1_000_000, 6),
             "inter_beat_max_gap_s": round(self.max_gap_us / 1_000_000, 6),
-            "edge_silence_s": round(edge_gap / 1_000_000, 6),
             "passed": reachable and ok,
         }
-        if not ok and edge_gap > self.max_gap_us:
-            chk["reason"] = "leading_silence" if lead >= trail else "trailing_silence"
+        if self.edge_silence:
+            chk["edge_silence_s"] = round(edge_gap / 1_000_000, 6)
+            if not ok and edge_gap > self.max_gap_us:
+                chk["reason"] = "leading_silence" if lead >= trail else "trailing_silence"
         return self._stamp(chk)
 
 
@@ -628,7 +622,8 @@ def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
         matchers = raw if isinstance(raw, list) else [raw]
         return AbsentMonitor(matchers, indicators, allow=allow)
     if "heartbeat" in rule:
-        return HeartbeatMonitor(rule["heartbeat"], rule["every_s"])
+        return HeartbeatMonitor(rule["heartbeat"], rule["every_s"],
+                                edge_silence=rule.get("edge_silence", False))
     if "must_order" in rule or "trajectory" in rule:
         seq = rule.get("must_order") or rule.get("trajectory")
         return OrderMonitor(seq, within_s=rule.get("within_s"))

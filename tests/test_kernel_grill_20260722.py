@@ -52,28 +52,52 @@ def test_f2_allowlist_still_exempts_the_error_wing():
     assert res["ok"]
 
 
-# ── F3: heartbeat leading/trailing silence ─────────────────────────────────────
+# ── F3: heartbeat edge silence — OPT-IN (verification caught the over-correction) ──
 
 
-def test_f3_trailing_silence_reds_a_dead_heartbeat():
-    """The service kept emitting `other` for 98s after the last beat — a dead heartbeat
-    the inter-beat check alone was blind to."""
-    res = _res([{"heartbeat": "hb", "every_s": 1}],
+def _beats(*ts_s):
+    return [_ev("hb", int(t * 1_000_000)) for t in ts_s]
+
+
+def test_f3_edge_silence_optin_reds_a_dead_heartbeat():
+    """With edge_silence:true, a heartbeat that fired once then went silent while the system
+    kept emitting `other` for 98s is a trailing-silence violation."""
+    res = _res([{"heartbeat": "hb", "every_s": 1, "edge_silence": True}],
                [_ev("hb", 0), _ev("other", 98_000_000)])
     chk = res["checks"][0]
     assert not chk["passed"] and chk["reason"] == "trailing_silence"
 
 
-def test_f3_leading_silence_reds():
-    res = _res([{"heartbeat": "hb", "every_s": 1}],
-               [_ev("other", 0), _ev("hb", 50_000_000)])
+def test_f3_default_does_NOT_falsered_on_init_before_first_beat():
+    """The over-correction the verification grill caught: a worker that inits then beats a
+    clean cadence must stay GREEN by default (init-before-beat is the standard shape)."""
+    res = _res([{"heartbeat": "hb", "every_s": 2}],
+               [_ev("setup", 0), *_beats(5, 6, 7, 8)])
+    assert res["checks"][0]["passed"] and "reason" not in res["checks"][0]
+
+
+def test_f3_default_does_NOT_falsered_on_teardown_after_last_beat():
+    res = _res([{"heartbeat": "hb", "every_s": 2}],
+               [*_beats(0, 1, 2), _ev("teardown", 1000_000_000)])
+    assert res["checks"][0]["passed"]
+
+
+def test_f3_optin_init_before_beat_is_the_authors_declared_scope():
+    """Under edge_silence:true the author declares the cid is scoped to the liveness phase,
+    so leading silence past every_s DOES red — that is the opt-in contract."""
+    res = _res([{"heartbeat": "hb", "every_s": 2, "edge_silence": True}],
+               [_ev("setup", 0), *_beats(5, 6, 7)])
+    assert not res["checks"][0]["passed"] and res["checks"][0]["reason"] == "leading_silence"
+
+
+def test_f3_inter_beat_gap_still_reds_by_default():
+    """The unambiguous signal is always on: a gap BETWEEN beats over every_s reds."""
+    res = _res([{"heartbeat": "hb", "every_s": 1}], _beats(0, 5))
     assert not res["checks"][0]["passed"]
-    assert res["checks"][0]["reason"] == "leading_silence"
 
 
 def test_f3_healthy_heartbeat_still_green():
-    res = _res([{"heartbeat": "hb", "every_s": 2}],
-               [_ev("hb", 0), _ev("hb", 1_000_000), _ev("hb", 2_000_000)])
+    res = _res([{"heartbeat": "hb", "every_s": 2}], _beats(0, 1, 2))
     assert res["checks"][0]["passed"]
 
 

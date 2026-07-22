@@ -331,7 +331,8 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
     - {present: [{event: A}, {event: B, where: {...}}]}   # subset, any order
     - {absent: {where: {level: ERROR}}}              # forbid wing (a.k.a. forbid:)
     - {must_order: [a, b, c], within_s: S}           # sequencing (a.k.a. trajectory:)
-    - {heartbeat: NAME, every_s: S}                  # liveness
+    - {heartbeat: NAME, every_s: S, edge_silence: false}  # liveness (inter-beat; opt-in
+                                                     #   edge_silence policies start/end silence)
     - {ratioMetric: {good: {...}, total: {...}}, op: gte, target: 0.99}
     - {invariant: {left: {reduce: sum, field: amount, event: A},   # cross-event conservation
                    right: {reduce: count|sum|min|max|last, field: F, event: B},
