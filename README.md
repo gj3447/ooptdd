@@ -184,6 +184,15 @@ races. See [`METHODOLOGY.md`](METHODOLOGY.md) for the full theory, the 7
 principles, the 6 pitfalls, and [`docs/research/`](docs/research/) for the
 prior-art / competition / design study behind this repo.
 
+**What a GREEN gate proves — and doesn't.** ooptdd robustly catches *silent
+loss* (an event that should have been emitted but wasn't / was dropped). It does
+**not**, by itself, prove an untrusted SUT did honest work: the SUT is the
+emitter, so against a malicious process the anti-forgery layers reduce to
+self-consistency. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the
+boundary precisely and shows how to gate an untrusted agent (independent store
+via `require_independent_store`, gatekeeper-pinned gate, out-of-band
+corroboration).
+
 ## Related projects
 
 - [`ooptdd-loop`](https://github.com/gj3447/ooptdd-loop) — the

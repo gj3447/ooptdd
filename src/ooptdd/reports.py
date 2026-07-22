@@ -40,7 +40,7 @@ def _check_rows(result: dict):
 #: Suite-level reasons `ok` can be false with every per-check row green — each must
 #: surface as a synthetic failure, or the exported artifact is a fake green (the exact
 #: sin this library exists against).
-_SUITE_RED_FLAGS = ("vacuous", "uncorroborated", "unauthenticated")
+_SUITE_RED_FLAGS = ("vacuous", "uncorroborated", "unauthenticated", "dependent_store")
 
 
 def _suite_level_red(result: dict) -> str | None:

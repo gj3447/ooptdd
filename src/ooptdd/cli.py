@@ -338,6 +338,8 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
   optional: true / pending: true / weight: N    (per-check modifiers)
   cid: ... | cid_env: OOPTDD_CID | timeWindow: 1h | threshold: 0.9
   require_corroboration: true    # single-authority gate (no separate-source external:) -> RED
+  require_independent_store: true # green on a non-independent store (memory/jsonl) w/o
+                                 #   corroboration -> RED (see docs/THREAT_MODEL.md)
   pin_service: NAME              # events must carry this service (provenance pin)
   require_signature: true        # events must carry a valid HMAC chain (see verify-chain)
   forbid_errors: true | error_levels: [ERROR, CRITICAL] | allow_errors: [{event: ..}]

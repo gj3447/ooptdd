@@ -87,6 +87,7 @@ from ..domain.ports import (
     QuerySpec,
     SystemClock,
     TimeWindow,
+    backend_caps,
     backend_identity,
     fetch,
 )
@@ -515,6 +516,10 @@ def evaluate(
         # emit provenance: WHO/WHERE these events came from — stamped into oracle{} (so a green
         # is never a SILENT self-agreement) and used to demote a probe that re-reads this endpoint.
         emit_backend=type(backend).__name__, emit_identity=backend_identity(backend),
+        # is the store an INDEPENDENT judge (not the SUT's own in-process/same-host writer)?
+        # Read from the driver's typed caps — this is what makes `require_independent_store` a
+        # real gate instead of dead data (grill A1: caps.independent was never consulted).
+        emit_independent=backend_caps(backend).independent,
     )
 
 
@@ -529,6 +534,7 @@ def evaluate_events(
     probe=None,
     emit_backend: str | None = None,
     emit_identity: str | None = None,
+    emit_independent: bool | None = None,
 ) -> dict:
     """Judge an already-fetched event set against a gate spec (no I/O).
 
@@ -676,6 +682,8 @@ def evaluate_events(
     # single_authority SIGNAL to a GATE — a gate whose every check is the system's own self-report
     # (zero separate-source corroboration) is not a clean pass. A fixable misconfiguration (RED),
     # not inconclusive: add a separate-source `external:` or accept self-consistency by leaving OFF.
+    # THREAT SCOPE (docs/THREAT_MODEL.md): `separate_source` is the probe's self-declaration — this
+    # defends against an honest single-authority gate, NOT a SUT that supplies a colluding probe.
     rc = spec.get("require_corroboration")
     if rc is None:
         rc = _truthy(os.getenv("OOPTDD_REQUIRE_CORROBORATION"))
@@ -686,7 +694,9 @@ def evaluate_events(
     # must form an intact tamper-evident hash chain (domain.model.sign_chain) under the key in
     # OOPTDD_SIGNING_KEY — an unsigned injected event breaks the prev-link and a post-sign edit
     # breaks the MAC, so a forged GREEN (a positive check satisfied by an off-chain event) is no
-    # longer a clean pass. This closes the gap that require_signature was ONLY enforced on the
+    # longer a clean pass. THREAT SCOPE (docs/THREAT_MODEL.md): this authenticates a WRITER — it
+    # defends against an out-of-band tamperer, NOT a SUT that holds the signing key in its own env.
+    # This closes the gap that require_signature was ONLY enforced on the
     # pytest-summary path (engine.verify), never on the gate path every consumer counts domain
     # events through. Strict like that path: required-but-unverifiable (no key) or an unsigned /
     # broken stream is `unauthenticated`, never a silent green. Backend-stamped `_*` fields (e.g.
@@ -705,15 +715,30 @@ def evaluate_events(
         else:
             authenticated = False  # required but unverifiable (no key) — never a clean pass
     unauthenticated = rs and asserts_anything and authenticated is not True
+    # require_independent_store (spec key or env OOPTDD_REQUIRE_INDEPENDENT, default OFF): promote
+    # the emit-backend independence SIGNAL to a GATE. A non-independent store (in-process `memory`,
+    # same-host author-writable `jsonl`) is the SUT judging itself — arrival there proves gate
+    # mechanics, not that the evidence reached a store the SUT couldn't just write. When ON, such a
+    # green is only clean if at least one gating check is corroborated by a separate source; else
+    # `dependent_store` (a fixable misconfiguration → RED, not inconclusive). `emit_independent` is
+    # None when unknown (a duck-typed backend with no caps) — then this cannot fire (never invents a
+    # RED from missing metadata). This is the grill-A1 fix: caps.independent stops being dead data.
+    ri = spec.get("require_independent_store")
+    if ri is None:
+        ri = _truthy(os.getenv("OOPTDD_REQUIRE_INDEPENDENT"))
+    ri = bool(ri)
+    dependent_store = (ri and asserts_anything and emit_independent is False
+                       and corroborated == 0)
     result = {
         "ok": reachable and complete and asserts_anything and required_ok
-        and not uncorroborated and not unauthenticated,
+        and not uncorroborated and not unauthenticated and not dependent_store,
         "reachable": reachable,
         "complete": complete,
         "probe_reachable": probe_reachable,
         "vacuous": vacuous,
         "uncorroborated": uncorroborated,
         "unauthenticated": unauthenticated,
+        "dependent_store": dependent_store,
         "authenticated": authenticated,
         "cid": cid,
         "checks": checks,
