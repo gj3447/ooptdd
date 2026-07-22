@@ -28,6 +28,7 @@ primitives for backward compatibility.
 """
 from __future__ import annotations
 
+import math
 import operator
 from collections.abc import Callable
 
@@ -58,6 +59,25 @@ def _want(rule: dict):
     if "target" in rule:
         return rule["target"]
     return rule.get("count", 1)
+
+
+def _num_target(rule: dict):
+    """Numeric count target, preserving int when integral. NOT ``int(...)`` — that truncated
+    ``1.9`` to ``1`` (a `>= 1.9` gate then passed on 1 event) and crashed on a string like
+    ``"1.5"`` (grill F10). A float threshold compares correctly against an integer count."""
+    v = _want(rule)
+    if isinstance(v, bool):
+        raise ValueError(f"count target must be numeric, got bool {v!r}")
+    try:
+        f = float(v)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"count target must be numeric, got {v!r}") from exc
+    if not math.isfinite(f):
+        # inf/nan targets: `>= inf` silently never-passes, `!= nan` silently always-passes
+        # (a vacuous gating check), and json.dumps emits bare Infinity/NaN that strict JSON
+        # parsers reject in `ooptdd gate --json`. Reject, mirroring the aggregate guard.
+        raise ValueError(f"count target must be finite, got {v!r}")
+    return int(f) if f.is_integer() else f
 
 
 def _matches(ev: dict, event: str | None, where: dict) -> bool:
@@ -245,6 +265,15 @@ class OrderMonitor(Monitor):
     def __init__(self, seq, within_s=None):
         super().__init__()
         self.seq = list(seq)
+        # `firsts`/`_keys` are name-keyed dicts, so a repeated name silently collapses to one
+        # slot: `[a, a, b]` asserted only `a` before `b` and passed on a single `a` (grill F9).
+        # Multiplicity is not supported by first-occurrence sequencing, so a duplicate name is
+        # a loud spec error, not a silently-weakened gate.
+        dupes = [n for n in set(self.seq) if self.seq.count(n) > 1]
+        if dupes:
+            raise ValueError(
+                f"must_order/trajectory names must be distinct — {sorted(dupes)} repeated; "
+                "first-occurrence sequencing cannot express multiplicity")
         self.within_s = within_s
         self.firsts: dict = {name: None for name in self.seq}
         # Ordering is compared on a composite (ts, seq) key so same-batch events (identical ts) are
@@ -409,6 +438,15 @@ class RatioMonitor(Monitor):
                 "ratio": "good/total", "good": self.good, "total": 0, "value": None,
                 "op": self.op, "want": self.want, "passed": False,
                 "reason": "ratio_total_zero",
+            })
+        if self.good > self.total:
+            # good must be a SUBSET of total; good>total means the good/total matchers
+            # overlap or are misconfigured, and the ratio (>1) is meaningless — never a clean
+            # pass, even if `>= 0.99` would accept it (grill F11).
+            return self._stamp({
+                "ratio": "good/total", "good": self.good, "total": self.total,
+                "value": self.good / self.total, "op": self.op, "want": self.want,
+                "passed": False, "reason": "ratio_good_exceeds_total",
             })
         value = self.good / self.total
         return self._stamp({
@@ -648,7 +686,7 @@ def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
                                   spec.get("reduce", "sum"), spec.get("field"),
                                   spec.get("factor", 1.0), spec.get("tol", 0.0), indicators)
     event, where = _resolve_matcher(rule, indicators)
-    return CountMonitor(event, where, _norm_op(rule.get("op", ">=")), int(_want(rule)))
+    return CountMonitor(event, where, _norm_op(rule.get("op", ">=")), _num_target(rule))
 
 
 class LiveMonitorSet:
