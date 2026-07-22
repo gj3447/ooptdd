@@ -92,7 +92,14 @@ def derive_mutations(events: list[dict], spec: dict) -> list[tuple[str, list[dic
             if seq:
                 cover({"event": seq[0]})  # drop the first required step
         elif not any(k in rule for k in
-                     ("absent", "forbid", "ratioMetric", "conforms", "heartbeat")):
+                     ("absent", "forbid", "ratioMetric", "conforms", "heartbeat",
+                      # trajectory predicates: forbidden_tools is a negative wing (dropping
+                      # events can never fail it — same reason absent/forbid are excluded);
+                      # tool_calls/aggregate have no meaningful drop-mutant either (a bare
+                      # `drop:(any)` that empties the stream is noise, not a discriminator).
+                      # Real mutants for these (rename-tool / inject-forbidden / inflate-attr)
+                      # are future work — until then, exclusion beats a lying score.
+                      "tool_calls", "forbidden_tools", "aggregate")):
             cover(rule)  # a plain count/where rule
 
     if _forbids_errors(spec):

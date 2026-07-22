@@ -161,6 +161,94 @@ def test_matcher_non_empty_and_has_keys():
     assert _chk(res)["passed"]
 
 
+# ── grill regressions (2026-07-22 adversarial review F1-F8) ────────────────────
+
+
+def test_f1_unparseable_args_fail_closed_in_matcher_mode():
+    """Corrupt JSON args ARRIVED — an `absent:` matcher must not pass by pretending
+    the args were empty (fail-open was the F1 false-GREEN vector)."""
+    exp = [{"name": "search", "args": {"debug": {"absent": True}}}]
+    res = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+                [_tool("search", args='{"debug": tr')])  # truncated JSON
+    assert not _chk(res)["passed"]
+
+
+def test_f1_no_args_at_all_still_satisfies_absent():
+    """A call that genuinely carried no args: `absent` legitimately holds."""
+    exp = [{"name": "search", "args": {"debug": {"absent": True}}}]
+    res = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+                [_tool("search")])
+    assert _chk(res)["passed"]
+
+
+def test_f2_scalar_want_for_contains_matchers_is_a_loud_spec_error():
+    import pytest
+    exp = [{"name": "search", "args": {"q": {"contains_any": "cats"}}}]
+    with pytest.raises(ValueError, match="per-CHARACTER"):
+        _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+              [_tool("search", args={"q": "zebra"})])
+
+
+def test_f3_not_contains_passes_when_key_absent():
+    exp = [{"name": "run", "args": {"cmd": {"not_contains": ["rm -rf"]}}}]
+    ok = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+               [_tool("run")])  # no cmd arg at all: nothing to prohibit
+    assert _chk(ok)["passed"]
+    red = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+                [_tool("run", args={"cmd": "rm -rf /"})])
+    assert not _chk(red)["passed"]
+
+
+def test_f4_empty_expected_and_empty_forbidden_are_spec_errors():
+    import pytest
+    with pytest.raises(ValueError, match="non-empty"):
+        _eval([{"tool_calls": {"expected": []}}], [_tool("a")])
+    with pytest.raises(ValueError, match="at least one tool"):
+        _eval([{"forbidden_tools": []}], [_tool("a")])
+
+
+def test_f8_nested_matcher_is_a_loud_spec_error_not_silent_literal():
+    import pytest
+    exp = [{"name": "cfg", "args": {"opts": {"q": {"contains_any": ["x"]}}}}]
+    with pytest.raises(ValueError, match="top level"):
+        _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+              [_tool("cfg", args={"opts": {"q": "x"}})])
+
+
+def test_compare_as_comma_string_is_normalized():
+    res = _eval([{"tool_calls": {
+        "expected": [{"name": "search", "args": {"q": "cats"}}],
+        "compare": "name,args"}}],
+        [_tool("search", args={"q": "cats"})])
+    chk = _chk(res)
+    assert chk["passed"] and chk["compare"] == ["name", "args"]
+
+
+def test_unknown_op_is_a_clean_valueerror():
+    import pytest
+    with pytest.raises(ValueError, match="unknown op"):
+        _eval([{"tool_calls": {"expected": ["a"], "op": "=<"}}], [_tool("a")])
+
+
+def test_f7_trajectory_gate_stream_coverage_names_its_events():
+    """A trajectory-only gate must not report its own scored events as unasserted."""
+    res = _eval([{"tool_calls": {"expected": ["search"]}}], [_tool("search")])
+    scope = res.get("scope", {})
+    unasserted = scope.get("unasserted_observed", [])
+    assert "gen_ai.execute_tool" not in unasserted
+
+
+def test_f6_mutation_excludes_trajectory_predicates_from_count_mutants():
+    from ooptdd.mutation import derive_mutations
+    spec = {"cid": CID, "expect": [{"forbidden_tools": ["rm"]},
+                                   {"tool_calls": {"expected": ["a"]}},
+                                   {"aggregate": {"fn": "sum", "attr": "x", "target": 1}}]}
+    muts = derive_mutations([_tool("a")], spec)
+    names = [m[0] if isinstance(m, tuple) else m.get("name", "") for m in muts]
+    assert not any(str(n).startswith("drop:") for n in names), \
+        f"trajectory rules must not fall through to count-rule drop mutants: {names}"
+
+
 # ── aggregate: rollup budgets (Phoenix cumulative-rollup absorption) ───────────
 
 

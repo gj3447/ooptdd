@@ -178,6 +178,16 @@ def load_gate(path: str, *, cid: str | None = None) -> dict:
     return spec
 
 
+def _join_matchers(v) -> str:
+    """Label helper total over BOTH shapes `_label` is fed: a RESULT's list of names
+    (strings) and a RULE's list of matcher dicts — `",".join` on the raw value raised
+    TypeError from `ooptdd lint` on any legitimate `present:[{event: a}, ...]` spec."""
+    items = v if isinstance(v, list) else [v]
+    return ",".join(
+        str(m.get("event") or m.get("where") or m) if isinstance(m, dict) else str(m)
+        for m in items)
+
+
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
     if "label" in chk:  # a custom check/rule may name itself; honored for both result & rule dicts
@@ -196,9 +206,9 @@ def _label(chk: dict) -> str:
     if "must_order" in chk:
         return "must_order:" + ">".join(chk["must_order"])
     if "present" in chk:
-        return "present:" + ",".join(chk["present"])
+        return "present:" + _join_matchers(chk["present"])
     if "absent" in chk:
-        return "absent:" + ",".join(chk["absent"])
+        return "absent:" + _join_matchers(chk["absent"])
     if "ratio" in chk:
         return f"ratio:{chk['ratio']}{chk.get('op', '')}{chk.get('want', '')}"
     if chk.get("event"):
@@ -400,6 +410,16 @@ def _rule_event_names(rule: dict) -> set[str]:
     names.add(rule.get("heartbeat"))
     if isinstance(rule.get("conforms"), str):
         names.add(rule["conforms"])
+    # trajectory predicates (ooptdd.engine.trajectory): they assert on tool/attr events —
+    # without this, a trajectory-only gate reports stream_coverage=0.0 and lists the very
+    # events it scored as "arrived UNOBSERVED". Default literal mirrors trajectory._DEF_EVENT
+    # (no import: trajectory imports this module, and coverage is a best-effort signal).
+    if isinstance(rule.get("tool_calls"), dict):
+        names.add(rule["tool_calls"].get("event", "gen_ai.execute_tool"))
+    if "forbidden_tools" in rule:
+        names.add(rule.get("event", "gen_ai.execute_tool"))
+    if isinstance(rule.get("aggregate"), dict):
+        names.add(rule["aggregate"].get("event"))
     names.add(rule.get("event"))
     for n in rule.get("events") or []:  # a custom check may declare the event names it asserts on
         names.add(n if isinstance(n, str) else None)

@@ -80,6 +80,14 @@ _STRENGTH_BY_KEY.setdefault("aggregate", "threshold")
 
 # ── argument matchers (Phoenix pxi vocabulary, original implementation) ────────
 
+#: Observed args that ARRIVED but could not be read as a dict (corrupt JSON, wrong type).
+#: Distinct from None (= the call genuinely carried no args): unreadable evidence must
+#: fail CLOSED in every scoring path — treating it as "no args" let an `absent:` matcher
+#: pass against a call that DID carry the forbidden key, just in a payload we couldn't
+#: parse (grill finding F1).
+_UNPARSEABLE = object()
+
+
 def _m_contains(hay, needle) -> bool:
     """Substring for strings, membership for list/tuple/set/dict — one containment notion."""
     if isinstance(hay, str):
@@ -93,7 +101,9 @@ _MATCHERS = {
     "equals": lambda got, want, present: present and got == want,
     "contains_all": lambda got, want, present: present and all(_m_contains(got, w) for w in want),
     "contains_any": lambda got, want, present: present and any(_m_contains(got, w) for w in want),
-    "not_contains": lambda got, want, present: present and not any(_m_contains(got, w) for w in want),
+    # A key that never arrived contains nothing — prohibition holds on absence (F3).
+    "not_contains": lambda got, want, present: (not present)
+    or not any(_m_contains(got, w) for w in want),
     "any": lambda got, want, present: present,
     "non_empty": lambda got, want, present: present and bool(got),
     "absent": lambda got, want, present: not present,
@@ -102,17 +112,49 @@ _MATCHERS = {
     and all(k in got for k in want),
 }
 
+#: Matchers whose `want` is a collection of needles. A scalar string here would iterate
+#: CHARACTERS (`contains_any: "cats"` passing on any string with an 'a' — grill finding
+#: F2), silently gutting the gate — so scalar wants are a loud spec error.
+_LIST_WANT_MATCHERS = ("contains_all", "contains_any", "not_contains", "has_keys")
+
 
 def _is_matcher(v) -> bool:
     return isinstance(v, dict) and len(v) == 1 and next(iter(v)) in _MATCHERS
+
+
+def _validate_matcher_args(exp_args: dict, *, _top: bool = True) -> None:
+    """Spec-time validation: list-want matchers get real lists, and matchers live at the
+    TOP level of the args dict only — a matcher nested deeper would be silently scored
+    as a literal (always-0 Jaccard, or inverted for `absent`), a fail-closed-but-silent
+    trap (F8). Loud beats silent."""
+    for key, want in exp_args.items():
+        if _is_matcher(want):
+            if not _top:
+                raise ValueError(
+                    f"matcher {want!r} under nested key {key!r}: matchers are only "
+                    "supported at the top level of `args` (nest the parent key instead, "
+                    "e.g. has_keys/equals on the parent)")
+            kind, arg = next(iter(want.items()))
+            if kind in _LIST_WANT_MATCHERS and not isinstance(arg, (list, tuple, set)):
+                raise ValueError(
+                    f"{kind} wants a list of needles, got {arg!r} — a bare string would "
+                    "match per-CHARACTER and silently weaken the gate")
+        elif isinstance(want, dict):
+            _validate_matcher_args(want, _top=False)
 
 
 def _has_matchers(exp: dict) -> bool:
     return any(_is_matcher(v) for v in exp.values())
 
 
-def _matcher_args_pass(exp: dict, got: dict | None) -> bool:
-    """Binary matcher-mode scoring: every expected key's condition must hold."""
+def _matcher_args_pass(exp: dict, got) -> bool:
+    """Binary matcher-mode scoring: every expected key's condition must hold.
+
+    ``got`` may be a dict, ``None`` (the call genuinely carried no args — presence
+    conditions evaluate against emptiness, so ``absent:`` legitimately holds), or
+    ``_UNPARSEABLE`` (args arrived but unreadable — fail closed, never assume empty)."""
+    if got is _UNPARSEABLE:
+        return False
     got = got if isinstance(got, dict) else {}
     for key, want in exp.items():
         present = key in got
@@ -127,15 +169,23 @@ def _matcher_args_pass(exp: dict, got: dict | None) -> bool:
 
 
 def _norm_expected(items) -> list[tuple[str, dict | None]]:
-    """``[str | {name, args}]`` -> ``[(name, args-or-None)]``. Malformed entries are loud."""
+    """``[str | {name, args}]`` -> ``[(name, args-or-None)]``. Malformed entries are loud,
+    and so is emptiness: an empty expectation can never fail — a tautology masquerading
+    as a value-pinned check (F4)."""
+    if not items:
+        raise ValueError(
+            "tool_calls `expected` must be non-empty — an empty expectation is always "
+            "green (assert absence with `forbidden_tools`/`absent` instead)")
     out: list[tuple[str, dict | None]] = []
     for it in items:
         if isinstance(it, str):
             out.append((it, None))
         elif isinstance(it, dict) and it.get("name"):
             args = it.get("args")
-            if args is not None and not isinstance(args, dict):
-                raise ValueError(f"tool_calls expected args must be a dict: {it!r}")
+            if args is not None:
+                if not isinstance(args, dict):
+                    raise ValueError(f"tool_calls expected args must be a dict: {it!r}")
+                _validate_matcher_args(args)
             out.append((str(it["name"]), args))
         else:
             raise ValueError(f"tool_calls expected entry must be str or {{name,...}}: {it!r}")
@@ -143,10 +193,12 @@ def _norm_expected(items) -> list[tuple[str, dict | None]]:
 
 
 def _observed_calls(events: list, event_name: str, name_attr: str,
-                    args_attr: str) -> list[tuple[str, dict | None]]:
+                    args_attr: str) -> list[tuple[str, object]]:
     """The arrival-asserted call sequence: (name, args) per matching event, stream order.
-    Args may arrive as a dict or a JSON string (OTLP attribute values are strings)."""
-    out: list[tuple[str, dict | None]] = []
+    Args may arrive as a dict or a JSON string (OTLP attribute values are strings).
+    Args that arrived but cannot be read as a dict become ``_UNPARSEABLE`` — kept
+    distinct from ``None`` (no args at all) so unreadable evidence fails closed (F1)."""
+    out: list[tuple[str, object]] = []
     for ev in events:
         if ev.get("event") != event_name:
             continue
@@ -158,16 +210,16 @@ def _observed_calls(events: list, event_name: str, name_attr: str,
             try:
                 args = json.loads(args)
             except ValueError:
-                args = None  # unparseable args: score name-only, never crash the gate
-        if not isinstance(args, dict):
-            args = None
+                args = _UNPARSEABLE
+        if args is not None and args is not _UNPARSEABLE and not isinstance(args, dict):
+            args = _UNPARSEABLE  # arrived, but not a readable args dict
         out.append((str(name), args))
     return out
 
 
-def _arg_credit(exp: dict, got: dict | None, *, exact: bool) -> float:
+def _arg_credit(exp: dict, got, *, exact: bool) -> float:
     """Jaccard-weighted key overlap, recursing into nested dicts; ``exact`` binarizes."""
-    if got is None:
+    if got is None or got is _UNPARSEABLE or not isinstance(got, dict):
         return 0.0
     if exp == got:
         return 1.0
@@ -202,7 +254,7 @@ def _score_exact(expected, observed, *, with_args: bool) -> tuple[float, list[st
         return 0.0, [n for n, _ in expected]
     if not expected:
         return 1.0, []
-    bad = [e[0] for e, o in zip(expected, observed)
+    bad = [e[0] for e, o in zip(expected, observed, strict=True)
            if _pair_score(e, o, with_args=with_args, exact=True) < 1.0]
     return (0.0, bad) if bad else (1.0, [])
 
@@ -250,6 +302,15 @@ def _score_ordered(expected, observed, *, with_args: bool) -> tuple[float, list[
 _SCORERS = {"exact": _score_exact, "subset": _score_subset, "ordered": _score_ordered}
 
 
+def _resolve_op(raw) -> str:
+    """Normalize an op and fail loudly on an unknown one — a typo'd op must be a spec
+    error, not a bare KeyError from deep inside the scorer."""
+    op = _norm_op(str(raw))
+    if op not in _OPS:
+        raise ValueError(f"unknown op {raw!r}; one of {sorted(_OPS)} (or gte/gt/eq/ne/lte/lt)")
+    return op
+
+
 @check("tool_calls")
 def _check_tool_calls(events: list, rule: dict, ctx: CheckCtx) -> dict:
     spec = rule["tool_calls"]
@@ -259,13 +320,18 @@ def _check_tool_calls(events: list, rule: dict, ctx: CheckCtx) -> dict:
     if match not in _SCORERS:
         raise ValueError(f"tool_calls match must be one of {sorted(_SCORERS)}: {match!r}")
     compare = spec.get("compare", ["name"])
+    if isinstance(compare, str):  # YAML `compare: name,args` — split, don't substring-match
+        compare = [c.strip() for c in compare.split(",")]
+    unknown_compare = set(compare) - {"name", "args"}
+    if unknown_compare:
+        raise ValueError(f"tool_calls compare entries must be name/args: {sorted(unknown_compare)}")
     with_args = "args" in compare
     expected = _norm_expected(spec["expected"])
     observed = _observed_calls(events, spec.get("event", _DEF_EVENT),
                                spec.get("name_attr", _DEF_NAME_ATTR),
                                spec.get("args_attr", _DEF_ARGS_ATTR))
     score, missing = _SCORERS[match](expected, observed, with_args=with_args)
-    op = _norm_op(str(spec.get("op", ">=")))
+    op = _resolve_op(spec.get("op", ">="))
     target = float(spec.get("target", 1.0))
     return {
         "label": f"tool_calls:{match}",
@@ -294,9 +360,13 @@ def _check_aggregate(events: list, rule: dict, ctx: CheckCtx) -> dict:
     step-efficiency family: bound the tool-call count with a plain count check, bound
     the spend with ``aggregate: {fn: sum, attr: gen_ai.usage.output_tokens}``.)"""
     spec = rule["aggregate"]
+    if not isinstance(spec, dict):
+        raise ValueError("aggregate requires a dict: {fn, attr, target, [event, op]}")
     fn = spec.get("fn", "sum")
     if fn not in _AGG_FNS:
         raise ValueError(f"aggregate fn must be one of {sorted(_AGG_FNS)}: {fn!r}")
+    if "attr" not in spec or "target" not in spec:
+        raise ValueError("aggregate requires `attr:` and `target:`")
     attr = spec["attr"]
     event_name = spec.get("event")
     vals = []
@@ -304,23 +374,28 @@ def _check_aggregate(events: list, rule: dict, ctx: CheckCtx) -> dict:
         if event_name is not None and ev.get("event") != event_name:
             continue
         v = ev.get(attr)
+        if isinstance(v, str):
+            # OTLP attribute values arrive stringified; a numeric string is evidence,
+            # and skipping it would turn a real token stream into a vacuous green (F5).
+            try:
+                v = float(v)
+            except ValueError:
+                continue
         if isinstance(v, bool) or not isinstance(v, (int, float)):
             continue  # non-numeric (or bool) attr values never silently count
         vals.append(v)
-    op = _norm_op(str(spec.get("op", "<=")))
+    op = _resolve_op(spec.get("op", "<="))
     target = float(spec["target"])
     base = {"label": f"aggregate:{fn}({attr})", "aggregate": fn, "attr": attr,
             "op": op, "target": target, "n": len(vals), "charged": bool(vals)}
     if not vals:
-        # no observations: a budget (<=/<) is vacuously honored only if the store was
-        # reachable — but surface it as uncharged so the honesty layer sees "no evidence".
+        # No observations: a sum-budget is vacuously honored (0 spend) but SURFACED —
+        # uncharged + reason — so the honesty layer and a reader both see "green on no
+        # evidence" (a typo'd attr never charges; watch scope.uncharged). Other fns
+        # have no honest zero, so they fail.
         value = 0.0 if fn == "sum" else None
         passed = bool(_OPS[op](0.0, target)) if fn == "sum" else False
-        reason = None if fn == "sum" else "aggregate_no_values"
-        out = {**base, "value": value, "passed": passed}
-        if reason:
-            out["reason"] = reason
-        return out
+        return {**base, "value": value, "passed": passed, "reason": "aggregate_no_values"}
     value = _AGG_FNS[fn](vals)
     return {**base, "value": value, "passed": bool(_OPS[op](value, target))}
 
@@ -330,6 +405,10 @@ def _check_forbidden_tools(events: list, rule: dict, ctx: CheckCtx) -> dict:
     names = rule["forbidden_tools"]
     if isinstance(names, str):
         names = [names]
+    if not names:
+        raise ValueError(
+            "forbidden_tools must name at least one tool — an empty prohibition can "
+            "never fail (a tautology wearing the `forbid` strength class)")
     forbidden = {str(n) for n in names}
     observed = _observed_calls(events, rule.get("event", _DEF_EVENT),
                                rule.get("name_attr", _DEF_NAME_ATTR),
