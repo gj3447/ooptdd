@@ -125,12 +125,17 @@ class BackendCaps:
     paginates:     reads to completion across pages (so ``complete`` is meaningful).
     supports_where: can filter server-side (informational; ooptdd filters in Python anyway).
     write_only:    convenience inverse of ``queryable`` for call sites that read positively.
+    query_visibility_delay_ms: the store's OFFICIALLY documented ingest-to-queryable lag
+                   (its blind window). The poller never concludes ABSENT while the total
+                   wait is still inside this window — the arrival-policy guard that keeps
+                   ingestion lag from masquerading as a RED. 0 = immediately visible.
     """
 
     queryable: bool = True
     paginates: bool = False
     supports_where: bool = False
     write_only: bool = False
+    query_visibility_delay_ms: int = 0
 
 
 DEFAULT_CAPS = BackendCaps()

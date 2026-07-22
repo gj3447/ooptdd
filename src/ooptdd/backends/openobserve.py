@@ -20,12 +20,17 @@ import os
 import urllib.request
 
 from .base import QueryResult, _raise_for_status
+from ..domain.ports import BackendCaps
 
 
 class OpenObserveBackend:
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
     queryable = True  # SQL read side over /_search
+    # Official blind window: memtable/WAL persist path (ZO_MEM_PERSIST_INTERVAL default 5s)
+    # — a just-ingested record may be invisible to /_search for up to that interval.
+    caps = BackendCaps(queryable=True, paginates=True, supports_where=True,
+                       query_visibility_delay_ms=5000)
 
     def __init__(
         self,

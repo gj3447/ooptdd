@@ -85,12 +85,36 @@ def poll_until_present(
     future_buffer_s = (
         backend.default_future_buffer_s if future_buffer_s is None else future_buffer_s
     )
+    # ── arrival policy (the category-killer fix): the backend declares its blind
+    # window; a flushable store gets one best-effort flush before the first read; and
+    # ABSENT is never concluded while the wait is still inside the window (below).
+    visibility_us = backend_caps(backend).query_visibility_delay_ms * 1000
+    flush = getattr(backend, "force_flush", None)
+    flushed = False
+    if callable(flush):
+        try:
+            flushed = bool(flush())
+        except Exception:
+            flushed = False  # best-effort: a broken flush endpoint must not gate anything
+    started_us = clock.now_us()
+
+    def _stamp_arrival(body: dict, *, extended: bool) -> dict:
+        body["arrival"] = {
+            "visibility_delay_ms": visibility_us // 1000,
+            "waited_ms": max(0, (clock.now_us() - started_us) // 1000),
+            "flushed": flushed,
+            "extended_for_visibility": extended,
+        }
+        return body
+
     queried_ok = False  # did *any* query round-trip succeed? (⊥ vs ? discriminator)
     attempts = max(retries, 1)
     last_events: list[dict] = []
     last_reachable = False
     last_complete = True
-    for attempt in range(1, attempts + 1):
+
+    def _read(attempt: int, *, final: bool):
+        nonlocal queried_ok, last_events, last_reachable, last_complete
         window = TimeWindow.around_now(clock, lookback_s, future_buffer_s)
         res = fetch(backend, QuerySpec(cid=cid, window=window))
         queried_ok = queried_ok or res.reachable
@@ -98,21 +122,38 @@ def poll_until_present(
         # getattr default keeps duck-typed/older result objects (no `complete` field) working.
         complete = getattr(res, "complete", True)
         last_events, last_reachable, last_complete = events, res.reachable, complete
-        body = evaluate_prefix(
+        return evaluate_prefix(
             events, reachable=res.reachable, complete=complete,
-            queried_ok=queried_ok, attempt=attempt, final=False,
+            queried_ok=queried_ok, attempt=attempt, final=final,
         )
+
+    for attempt in range(1, attempts + 1):
+        body = _read(attempt, final=False)
         if body is not None:
             body["attempts"] = attempt
-            return body
+            return _stamp_arrival(body, extended=False)
         if attempt < attempts:
             sleeper(min(delay * backoff ** (attempt - 1), max_delay))
+    # Blind-window guard: the budget is spent, but if the store answered and the total
+    # wait has not yet covered the store's DECLARED visibility delay, a negative settle
+    # would be judging inside the blind window — the exact conflation (ingestion lag
+    # read as absence) that killed trace-based testing as a category. Extend once past
+    # the window (bounded by the declaration, not by hope) and re-read.
+    extended = False
+    remaining_us = visibility_us - (clock.now_us() - started_us)
+    if queried_ok and remaining_us > 0:
+        extended = True
+        sleeper(remaining_us / 1_000_000)
+        body = _read(attempts, final=False)
+        if body is not None:
+            body["attempts"] = attempts
+            return _stamp_arrival(body, extended=True)
     body = evaluate_prefix(
         last_events, reachable=last_reachable, complete=last_complete,
         queried_ok=queried_ok, attempt=attempts, final=True,
     )
     body["attempts"] = attempts
-    return body
+    return _stamp_arrival(body, extended=extended)
 
 
 def verify_trace(

@@ -24,6 +24,7 @@ import urllib.request
 from datetime import datetime
 
 from .base import QueryResult, _raise_for_status
+from ..domain.ports import BackendCaps
 
 
 def _logsql_str(value: str) -> str:
@@ -62,6 +63,10 @@ class VictoriaLogsBackend:
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
     queryable = True  # LogsQL read side over /select/logsql/query
+    # Official blind window: ingested data becomes searchable within ~1s (docs), and the
+    # docs recommend POST /internal/force_flush for automated tests — see force_flush().
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True,
+                       query_visibility_delay_ms=1000)
 
     def __init__(
         self,
@@ -119,6 +124,18 @@ class VictoriaLogsBackend:
         )
         with self._open(req, timeout=self.timeout) as r:
             _raise_for_status(r)  # a dropped ingest must be a loud ship failure, not silent
+
+    def force_flush(self) -> bool:
+        """``POST /internal/force_flush`` — the endpoint VictoriaLogs documents for making
+        just-ingested data searchable in automated tests. Best-effort: the poller treats a
+        failure as "not flushed", never as a verdict."""
+        req = urllib.request.Request(
+            f"{self._base()}/internal/force_flush", data=b"", method="POST",
+            headers=self._headers(),
+        )
+        with self._open(req, timeout=self.timeout) as r:
+            getattr(r, "read", lambda: b"")()
+        return True
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         try:
