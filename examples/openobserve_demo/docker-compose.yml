@@ -1,0 +1,20 @@
+# OpenObserve single node — the reference external judge for the demos here.
+#
+#   docker compose up -d
+#   export OOPTDD_OO_URL=http://localhost:5080
+#   export OOPTDD_OO_USER=root@example.com
+#   export OOPTDD_OO_PASSWORD=Complexpass#123
+#   python demo_green.py && python demo_silent_401.py && python demo_inconclusive.py
+services:
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    ports:
+      - "5080:5080"
+    environment:
+      ZO_ROOT_USER_EMAIL: root@example.com
+      ZO_ROOT_USER_PASSWORD: "Complexpass#123"
+    volumes:
+      - oo-data:/data
+
+volumes:
+  oo-data:

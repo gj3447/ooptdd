@@ -12,7 +12,7 @@ scoring. What remains is mostly *proof, documentation, and integration* work.
 
 ---
 
-## 1. Positioning docs (P0 — half a day, highest leverage)
+## 1. Positioning docs — ✅ LANDED 2026-07-22
 
 **Weakness:** `memory` default makes ooptdd look like an in-process log-assert
 helper; "does it need OpenObserve?" confusion; no backend capability matrix.
@@ -34,7 +34,10 @@ helper; "does it need OpenObserve?" confusion; no backend capability matrix.
 **Acceptance:** test `test_docs_backend_matrix_current` RED when a driver's caps
 change without regenerating the doc.
 
-## 2. The founding incident as a runnable demo (P1 — one day)
+## 2. The founding incident as a runnable demo — ✅ LANDED 2026-07-22
+
+Verified against a live OpenObserve container: all three demos asserted their
+expected verdicts (present / absent / inconclusive).
 
 **Weakness:** the strongest argument for ooptdd — "a silent 401 dropped ingest
 for 22 hours and every 'shipped OK' log lied" — exists only as a docstring
@@ -54,7 +57,7 @@ anecdote. Tracetest/Phoenix have demos; we have a story.
 **Acceptance:** each demo script asserts its own expected verdict (the demo is
 itself a gate); a CI job (compose-enabled runner) keeps the trio green.
 
-## 3. CI credibility artifacts (P1 — half a day)
+## 3. CI credibility artifacts — ✅ LANDED 2026-07-22 (`ooptdd gate --report junit|md`)
 
 **Weakness:** verdicts die in the terminal; "looks less battle-tested."
 
@@ -70,7 +73,7 @@ exists (mutation report uses it); add serializers:
 **Acceptance:** golden-file tests per format; JUnit output validated against the
 schema consumed by GitHub's test summary.
 
-## 4. Compose with eval platforms, don't compete (P2 — one to two days)
+## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd.integrations`)
 
 **Weakness:** DeepEval/Ragas/Phoenix/LangSmith have rich agent-quality metrics;
 ooptdd should not rebuild them ("What not to do") but currently offers no bridge,
@@ -89,7 +92,7 @@ so users must choose.
 **Acceptance:** one worked example per adapter under `examples/integrations/`,
 each runnable with the memory backend (no external account required).
 
-## 5. Adoption story (P2 — near-free, uses what exists)
+## 5. Adoption story — ✅ LANDED 2026-07-22 (`docs/case_studies.md`)
 
 **Weakness:** "no public benchmark or adoption story."
 
@@ -106,7 +109,7 @@ adoption — every case cited must be a receipt resident in CI.
 **Acceptance:** each case study links the (internal) CI job id; external readers
 see the shape, internal readers can audit the claim.
 
-## 6. Agent-trajectory vocabulary absorption (from DeepEval / Phoenix)
+## 6. Agent-trajectory vocabulary absorption — ✅ LANDED 2026-07-22 (`engine/trajectory.py`)
 
 **Weakness:** adjacent tools ship task-completion / tool-correctness / path-
 convergence metrics; ooptdd verifies events but has no first-class trajectory
