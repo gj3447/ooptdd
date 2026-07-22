@@ -1,7 +1,7 @@
 """``ooptdd`` command line — stateless, single-shot wrappers over the library.
 
     ooptdd verify <cid> [--gate spec.yaml] [--backend memory] [--expect-total N]
-    ooptdd gate <spec.yaml> [--backend memory]
+    ooptdd gate <spec.yaml> [--backend memory] [--report junit|md] [--report-out path]
     ooptdd can-i-deploy <spec.yaml> [<spec.yaml> ...] [--backend memory]
     ooptdd mutate <spec.yaml> --events events.json [--min-score X]
     ooptdd ontology check <onto.yaml> --events events.json [--event-type T] [--closed-world]
@@ -128,7 +128,17 @@ def _cmd_gate(args) -> int:
     backend = _backend(args)
     spec = load_gate(args.spec)
     res = evaluate(backend, spec, probe=_resolve_probe(spec))
-    print(json.dumps(res, ensure_ascii=False, indent=2))
+    if getattr(args, "report", None):
+        from .reports import RENDERERS
+        rendered = RENDERERS[args.report](res)
+        if getattr(args, "report_out", None):
+            with open(args.report_out, "w", encoding="utf-8") as fh:
+                fh.write(rendered)
+            print(f"report ({args.report}) -> {args.report_out}", file=sys.stderr)
+        else:
+            print(rendered)
+    else:
+        print(json.dumps(res, ensure_ascii=False, indent=2))
     if res.get("optional_failed"):
         print(f"WARN - optional checks failed (not gating): {res['optional_failed']}",
               file=sys.stderr)
@@ -369,6 +379,9 @@ def main(argv=None) -> int:
     g = sub.add_parser("gate", help="evaluate a YAML gate spec")
     g.add_argument("spec")
     g.add_argument("--backend")
+    g.add_argument("--report", choices=["junit", "md"],
+                   help="render a CI report instead of raw JSON (junit XML / markdown)")
+    g.add_argument("--report-out", help="write the report to this path (default: stdout)")
     g.set_defaults(func=_cmd_gate)
 
     ln = sub.add_parser("lint", help="static strength audit of a gate spec (catch vacuous gates)")

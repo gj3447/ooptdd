@@ -1,0 +1,23 @@
+# promptfoo + ooptdd — LLM quality checks and arrival proof in one eval run.
+#
+# promptfoo judges the *answer*; the python assert below judges whether the
+# side effects the answer claims actually LANDED in the store. Run:
+#
+#   OOPTDD_CID=run-42 promptfoo eval -c promptfooconfig.yaml
+#
+prompts:
+  - "Ship order {{order_id}} and confirm."
+
+providers:
+  - id: anthropic:messages:claude-sonnet-5
+
+tests:
+  - vars:
+      order_id: "42"
+    assert:
+      # answer-quality gates (promptfoo's lane)
+      - type: contains
+        value: "shipped"
+      # arrival gate (ooptdd's lane): the order.shipped event must be in the store
+      - type: python
+        value: file://ooptdd_arrival_assert.py
