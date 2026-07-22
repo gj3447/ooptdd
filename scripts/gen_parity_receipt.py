@@ -132,10 +132,17 @@ the verifier's readback:
 ## Wing 2 — live OpenObserve wing (the real store, same contract function)
 
 `OpenObserveBackend` passed the **same** `assert_backend_conforms` callable
-against a live OpenObserve; the receipt was arrival-polled
-(`verify_gate` → verdict `{oo_res["verdict"]}`, attempts={oo_res.get("attempts")}).
+against a live OpenObserve; the receipt was arrival-polled to the full
+configured window (`verify_gate` → verdict `{oo_res["verdict"]}`; this gate's
+`==`-count and `absent` checks are anti-monotone, so early settle is forbidden
+and the reported attempts ({oo_res.get("attempts")}) always equals the
+configured retries — it is the poll count, NOT an arrival-latency signal).
 The mock and the real store were judged by one contract — parity is a fact of
 execution, not of documentation.
+
+Note: this live wing is env-gated and **skips in hosted CI** (no store secrets
+there) — the readback below is a locally generated artifact, re-runnable via
+this script; the CI-resident, always-on form is the mock/JSONL wing.
 
 cid: `{oo_cid}` — the verifier's readback from OpenObserve:
 

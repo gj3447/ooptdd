@@ -32,3 +32,34 @@ jobs:
         run: pytest -q
       - name: Test under xdist (ship-once invariant)
         run: pytest -q -n 2
+      - name: Backend matrix current (belt-and-braces for filtered pytest runs)
+        run: python scripts/gen_backend_matrix.py --check
+
+  # The founding-incident trio + the live parity wing against a REAL OpenObserve —
+  # keeps the strongest demos from decaying into "demonstrated once and framed".
+  openobserve-demos:
+    runs-on: ubuntu-latest
+    env:
+      OOPTDD_OO_URL: http://localhost:5080
+      OOPTDD_OO_USER: root@example.com
+      OOPTDD_OO_PASSWORD: "Complexpass#123"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Start OpenObserve
+        run: |
+          docker compose -f examples/openobserve_demo/docker-compose.yml up -d
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:5080/healthz && break || sleep 2
+          done
+      - name: Demo trio (present / absent / inconclusive)
+        run: |
+          python examples/openobserve_demo/demo_green.py
+          python examples/openobserve_demo/demo_silent_401.py
+          python examples/openobserve_demo/demo_inconclusive.py
+      - name: Live contract↔mock parity wing
+        run: pytest tests/test_contract_mock_parity_receipt.py -v

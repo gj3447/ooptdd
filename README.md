@@ -98,9 +98,12 @@ The split that matters — which backend proves what:
 - **`memory` / `jsonl` prove gate *mechanics*** — zero infra, great for TDD and
   this repo's own tests, but the judge lives in the same process / same host
   file: a green there does not prove arrival.
-- **`openobserve` (reference) / `clickhouse` / `signoz` / `victorialogs` prove
-  *arrival*** — an independent, queryable store the system under test cannot
-  rewrite in memory. Production-grade ooptdd means one of these.
+- **`openobserve` (reference) / `clickhouse` / `signoz` / `victorialogs` are
+  designed to prove *arrival*** — an independent, queryable store the system
+  under test cannot rewrite in memory. Production-grade ooptdd means one of
+  these. Corroboration status: `openobserve` is live-verified in this repo;
+  the other three currently pass driver tests against mocked responses only
+  (see `docs/backends.md`).
 - **`otel` proves portable *writing* only** — OTLP has no read side; pair it
   with a queryable store.
 

@@ -37,7 +37,10 @@ change without regenerating the doc.
 ## 2. The founding incident as a runnable demo — ✅ LANDED 2026-07-22
 
 Verified against a live OpenObserve container: all three demos asserted their
-expected verdicts (present / absent / inconclusive).
+expected verdicts (present / absent / inconclusive). Acceptance honesty (grill
+2026-07-22): the "CI job keeps the trio green" half was NOT met at first — a
+`demos` job (compose + the trio + the live parity wing) is now in ci.yml; its
+first hosted run postdates this note.
 
 **Weakness:** the strongest argument for ooptdd — "a silent 401 dropped ingest
 for 22 hours and every 'shipped OK' log lied" — exists only as a docstring
@@ -59,6 +62,12 @@ itself a gate); a CI job (compose-enabled runner) keeps the trio green.
 
 ## 3. CI credibility artifacts — ✅ LANDED 2026-07-22 (`ooptdd gate --report junit|md`)
 
+Acceptance honesty (grill 2026-07-22): tests are structural (ElementTree
+parse + counts + properties), NOT golden-file or XSD-validated — the original
+acceptance line overpromised; GitHub's JUnit consumer is schema-lenient, and
+the real risk (verdict↔report divergence: pending→failure, suite-level RED
+invisible, threshold-GREEN shown red) is now pinned directly by tests instead.
+
 **Weakness:** verdicts die in the terminal; "looks less battle-tested."
 
 **Fix:** `ooptdd gate --format json|md|junit`. The `_emit` plumbing already
@@ -74,6 +83,10 @@ exists (mutation report uses it); add serializers:
 schema consumed by GitHub's test summary.
 
 ## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd.integrations`)
+
+Acceptance status: deepeval bridge verified against REAL deepeval v4.0.7
+(evaluate() loop end-to-end, 2026-07-22 grill); worked examples exist for all
+three adapters under examples/integrations/.
 
 **Weakness:** DeepEval/Ragas/Phoenix/LangSmith have rich agent-quality metrics;
 ooptdd should not rebuild them ("What not to do") but currently offers no bridge,
@@ -92,7 +105,14 @@ so users must choose.
 **Acceptance:** one worked example per adapter under `examples/integrations/`,
 each runnable with the memory backend (no external account required).
 
-## 5. Adoption story — ✅ LANDED 2026-07-22 (`docs/case_studies.md`)
+## 5. Adoption story — ✅ LANDED 2026-07-22, REWRITTEN wiring-accurate 2026-07-22
+
+Acceptance honesty (grill 2026-07-22): the first version overclaimed
+("receipts resident in CI" was true for 1 of 3 cases; "every CI run / strict"
+contradicted the consumer's opt-in/warn-default wiring). The doc now states
+per-case where the receipt actually runs (blocking CI / local opt-in gate /
+manual harness), and the "internal CI job id" acceptance line is dropped for a
+public repo — the per-case wiring statement replaces it.
 
 **Weakness:** "no public benchmark or adoption story."
 

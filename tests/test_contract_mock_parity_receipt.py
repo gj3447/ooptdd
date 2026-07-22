@@ -101,7 +101,8 @@ def test_mock_satisfies_the_identical_contract_with_arrival_receipt(tmp_path):
     assert res["reachable"] and res.get("complete", True)
     assert res["ok"], f"receipt arrival gate RED: {res}"
     # positive log, human-readable: the verifier's view of what actually landed
-    got = reader.query(cid, since_us=int((time.time() - 3600) * 1_000_000), until_us=int((time.time() + 3600) * 1_000_000)).events
+    window = (int((time.time() - 3600) * 1_000_000), int((time.time() + 3600) * 1_000_000))
+    got = reader.query(cid, since_us=window[0], until_us=window[1]).events
     assert len(got) == len(CLAUSES) + 1
     reset()
 
@@ -137,7 +138,7 @@ def test_real_openobserve_satisfies_the_identical_contract_with_arrival_receipt(
     # OO ingest->searchable latency: retry the whole contract with a fresh cid per
     # attempt (never reuse — clause counts are ==, and reruns would double them).
     last = None
-    for attempt in range(3):
+    for _attempt in range(3):
         try:
             assert_backend_conforms(make, cid=f"parity-oo-{uuid.uuid4().hex[:8]}")
             last = None
@@ -155,7 +156,8 @@ def test_real_openobserve_satisfies_the_identical_contract_with_arrival_receipt(
                       retries=6, delay=1.0)
     assert res["verdict"] == "present", f"live receipt did not arrive: {res}"
     # surface the positive log for the committed receipt document
-    got = make().query(cid, since_us=int((time.time() - 3600) * 1_000_000), until_us=int((time.time() + 3600) * 1_000_000)).events
+    window = (int((time.time() - 3600) * 1_000_000), int((time.time() + 3600) * 1_000_000))
+    got = make().query(cid, since_us=window[0], until_us=window[1]).events
     for ev in sorted(got, key=lambda e: e.get("_timestamp", 0)):
         print({k: ev[k] for k in ("_timestamp", "event", "clause", "result", "subject", "kg")
                if k in ev})

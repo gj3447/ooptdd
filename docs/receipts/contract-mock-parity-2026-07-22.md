@@ -25,38 +25,45 @@ audit, re-read from disk by a fresh handle) and the arrival gate evaluated
 8 checks GREEN (per-clause `== 1` value-pinned counts + the
 `result=violated` negative wing + the verdict event).
 
-cid: `parity-receipt-2c47b086` — the raw store file is committed as
+cid: `parity-receipt-c1add7a6` — the raw store file is committed as
 [`contract-mock-parity-2026-07-22.events.jsonl`](contract-mock-parity-2026-07-22.events.jsonl);
 the verifier's readback:
 
 ```json
-{"_timestamp": 1784699237618070, "event": "ooptdd.contract.clause", "clause": "roundtrip", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237618070, "event": "ooptdd.contract.clause", "clause": "whole_row_passthrough", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237618070, "event": "ooptdd.contract.clause", "clause": "timestamp_passthrough", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237618070, "event": "ooptdd.contract.clause", "clause": "complete_read", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237618070, "event": "ooptdd.contract.clause", "clause": "gate_over_rows", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237618070, "event": "ooptdd.contract.clause", "clause": "cid_injection_safe", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237618180, "event": "ooptdd.contract.verdict", "result": "conformant", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688839, "event": "ooptdd.contract.clause", "clause": "roundtrip", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688839, "event": "ooptdd.contract.clause", "clause": "whole_row_passthrough", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688839, "event": "ooptdd.contract.clause", "clause": "timestamp_passthrough", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688839, "event": "ooptdd.contract.clause", "clause": "complete_read", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688839, "event": "ooptdd.contract.clause", "clause": "gate_over_rows", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688839, "event": "ooptdd.contract.clause", "clause": "cid_injection_safe", "result": "held", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228688968, "event": "ooptdd.contract.verdict", "result": "conformant", "subject": "MemoryBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
 ```
 
 ## Wing 2 — live OpenObserve wing (the real store, same contract function)
 
 `OpenObserveBackend` passed the **same** `assert_backend_conforms` callable
-against a live OpenObserve; the receipt was arrival-polled
-(`verify_gate` → verdict `present`, attempts=6).
+against a live OpenObserve; the receipt was arrival-polled to the full
+configured window (`verify_gate` → verdict `present`; this gate's
+`==`-count and `absent` checks are anti-monotone, so early settle is forbidden
+and the reported attempts (6) always equals the
+configured retries — it is the poll count, NOT an arrival-latency signal).
 The mock and the real store were judged by one contract — parity is a fact of
 execution, not of documentation.
 
-cid: `parity-oo-receipt-71dd6dc3` — the verifier's readback from OpenObserve:
+Note: this live wing is env-gated and **skips in hosted CI** (no store secrets
+there) — the readback below is a locally generated artifact, re-runnable via
+this script; the CI-resident, always-on form is the mock/JSONL wing.
+
+cid: `parity-oo-receipt-5a966ab6` — the verifier's readback from OpenObserve:
 
 ```json
-{"_timestamp": 1784699237672482, "event": "ooptdd.contract.clause", "clause": "roundtrip", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237672485, "event": "ooptdd.contract.clause", "clause": "whole_row_passthrough", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237672486, "event": "ooptdd.contract.clause", "clause": "timestamp_passthrough", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237672487, "event": "ooptdd.contract.clause", "clause": "complete_read", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237672487, "event": "ooptdd.contract.clause", "clause": "gate_over_rows", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237672489, "event": "ooptdd.contract.clause", "clause": "cid_injection_safe", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
-{"_timestamp": 1784699237673397, "event": "ooptdd.contract.verdict", "result": "conformant", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228818476, "event": "ooptdd.contract.clause", "clause": "roundtrip", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228818479, "event": "ooptdd.contract.clause", "clause": "whole_row_passthrough", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228818480, "event": "ooptdd.contract.clause", "clause": "timestamp_passthrough", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228818481, "event": "ooptdd.contract.clause", "clause": "complete_read", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228818482, "event": "ooptdd.contract.clause", "clause": "cid_injection_safe", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228818482, "event": "ooptdd.contract.clause", "clause": "gate_over_rows", "result": "held", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
+{"_timestamp": 1784701228820199, "event": "ooptdd.contract.verdict", "result": "conformant", "subject": "OpenObserveBackend", "kg": "contract-mock-parity-receipt-2026-07-22"}
 ```
 
 ## The split that keeps it honest

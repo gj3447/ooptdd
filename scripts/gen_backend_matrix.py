@@ -38,9 +38,15 @@ arrival?
 - `memory` / `jsonl` prove **gate mechanics** (zero-infra, in-process /
   same-host file) — a green there says your spec and events agree, not that
   anything arrived anywhere.
-- `openobserve` (reference), `clickhouse`, `signoz`, `victorialogs` prove
-  **arrival**: an independent, queryable store the process under test cannot
-  rewrite in memory.
+- `openobserve` (reference), `clickhouse`, `signoz`, `victorialogs` are
+  **designed to prove arrival**: an independent, queryable store the process
+  under test cannot rewrite in memory. Corroboration honesty: only
+  `openobserve` is live-verified in this repo (the env-gated parity wing +
+  committed readback receipt + demos); `clickhouse`/`signoz`/`victorialogs`
+  pass their driver tests against **mocked responses only** — their rows below
+  are declarations, not yet live-corroborated here. (The live OO wing caught
+  real mock-vs-store drift the mocked tests missed — treat undeclared parity
+  as unproven.)
 - `otel` proves **portable writing** only — OTLP has no read side; pair it
   with a queryable store for verification.
 """

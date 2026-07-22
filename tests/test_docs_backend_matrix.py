@@ -39,8 +39,8 @@ def test_every_builtin_declares_or_synthesizes_caps():
         if caps.write_only:
             assert not (caps.independent and caps.queryable) or name != "otel"
     # the positioning invariants the docs lean on:
-    from ooptdd.backends.memory import MemoryBackend
     from ooptdd.backends.jsonl import JsonlBackend
+    from ooptdd.backends.memory import MemoryBackend
     from ooptdd.backends.openobserve import OpenObserveBackend
     assert MemoryBackend.caps.independent is False
     assert JsonlBackend.caps.independent is False

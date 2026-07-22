@@ -11,11 +11,10 @@ the event model/ontology), and the stdlib — never from a concrete adapter (a b
 driver, the CLI, the pytest plugin). The architecture fitness test enforces this, so the
 evaluation logic stays runnable against any store and trivially unit-testable.
 """
+from . import trajectory  # noqa: E402,F401  registers tool_calls/forbidden_tools via @check
 from .gate import can_i_deploy, check, evaluate, load_gate
 from .monitor import Monitor, run_monitor
 from .verify import session_finish, verify_policy, verify_trace
-
-from . import trajectory  # noqa: E402,F401  registers tool_calls/forbidden_tools via @check
 
 __all__ = [
     "evaluate",
