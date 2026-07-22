@@ -79,5 +79,10 @@ pytest                                           # every run now ships + verifie
 ooptdd verify <cid> --backend openobserve        # manual re-check
 ```
 
+60-second runnable version (docker-compose OpenObserve + the founding-incident
+demo pack — GREEN / silent-401 ABSENT / INCONCLUSIVE):
+[`../examples/openobserve_demo/`](../examples/openobserve_demo/README.md), then
+[`warn_to_strict.md`](warn_to_strict.md) to move from observing to enforcing.
+
 Next: [`../METHODOLOGY.md`](../METHODOLOGY.md) for the why, and
 [`research/`](research/) for the design study.

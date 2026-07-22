@@ -7,6 +7,28 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`gen_ai@1.41` ontology preset — dual-track semconv versioning.** The certified final
+  in-repo state of the OTel GenAI conventions before the v1.42 repo split: 9 operations
+  (+`retrieval`), the 15-member `gen_ai.provider.name` enum (`x_ai` rename enforced),
+  provider.name required on client-kind ops (embeddings' `request.model` demoted to
+  conditional per spec), the `gen_ai.evaluation.result` event, token-usage expansion
+  (cache_read/cache_creation/reasoning). The legacy `gen_ai` preset is FROZEN and pinned by
+  a freeze test — version bumps ADD presets, never edit one.
+- **Platform score sinks (`ooptdd.integrations.platform_scores`).** The verdict as a
+  platform-native score with the ternary preserved: LangSmith categorical feedback kwargs
+  (`score=None` for inconclusive — never 0/0.5), Langfuse `POST /api/public/scores` with
+  `dataType=CATEGORICAL` (string value = the verdict word), Phoenix `CODE` trace
+  annotations (inconclusive = label without a score key). Pure builders + injectable-opener
+  posters; zero hard dependencies.
+- **Typed rate-limit diagnosis + Retry-After-honoring poll.** `QueryResult.error_kind`
+  (rate_limited/auth/timeout/other) + `retry_after_s`; `raise_for_status` raises
+  `HTTPStatusError` carrying status + `Retry-After`; the HTTP drivers classify in their
+  except blocks; the poller honors a store-sent Retry-After instead of burning attempts
+  inside the throttle window. Verdict semantics unchanged (429 was already `?`).
+- **Sampled-store evidence cap (`BackendCaps.samples`).** A sampled store proves SOME
+  events arrived, not cross-event causal claims: the evidence-tier `queryable_causal` rung
+  caps at `arrived` on it; `external_verdict` is untouched (a passing separate-source
+  `external:` check bypasses the sampled store).
 - **Comparator `where` (op-dict).** A `where` value may be `{op: gte|gt|eq|ne|lte|lt|
   contains|not_contains, value: V}` instead of a literal — numeric thresholds and substring/
   membership filters in any matcher (count/present/absent/ratio/…). Fail-safe rules: a

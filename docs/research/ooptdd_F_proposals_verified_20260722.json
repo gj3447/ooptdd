@@ -664,7 +664,15 @@
   "risk": "Citing competitors by name must stay factual (file:line evidence) not disparaging; cloud EOL date is PROM web consensus—keep 'as of research cycle' framing.",
   "wnd_check": "Narrative only strengthens LTL3 and library posture; explicitly rejects dashboard-first and Tracetest-selector copy; no LLM-as-judge.",
   "theme": "credibility-adoption",
-  "verdict": null
+  "verdict": {
+   "id": "category-death-adoption-narrative",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Drop the new examples/proof_collector_down_is_inconclusive.py or reduce it to a cross-link: examples/openobserve_demo/demo_inconclusive.py already proves unreachable-backend -> inconclusive (asserts res[\"verdict\"]==\"inconclusive\") and README:26-29 already links it; duplicating it dilutes the examples/ set. If a zero-infra pytest variant is wanted, make it a short pytest test in the doc that points at the existing demo. (2) Fix the seam cite: verify_policy is engine/verify.py:376-429 (inconclusive-never-fails branch :411-419); :321-374 is verify_gate whose verdict mapping (unreachable/truncated -> inconclusive) is :354-360 — cite both, correctly split. (3) For Tracetest, say \"commercial Cloud EOL (2024-10-31, tracetest.io blog) + dormant main (~13.5 mo)\" and never \"DEAD/archived\" — C_limitations.md:103 caveat: the OSS repo is not formally archived; reserve DEAD for malabi (whose evidence is exact: catch at fetch-remote-telemetry.ts:33-35, empty-repo return :36, HEAD 2024-05-16, lerna 0.0.7-alpha.1). (4) Update the invariant mapping to cite the now-landed ArrivalPolicy mechanics: BackendCaps.query_visibility_delay_ms (backends/clickhouse.py:46=1000ms, openobserve.py:31=5000ms, victorialogs.py:66=1000ms) + VictoriaLogs force_flush (victorialogs.py:128) — the implemented PROM C4 answer, which makes the \"budget-exhaust never maps to absent\" claim code-backed. (5) Correct competitive_feedback cites: 77-81=honesty OK; 154-162 is \"Memory default weakens the main claim\" (maturity gap is 164-168); 314-322=Strategic judgment OK. Also cross-link docs/case_studies.md (real-consumer adoption) so the category-death doc and the consumer story reinforce each other.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py (300-440); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/gate.py (670-745); /Users/lagyeongjun/CD/ooptdd/README.md (20-74); /Users/lagyeongjun/CD/ooptdd/examples/test_order_pipeline.py (25-64); /Users/lagyeongjun/CD/ooptdd/examples/openobserve_demo/ (README.md, demo_inconclusive.py via grep); /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (70-170, 240-322); /Users/lagyeongjun/CD/ooptdd/docs/case_studies.md (full); /Users/lagyeongjun/CD/ooptdd/docs/research/ooptdd_F_oss_absorption_20260722.md + prom16_grok_20260722/{PROM_16_REPORT.md:23,C_limitations.md:92-146,SOURCES.md:57} (via grep); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/{clickhouse,openobserve,victorialogs,otel}.py (via grep); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/malabi/packages/malabi/src/remote-runner-integration/fetch-remote-telemetry.ts (full); malabi/lerna.json + malabi/.git + tracetest/.git (read-only git log)"
+  }
  },
  {
   "id": "mutation-score-ci-credibility",
@@ -677,7 +685,15 @@
   "risk": "Score gaming if only MemoryBackend is mutated while production uses OO—doc must state evidence_tier of the mutation run; avoid process-fork/Windows traps from mutmut warnings.",
   "wnd_check": "CI JSON artifact only—no dashboard; stays in gate-strength/event-proof lane; does not become eval platform or LLM judge.",
   "theme": "credibility-adoption",
-  "verdict": null
+  "verdict": {
+   "id": "mutation-score-ci-credibility",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "Rescope: components (1) and (2) are ALREADY DONE in current source and must be cut from new work. (1) The stable JSON {baseline_green, score, n, survivors[], mutations[]} already exists (mutation.py:117-139) and is already emitted as a CI artifact via `ooptdd mutate --json` through _emit (cli.py:75-81, 218-224); `--min-score` PR-blocking exists (cli.py:238-239) including an n=0 vacuous-score guard that exits 2 instead of a clean pass (cli.py:227-237). If a file flag is still wanted, name it `--report-out <path>` — the proposed `--report mutation-report.json` collides with the convention just landed on the `gate` subcommand where `--report` takes a FORMAT (junit|md) and `--report-out` takes the path (cli.py:410-412, reports.py). (2) Survivors-first human output is already the default (cli.py:222-224 prints survivors only; killed rows are visible under --json); a `--all` human flag is a trivial optional add. (3) Canary: keep, but fix semantics — in ooptdd's pure data-list model a surviving drop-ALL-events mutant means the gate has no gating positive expectation (vacuous gate), NOT 'harness broken' (there is no external test-runner harness; evaluate() is the library itself — mutmut's forced-fail checks a real subprocess runner, __main__.py:664-675). Map it onto the existing exit-2 inconclusive/vacuous ladder (consistent with cli.py:227-237) or, if a distinct code is minted, document exit 3 explicitly; also note overlap with existing static vacuous detection (strength fingerprint `vacuous` engine/gate.py:662-664,763 and lint_spec engine/gate.py:855+) — the canary is the dynamic cross-check of those. (4) `no_events` status: keep as optional; note derive_mutations already silently skips no-op mutants via the `mevents != events` guard (mutation.py:68), and baseline_green=True already implies required present expectations matched >=1 event, so this only surfaces edge cases. (5) docs/ci_mutation_gate.md does not exist — the real remaining core of the proposal is this doc plus canary plus no_events; the doc should cross-link the existing `gate --report junit|md` renderers (reports.py) rather than duplicate them. Also update stale seam line numbers: mutation_report is now mutation.py:117-139, mutate CLI is cli.py:218-240 with parser at 437-442 (not 204-215). Effort S remains realistic for the reduced scope.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/mutation.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/cli.py (lines 60-120, 200-260, 400-450); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/reports.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/gate.py (vacuous/lint_spec greps at 662-664, 763, 855-858); /Users/lagyeongjun/CD/ooptdd/tests/test_mutation.py + tests/test_cli.py (mutate tests at 86-100); /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (lines 160-199, 280-323 incl. 'What not to do' at 298 and maturity gap 170-177); /Users/lagyeongjun/CD/ooptdd/docs/ listing (no ci_mutation_gate.md); scratchpad/ooptdd_selfmap.md §4-5; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/mutmut/src/mutmut/__main__.py (655-676 forced-fail, 1160-1212 save_cicd_stats/export_cicd_stats incl. line-1187 PR-block comment, 1540-1568 results --all survivors-first); mutmut/README.rst (badge grep — only CI/readthedocs badges, no mutation-score badge generator; fork/Windows warning lines 35-36, 220)"
+  }
  },
  {
   "id": "proof-red-green-adoption-pack",
@@ -729,7 +745,15 @@
   "risk": "Anonymization leaks if cid/url patterns retained; require human review before any public post.",
   "wnd_check": "Documentation/template only; no platform UI; does not collapse verdicts or add judge metrics.",
   "theme": "credibility-adoption",
-  "verdict": null
+  "verdict": {
+   "id": "anonymized-case-study-template",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "Core narrative already landed by a concurrent session: docs/case_studies.md (commits 56f81dc, f8e593f) ships three filled anonymized consumer cases including the ~3,100-test suite ('3000+ tests'), a 13-receipt blocking-CI panel, vendoring honesty, and an enforcement-locus rule ('say where the receipt runs'); docs/warn_to_strict.md covers the warn-to-strict migration. DROP the filled ANON_CONSUMER.md deliverable. RE-SCOPE to the genuine residual delta: (1) extract a reusable docs/case_studies/TEMPLATE.md (or template section in case_studies.md) formalizing the fields the filled doc uses implicitly — scale, backends, enforcement locus (blocking-CI / local opt-in gate / manual harness), vendoring model, outcomes; (2) the sanitizer script generating case_study_receipt.json from real session_finish/gate JSON by stripping host/service/cid — zero hits for case_study_receipt/sanitize/redact in src/ and scripts/, so this does not exist; (3) attach redacted evidence artifacts the current doc lacks (gate YAML snippet, strength_fingerprint output, sample inconclusive incident). UPDATE stale seam line numbers (repo advanced): session_finish is now engine/verify.py:432+ (not 377-456), honesty fields engine/gate.py:~716-770 (not 682-731), strength_fingerprint engine/gate.py:904+ (not 822-881); cli.py:_emit:75, docs/MIGRATING_CONSUMERS.md, scripts/vendor_ooptdd.py all valid. Keep the human-review-before-publication risk gate; new template must preserve case_studies.md's wiring-honesty convention. Effort S remains realistic for this narrowed scope.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/docs/case_studies.md; /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (lines 160-208 maturity gap incl. 'no public benchmark or adoption story' at 176, and 298-322 What-not-to-do); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py (session_finish:432); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/gate.py (honesty fields 716-765, strength_fingerprint:904); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/cli.py (_emit:75); /Users/lagyeongjun/CD/ooptdd/README.md (verification receipt '436 passed' line 170); git log of docs/case_studies.md; ls of docs/, scripts/, src/ooptdd/, docs/receipts/, scripts/templates/, src/ooptdd/integrations/; grep for case_study_receipt/sanitize/redact across src+scripts (0 hits); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/ listing (mutmut, deepeval, inspect_ai present) and inspect_ai/src/inspect_ai/log/_log.py:905-919 (EvalRevision git provenance: type/origin/commit/dirty); scratchpad ooptdd_selfmap.md"
+  }
  },
  {
   "id": "public-arrival-benchmark-spec",
@@ -742,7 +766,15 @@
   "risk": "Benchmark gaming if only memory backend counted; version the fixture set; keep scenarios offline-default.",
   "wnd_check": "Measures event-proof properties only; bans LLM-as-judge metrics and dashboard leaderboard as product; no full Tracetest selector suite.",
   "theme": "credibility-adoption",
-  "verdict": null
+  "verdict": {
+   "id": "public-arrival-benchmark-spec",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Drop 'optional JUnit later' — reports.py already ships to_junit_xml + to_markdown (tests/test_reports.py); the benchmark summary should reuse reports.to_junit_xml now. (2) Refresh seam line numbers: mutation_report=mutation.py:117-139 (not 110-132); evidence_tier=engine/gate.py:972-1004 (not 887-921); verify_policy=engine/verify.py:~378-430 (not 321-374); poll_until_present starts at 56 but now extends past 115 with the visibility guard. (3) Scenario 7 VisibilityDelay: the guard is now IMPLEMENTED (BackendCaps.query_visibility_delay_ms + force_flush + 'arrival' stamp {visibility_delay_ms, waited_ms, flushed, extended_for_visibility} in poll_until_present); rewrite the scenario as a conformance assertion over the arrival stamp and never-ABSENT-inside-window behavior, not as a gap. (4) Scenario 8 Independence: fix mechanism wording — independence is BackendCaps.independent (memory/jsonl declare False) consumed by require_independent_store (gate.py:536-538, 743-751); evidence_tier's external_verdict rung comes from separate-source external: probe corroboration, not backend caps. Scenario should assert (a) memory-backend green is demoted/flagged under require_independent_store and (b) external_verdict is reachable only via a separate-source probe. (5) Scenario 6 MutationDiscrimination: fixture gate must include at least one mutation-coverable rule — tool_calls/forbidden_tools/aggregate trajectory checks are excluded from derive_mutations (mutation.py:100-103), so a trajectory-only fixture yields a vacuous score; state the exclusion in the spec. (6) Cite malabi/tracetest death via docs/research/ooptdd_F_oss_absorption_20260722.md (packfile-decoded DEAD evidence) rather than bare claim.",
+   "checked": "/private/tmp/claude-501/.../scratchpad/ooptdd_selfmap.md; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/mutation.py; src/ooptdd/engine/verify.py (poll_until_present 40-120, verify_gate/verify_policy 300-400); src/ooptdd/engine/gate.py (evidence_tier 972-1004, independent wiring 536-751); src/ooptdd/domain/ports.py (BackendCaps 115-165); src/ooptdd/backends/memory.py (caps 48-54) + caps grep jsonl/victorialogs/openobserve; src/ooptdd/reports.py (to_junit_xml/to_markdown); src/ooptdd/integrations/ listing; tests/ listing + tests/test_red_toolchain.py; docs/competitive_feedback.md (270-322, 'What not to do' at 298); docs/research/ listing (no arrival_benchmark file); docs/research/prom16_grok_20260722/C_limitations.md + B_integration.md + D_applications.md (grep); docs/research/ooptdd_F_oss_absorption_20260722.md + ooptdd_A2_prior_art_landscape.md (grep); READ-ONLY clones: malabi/README.md; tracetest/README.md; deepeval/deepeval/metrics/tool_correctness/tool_correctness.py; mutmut/README.rst + repo listing"
+  }
  },
  {
   "id": "ci-verdict-artifacts-l3-honest",
@@ -755,7 +787,15 @@
   "risk": "JUnit consumers that only count failures may still treat `<error>` as red—document exit-code vs XML policy layers; never map inconclusive to pass.",
   "wnd_check": "Report projection only—no dashboard-first product; explicit non-collapse of 3-valued verdicts; no LLM judge; not OpenObserve-mandatory.",
   "theme": "credibility-adoption",
-  "verdict": null
+  "verdict": {
+   "id": "ci-verdict-artifacts-l3-honest",
+   "verdict": "REJECTED",
+   "already_implemented": true,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "REJECTED only because the core already landed in current source (post-brief): src/ooptdd/reports.py (to_junit_xml with RED->failure, INFRA->skipped default and opt-in error type=\"ooptdd.inconclusive\"; to_markdown with cid/backend/check-table/re-verify line; suite-level-RED synthetic failure) + cli.py gate --report junit|md --report-out --junit-inconclusive skipped|error + tests/test_reports.py incl. grill regressions. Residual delta if a follow-up proposal is wanted: (a) OOPTDD_RESULTS_FOLDER rolling+timestamped JSON artifact (not in src, only in research docs); (b) docs/ci_artifacts.md with GitHub Actions upload recipe (docs/ has no such file); (c) report flags on the verify command (only gate is wired). Note: landed default is skipped with opt-in error — the OPPOSITE polarity of the proposal's default-fail-closed; the code docstring records this as the deliberate resolution preserving both wings, so a follow-up should not re-flip it.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/cli.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/reports.py; /Users/lagyeongjun/CD/ooptdd/tests/test_reports.py; /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (P3 lines ~270-300 + What not to do); /Users/lagyeongjun/CD/ooptdd/docs/ listing (no ci_artifacts.md); grep RESULTS_FOLDER across src/tests/docs (hits only in docs/research/ooptdd_F_oss_absorption_20260722.md); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/tracetest/server/junit/junit.go; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/promptfoo/src/util/junit.ts (read-only)"
+  }
  },
  {
   "id": "arrival-policy-first-class",
@@ -768,7 +808,15 @@
   "risk": "Defaulting wait-exhaust to inconclusive softens silent-loss detection until force_flush+visibility floor are wired; must keep opt-in `strict_absent_on_timeout` for intentional RED-wing demos and document that real miss is only claimed after those floors.",
   "wnd_check": "Stays in event-proof poll/verdict path; does not add LLM-as-judge, dashboard, Tracetest selector DSL, or mandatory OpenObserve; preserves 3-valued verdicts (explicitly refuses collapsing ? into fail).",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "arrival-policy-first-class",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Cut the mechanism scope — it landed this session: poll_until_present (src/ooptdd/engine/verify.py:89-156) already does force_flush best-effort before first read, BackendCaps.query_visibility_delay_ms visibility floor, a blind-window guard that never settles negative inside the declared window (extends once past it, re-reads), and stamps an `arrival` dict {visibility_delay_ms, waited_ms, flushed, extended_for_visibility} into result JSON; tested in tests/test_arrival_policy.py incl. VictoriaLogs force_flush. Do not re-implement. (2) REVERSE the headline default: on_wait_exhausted must default to `absent` (post-floor), not `inconclusive`. With the landed guard, `absent` is already only concluded after flush + visibility floor + full poll budget — the proposal's own gating condition — so the Tracetest/Malabi trust concern is addressed without the flip. Defaulting to `inconclusive` would neuter strict-mode silent-loss detection (verify_policy maps inconclusive to warn/no-fail even in strict) and contradicts the core product claim (docs/competitive_feedback.md Strategic judgment: evidence must arrive). Ship `on_wait_exhausted: inconclusive` as the OPT-IN for known-laggy stores; drop `strict_absent_on_timeout` (absent-on-timeout is again the default, so the flag inverts). (3) Residual scope = config surface only: ArrivalPolicy dataclass + Settings/pyproject fields + optional YAML `arrival:` block + `min_elapsed_ms_before_absent` as a user override of the BackendCaps floor + the enumerated reason codes (ingestion_delay|partial_arrival|wait_budget_exhausted|backend_write_only|readback_truncated) added to the existing arrival stamp (analogs exist as free-text reasons: `last_read_unreachable_or_truncated_no_evidence`, `outcomes<session_total_partial_loss`, write-only handling in session_finish). CLI flag optional. Effort drops M→S. (4) Fix stale line refs: `why` cites verify.py:299-305 which is now _settled_green; final reachable+complete RED→absent is verify.py:354-360; seam ranges are now poll_until_present 56-156, verify_gate 310-373, verify_policy 376-429. Also langfuse validateAndInflateScore.ts is under packages/shared/src/server/ingestion/, not web/.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/config.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py (grep BackendCaps/force_flush); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/cli.py + engine/gate.py (grep arrival surface); /Users/lagyeongjun/CD/ooptdd/tests/test_arrival_policy.py; /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (What not to do + Strategic judgment); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/tracetest/server/executor/tracepollerworker/selector_based_polling_stop_strategy.go (25-110); .../phoenix/src/phoenix/db/insertion/constants.py + types.py (25-60); .../langfuse/web/src/features/public-api/server/scores-api-service.ts (215-285); .../langfuse/packages/shared/src/server/ingestion/validateAndInflateScore.ts (1-90)"
+  }
  },
  {
   "id": "backend-caps-visibility-force-flush",
@@ -781,7 +829,15 @@
   "risk": "Wrong default delays either slow CI (too high) or reintroduce pre-visibility RED (too low); document per-backend sources and allow override via `backend_options` / env.",
   "wnd_check": "Capability metadata + optional HTTP flush only; no platform UI, no OO mandate (all backends declare their own caps), no selector copy, no verdict collapse.",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "backend-caps-visibility-force-flush",
+   "verdict": "REJECTED",
+   "already_implemented": true,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "Core already landed in current source (this session's arrival blind-window guard): BackendCaps.query_visibility_delay_ms (ports.py:143), best-effort once-per-poll force_flush hook + ABSENT-never-inside-blind-window guard with arrival stamp (engine/verify.py:88-107,137+), per-driver defaults OO=5000ms with explicit caps paginates=True (openobserve.py:30-31), ClickHouse=1000ms, VictoriaLogs=1000ms + POST /internal/force_flush (victorialogs.py:64-66,128-133), memory/jsonl delay=0 independent=False; tests/test_arrival_policy.py pins all of it. Proposal premise \"OO lacks explicit caps\" is stale. If a follow-up is wanted, only two small residuals remain: (1) conformance.py assertions that declared query_visibility_delay_ms/paginates match measured behavior (currently absent); (2) max_evidence_tier field — arguably redundant with the existing `independent` flag, propose only with a concrete consumer.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/openobserve.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/victorialogs.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/clickhouse.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/memory.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/jsonl.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/otel.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/conformance.py; /Users/lagyeongjun/CD/ooptdd/tests/test_arrival_policy.py; /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/phoenix/src/phoenix/db/insertion/types.py; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/langfuse/packages/shared/src/server/otel/OtelIngestionProcessor.ts"
+  }
  },
  {
   "id": "rate-limit-retry-after-poll",
@@ -794,7 +850,15 @@
   "risk": "Misclassifying hard 403/401 as retryable would hang polls; only 429/503 (+ optional 408) are retryable; auth stays loud non-retry infra.",
   "wnd_check": "Library poll robustness only; no dashboard, no eval judges, no new store mandate; keeps 3-valued mapping (rate-limit ⊂ inconclusive/incomplete).",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "rate-limit-retry-after-poll",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Fix stale seam refs: poll sleeper is now engine/verify.py:136 (blind-window guard landed above it; verify.py:93-109 is now the arrival-policy/_stamp_arrival block); base.py:44-57 and domain/ports.py:39-57 remain exact. (2) Correct the 'why': the claimed danger 'pure 429 becomes silent-loss ⊥' is FALSE today — 429 → OSError → reachable=False → final verdict is already inconclusive (?), since verify_trace/verify_gate require a reachable+complete last read for absent (verify.py:243-246, 356-358). Real deltas = typed error_kind diagnosability, Retry-After-honoring sleep (stop burning attempts while throttled), and 429/503(+408) discrimination from other 4xx. (3) Classification cannot live only in raise_for_status: real urllib raises urllib.error.HTTPError from _open BEFORE raise_for_status runs (base.py docstring line 49 says so explicitly); drivers must classify in their except-blocks (HTTPError.code in {429,503,408}, Retry-After from exc.headers), with the raise_for_status typed-raise covering only mock/non-raising openers. (4) 'Mid-page preserve partial rows' applies only to openobserve — the sole paging driver, which already preserves partial rows with complete=False on mid-page failure (openobserve.py:130-136, only error_kind tagging is new); victorialogs and clickhouse are single-shot reads, so a 429 there maps to reachable=False + error_kind only. (5) poll_until_present must read error_kind/retry_after_s via getattr defaults (matching the existing duck-typed `complete` pattern at verify.py:123) and compose with the new blind-window visibility extension (verify.py:137-150): retry-after sleeps go through the injected Sleeper and count toward waited_ms accounting; cap retry_after_s at max_delay to avoid a hostile/huge Retry-After hanging the poll. (6) Effort is S-M, not S: 2 QueryResult fields + base + 3 driver except-blocks + poll loop + fake-clock sleeper tests and negative oracles across drivers.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/base.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/openobserve.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/victorialogs.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/clickhouse.py; /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (What not to do, lines 298-311); grep over src+tests+docs for 429/retry_after/rate_limit/error_kind; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/langfuse/web/src/pages/api/public/otel/v1/traces/index.ts (line 29); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/phoenix/src/phoenix/server/api/routers/v1/annotations.py (lines 195-294)"
+  }
  },
  {
   "id": "settle-confirm-anti-flap",
@@ -807,7 +871,15 @@
   "risk": "Confirm rounds multiply query load and CI time; default 0 preserves current speed; N>0 only for gates with revocable checks.",
   "wnd_check": "Does not copy Tracetest selector DSL or settle on matcher presence (warnings in absorb: settlement stays check-verdict based); no UI; 3-valued outcomes preserved.",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "settle-confirm-anti-flap",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Stale seam line numbers — restate against current source: _settled_green = verify.py:269-307 (not 222-252), verify_gate = verify.py:310-373 (not 255-318); monitor.py:613-645 is now MetamorphicMonitor — Monitor base is monitor.py:166 and SAT/VIOL are monitor.py:36-37. (2) No `ArrivalPolicy` type exists in source — \"arrival policy\" is currently realized as BackendCaps.query_visibility_delay_ms + force_flush + the blind-window guard inside poll_until_present (verify.py:88-107,139-150), with results stamped into an `arrival` dict. Restate the config surface: add `confirm_rounds: int = 0` and `confirm_delay_s: float` as kwargs on verify_gate/poll_until_present plus Settings fields (config.py:36-46, alongside retries/delay/backoff), and record confirm activity (e.g. `confirm_rounds_run`) in the existing `arrival` stamp — do not invent an ArrivalPolicy object. (3) Implementation locus: `evaluate_prefix` cannot re-fetch (poll_until_present owns fetching via its inner _read), so \"implement inside evaluate_prefix\" is not workable alone — use the proposal's second option: extend poll_until_present's final section (after the final=True evaluation returns a green with any non-SAT gating check) or a thin wrapper that re-invokes fetch+evaluate; keep the irrevocable-SAT early exit untouched. (4) Add a caveat: each confirm re-read recomputes the window from now (TimeWindow.around_now), so confirm_delay_s * confirm_rounds must stay well under lookback_s or early events slide out of the lookback and a stable green flips spuriously — bound or document it. (5) Soften the why-claim: Tracetest SelectorMatchRetries (lines verified 47-79) is retry-until-selectors-match after base completion, i.e. extra rounds on a NOT-yet-matching state — the proposal's green-stability confirmation is a direction-inverted adaptation of that skeleton, not the same pattern; cite it as \"bounded extra rounds after base-strategy completion\", not \"stability confirmation\". Effort M remains realistic; P1 fine.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/monitor.py (36-37, 166, 590-670); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/gate.py (check registry grep + lines); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py (100-278: BackendCaps/backend_caps/fetch); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/config.py (1-100); /Users/lagyeongjun/CD/ooptdd/tests/test_arrival_policy.py (1-60); /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (\"What not to do\" 298-322); repo-wide grep for confirm_rounds/confirm_delay/ArrivalPolicy (only research docs mention them, no implementation); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/tracetest/server/executor/tracepollerworker/selector_based_polling_stop_strategy.go (full, read-only); tracetest/server/executor/pollingprofile/polling_profile_entities.go + selector_based_poller_executor.go (grep for SelectorMatchRetries)"
+  }
  },
  {
   "id": "sampling-aware-evidence-cap",
@@ -820,7 +892,15 @@
   "risk": "Over-capping tier on full-fidelity stores if `samples` default wrong; default False preserves current behavior; only opt-in/env/driver declaration tightens.",
   "wnd_check": "Honesty metadata only — no LLM judge, no sampling product UI, no mandatory backend; does not collapse inconclusive; improves truthfulness of evidence_tier.",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "sampling-aware-evidence-cap",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Scope the tier cap to store-derived rungs only: under samples=True cap `arrived`/`queryable_causal` claims, but do NOT demote `external_verdict` when a passing separate-source `external:` check corroborated — that rung's input bypasses the sampled store (gate.py:986-987) and demoting it punishes exactly the corroboration the ladder rewards; likewise drop/clarify the vague 'refuse require_corroboration promotion' clause — corroboration via a non-sampled separate source remains valid. (2) Update seam line refs to CURRENT source: evidence_tier ladder is engine/gate.py:966-1003 (not :887-921); honesty/scope stamping engine/gate.py:757-807 (682-731 is now check-classification/corroboration counting); BackendCaps ports.py:120-146. (3) Implement `samples` as a new BackendCaps field following the just-landed `query_visibility_delay_ms` pattern (field + docstring + per-driver declaration in integrations' BackendCaps + guard + pinned test), and mirror the None-when-unknown honesty of `emit_independent` (duck-typed backend with no caps => sampling='unknown', never invents a cap-driven demotion... actually stamp 'unknown' but only CAP when samples is explicitly True or env set, matching proposal default-False). (4) Optional but recommended: note in docs that under samples=True absence-based conclusions (forbid-wing passes, ABSENT REDs) are equally sampling-unreliable — at minimum stamp scope.sampling so judges can see it.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py (lines 30-159); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/gate.py (lines 650-828, 940-1019); /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (What-not-to-do section); grep sweep of /Users/lagyeongjun/CD/ooptdd/src+tests+docs for sampl/OOPTDD_SAMPLED/assume_unsampled/evidence_tier/corroborat; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/openllmetry/packages/opentelemetry-instrumentation-anthropic/opentelemetry/instrumentation/anthropic/utils.py (lines 20-70, read-only); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/openllmetry/packages/traceloop-sdk/traceloop/sdk/tracing/tracing.py (lines 440-480, read-only)"
+  }
  },
  {
   "id": "queryspec-cursor-pagination",
@@ -833,7 +913,15 @@
   "risk": "Pushing server-side `where` too early risks injection/dialect sprawl — keep `where` Python-side; only activate limit/cursor.",
   "wnd_check": "Pure backend completeness contract; no selector language, no dashboard, OO remains one of several drivers; completeness still refuses clean pass on truncation.",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "queryspec-cursor-pagination",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Fix the paginates rule: OpenObserveBackend ALREADY declares caps.paginates=True (openobserve.py:30) via its private offset loop, so 'mark caps.paginates=True only when fetch_all_pages is used' would demote a currently-truthful flag — instead refactor OO's internal offset loop onto the shared fetch_all_pages helper (keeping paginates=True), and define paginates as 'reads to completion, however achieved'. (2) Correct the cursor-native framing: Langfuse/Phoenix are cursor-native at the application-API layer, but the three shipped backends' underlying store APIs are NOT — OO _search is from/size offset, ClickHouse HTTP has no cursor (needs keyset on _timestamp or offset emulation), VictoriaLogs LogsQL streams all matches with no paging primitive. Drivers must synthesize opaque cursor strings; scope VictoriaLogs to a limit-only query_spec opt-in (or leave it legacy) or effort exceeds M. (3) Line drift vs current source: fetch is now ports.py:215-223 (not 205-213, backend_identity was inserted at 188-212); OO paging loop is ~openobserve.py:106-146; CH LIMIT+1 completeness is ~clickhouse.py:123-162; backends registry _BUILTINS is ~__init__.py:29-38. (4) Keep the pinned contract test test_fetch_drops_reserved_queryspec_fields_for_legacy_backends (tests/test_engine_arch.py:152) green when adding next_cursor, and ensure fetch_all_pages slots into the existing fetch call sites (engine/verify.py:119, engine/gate.py:527) without bypassing the new arrival blind-window guard (BackendCaps.query_visibility_delay_ms / VL force_flush).",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/openobserve.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/clickhouse.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/victorialogs.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/__init__.py; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/gate.py (grep); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/verify.py (grep); /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md (What not to do); /Users/lagyeongjun/CD/ooptdd/tests/test_engine_arch.py (grep); /private/tmp/.../scratchpad/ooptdd_selfmap.md (open seam #5); /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/langfuse/web/src/pages/api/public/v3/scores/index.ts; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/phoenix/src/phoenix/server/api/routers/v1/annotations.py (grep)"
+  }
  },
  {
   "id": "order-skew-tie-window",
@@ -846,6 +934,14 @@
   "risk": "Too-wide skew window hides real ordering bugs; default 0 keeps current strictness; only gates that set `tie_skew_ms` relax.",
   "wnd_check": "Flat event-order robustness only — not span-tree selectors or timing DSL beyond existing must_order/within_s; no LLM, no UI, 3-valued kernel unchanged.",
   "theme": "robustness-deltas",
-  "verdict": null
+  "verdict": {
+   "id": "order-skew-tie-window",
+   "verdict": "ADJUSTED",
+   "already_implemented": false,
+   "evidence_real": true,
+   "wnd_violation": false,
+   "adjustments": "(1) Refresh stale seams/line refs to current source: stream_key=engine/monitor.py:155-161, OrderMonitor=347-427, compile_check=738-783; _seq synthesis moved to openobserve.py:138 / clickhouse.py:160 / victorialogs.py:175; CHECK_REGISTRY lives in engine/gate.py, compile_check is the monitor-side dispatcher. (2) Specify the authority mechanism: OrderMonitor only sees event dicts, so it cannot tell ship-order _seq (memory/jsonl, authoritative) from server page-order _seq (OO/CH/VL). Cleanest realization: memory/jsonl ship paths also stamp _emit_seq (process-global counter, mirroring memory.py:71), and the monitor's uniform rule becomes 'compare _emit_seq when both present; else if tie_skew_ms set and |dts|<=N treat pair as concurrent; else compare (ts,_seq)'. Alternative: a BackendCaps flag (e.g. seq_is_ship_order) threaded from evaluate — but caps must then reach compile_check. (3) Global arrival.tie_skew_ms requires extending compile_check's signature (currently rule/indicators/ontology/allow) or pre-threading spec config in evaluate_events — bump effort S to S/M. (4) Extend semantics note: this generalizes the existing equal-ts-is-concurrent precedent (tests/test_gate.py:163-167), so document that concurrent pairs count as ordered (SAT-compatible), consistent with current same-ts behavior; and that within_s gap checks still use plain ts firsts.",
+   "checked": "/Users/lagyeongjun/CD/ooptdd/src/ooptdd/engine/monitor.py (stream_key 155-161, OrderMonitor 347-427, compile_check 738-783); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/domain/ports.py (around_now 85-91, BackendCaps 120-146); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/openobserve.py (ship 79-93, _seq 138, caps 31); /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/clickhouse.py:160; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/victorialogs.py:175,128-133; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/memory.py:31,71; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/backends/jsonl.py:71-101; /Users/lagyeongjun/CD/ooptdd/src/ooptdd/gen_ai_emit.py; /Users/lagyeongjun/CD/ooptdd/tests/test_gate.py:150-175; /Users/lagyeongjun/CD/ooptdd/docs/competitive_feedback.md:290-323; grep src+tests for tie_skew/_emit_seq/skew/concurrent; /Volumes/GM/SYMPOSIUM-RESTORE/OOPTDD_COMPETITORS_20260722/inspect_ai/src/inspect_ai/event/_base.py (full); openllmetry traceloop-sdk + semconv_ai grep for seq concepts; scratchpad ooptdd_selfmap.md"
+  }
  }
 ]

@@ -432,3 +432,47 @@ effort 분포: P0·M×7, P0·S×4, P1·M×3, P1·S×8, P2·M×4, P2·S×2, P3·S
 - 종합·검증 단계는 Grok CLI 실행 — 판정문 스타일 편차 가능(구조는 스키마 강제). 검증은 실파일 열람을 요구했으나 열람 폭은 에이전트 재량.
 - semantic-conventions-genai 살아있는 repo는 클론셋에 없음 — 1.41 tombstone이 인증 상한, 구현 시 후속 흡수 1회 필요.
 - 효능(실사용 이득)은 본 연구 범위 밖 — 구현 후 mutation-score·CI 영수증으로 실측할 것.
+
+---
+
+## 8. 검증 후속 (2026-07-23 — 보류 12건 완결)
+
+배치 중단으로 보류됐던 12건을 Claude 워크플로(12 agents, 실파일 열람)로 완결했다. 결과: **10 ADJUSTED + 2 REJECTED**. 특기: REJECTED 2건(`ci-verdict-artifacts-l3-honest`, `backend-caps-visibility-force-flush`)은 모두 "이미 구현됨" — 검증이 도는 사이 본 세션과 동시 세션이 같은 결론을 코드로 착지시킨 **독립 수렴**이다.
+
+### `category-death-adoption-narrative` — ADJUSTED
+- 조정/근거: (1) Drop the new examples/proof_collector_down_is_inconclusive.py or reduce it to a cross-link: examples/openobserve_demo/demo_inconclusive.py already proves unreachable-backend -> inconclusive (asserts res["verdict"]=="inconclusive") and README:26-29 already links it; duplicating it dilutes the examples/ set. If a zero-infra pytest variant is wanted, make it a short pytest test in the doc that points at the existing demo. (2) Fix the seam cite: verify_policy is engine/verify.py:376-429 (inconclusive-never-fails branch :411-419); :321-374 is verify_gate whose verdict mapping (unreachable/trunc
+
+### `mutation-score-ci-credibility` — ADJUSTED
+- 조정/근거: Rescope: components (1) and (2) are ALREADY DONE in current source and must be cut from new work. (1) The stable JSON {baseline_green, score, n, survivors[], mutations[]} already exists (mutation.py:117-139) and is already emitted as a CI artifact via `ooptdd mutate --json` through _emit (cli.py:75-81, 218-224); `--min-score` PR-blocking exists (cli.py:238-239) including an n=0 vacuous-score guard that exits 2 instead of a clean pass (cli.py:227-237). If a file flag is still wanted, name it `--report-out <path>` — the proposed `--report mutation-report.json` collides with the convention just l
+
+### `anonymized-case-study-template` — ADJUSTED
+- 조정/근거: Core narrative already landed by a concurrent session: docs/case_studies.md (commits 56f81dc, f8e593f) ships three filled anonymized consumer cases including the ~3,100-test suite ('3000+ tests'), a 13-receipt blocking-CI panel, vendoring honesty, and an enforcement-locus rule ('say where the receipt runs'); docs/warn_to_strict.md covers the warn-to-strict migration. DROP the filled ANON_CONSUMER.md deliverable. RE-SCOPE to the genuine residual delta: (1) extract a reusable docs/case_studies/TEMPLATE.md (or template section in case_studies.md) formalizing the fields the filled doc uses implici
+
+### `public-arrival-benchmark-spec` — ADJUSTED
+- 조정/근거: (1) Drop 'optional JUnit later' — reports.py already ships to_junit_xml + to_markdown (tests/test_reports.py); the benchmark summary should reuse reports.to_junit_xml now. (2) Refresh seam line numbers: mutation_report=mutation.py:117-139 (not 110-132); evidence_tier=engine/gate.py:972-1004 (not 887-921); verify_policy=engine/verify.py:~378-430 (not 321-374); poll_until_present starts at 56 but now extends past 115 with the visibility guard. (3) Scenario 7 VisibilityDelay: the guard is now IMPLEMENTED (BackendCaps.query_visibility_delay_ms + force_flush + 'arrival' stamp {visibility_delay_ms, 
+
+### `ci-verdict-artifacts-l3-honest` — REJECTED (already implemented)
+- 조정/근거: REJECTED only because the core already landed in current source (post-brief): src/ooptdd/reports.py (to_junit_xml with RED->failure, INFRA->skipped default and opt-in error type="ooptdd.inconclusive"; to_markdown with cid/backend/check-table/re-verify line; suite-level-RED synthetic failure) + cli.py gate --report junit|md --report-out --junit-inconclusive skipped|error + tests/test_reports.py incl. grill regressions. Residual delta if a follow-up proposal is wanted: (a) OOPTDD_RESULTS_FOLDER rolling+timestamped JSON artifact (not in src, only in research docs); (b) docs/ci_artifacts.md with G
+
+### `arrival-policy-first-class` — ADJUSTED
+- 조정/근거: (1) Cut the mechanism scope — it landed this session: poll_until_present (src/ooptdd/engine/verify.py:89-156) already does force_flush best-effort before first read, BackendCaps.query_visibility_delay_ms visibility floor, a blind-window guard that never settles negative inside the declared window (extends once past it, re-reads), and stamps an `arrival` dict {visibility_delay_ms, waited_ms, flushed, extended_for_visibility} into result JSON; tested in tests/test_arrival_policy.py incl. VictoriaLogs force_flush. Do not re-implement. (2) REVERSE the headline default: on_wait_exhausted must defau
+
+### `backend-caps-visibility-force-flush` — REJECTED (already implemented)
+- 조정/근거: Core already landed in current source (this session's arrival blind-window guard): BackendCaps.query_visibility_delay_ms (ports.py:143), best-effort once-per-poll force_flush hook + ABSENT-never-inside-blind-window guard with arrival stamp (engine/verify.py:88-107,137+), per-driver defaults OO=5000ms with explicit caps paginates=True (openobserve.py:30-31), ClickHouse=1000ms, VictoriaLogs=1000ms + POST /internal/force_flush (victorialogs.py:64-66,128-133), memory/jsonl delay=0 independent=False; tests/test_arrival_policy.py pins all of it. Proposal premise "OO lacks explicit caps" is stale. If
+
+### `rate-limit-retry-after-poll` — ADJUSTED
+- 조정/근거: (1) Fix stale seam refs: poll sleeper is now engine/verify.py:136 (blind-window guard landed above it; verify.py:93-109 is now the arrival-policy/_stamp_arrival block); base.py:44-57 and domain/ports.py:39-57 remain exact. (2) Correct the 'why': the claimed danger 'pure 429 becomes silent-loss ⊥' is FALSE today — 429 → OSError → reachable=False → final verdict is already inconclusive (?), since verify_trace/verify_gate require a reachable+complete last read for absent (verify.py:243-246, 356-358). Real deltas = typed error_kind diagnosability, Retry-After-honoring sleep (stop burning attempts 
+
+### `settle-confirm-anti-flap` — ADJUSTED
+- 조정/근거: (1) Stale seam line numbers — restate against current source: _settled_green = verify.py:269-307 (not 222-252), verify_gate = verify.py:310-373 (not 255-318); monitor.py:613-645 is now MetamorphicMonitor — Monitor base is monitor.py:166 and SAT/VIOL are monitor.py:36-37. (2) No `ArrivalPolicy` type exists in source — "arrival policy" is currently realized as BackendCaps.query_visibility_delay_ms + force_flush + the blind-window guard inside poll_until_present (verify.py:88-107,139-150), with results stamped into an `arrival` dict. Restate the config surface: add `confirm_rounds: int = 0` and `
+
+### `sampling-aware-evidence-cap` — ADJUSTED
+- 조정/근거: (1) Scope the tier cap to store-derived rungs only: under samples=True cap `arrived`/`queryable_causal` claims, but do NOT demote `external_verdict` when a passing separate-source `external:` check corroborated — that rung's input bypasses the sampled store (gate.py:986-987) and demoting it punishes exactly the corroboration the ladder rewards; likewise drop/clarify the vague 'refuse require_corroboration promotion' clause — corroboration via a non-sampled separate source remains valid. (2) Update seam line refs to CURRENT source: evidence_tier ladder is engine/gate.py:966-1003 (not :887-921);
+
+### `queryspec-cursor-pagination` — ADJUSTED
+- 조정/근거: (1) Fix the paginates rule: OpenObserveBackend ALREADY declares caps.paginates=True (openobserve.py:30) via its private offset loop, so 'mark caps.paginates=True only when fetch_all_pages is used' would demote a currently-truthful flag — instead refactor OO's internal offset loop onto the shared fetch_all_pages helper (keeping paginates=True), and define paginates as 'reads to completion, however achieved'. (2) Correct the cursor-native framing: Langfuse/Phoenix are cursor-native at the application-API layer, but the three shipped backends' underlying store APIs are NOT — OO _search is from/si
+
+### `order-skew-tie-window` — ADJUSTED
+- 조정/근거: (1) Refresh stale seams/line refs to current source: stream_key=engine/monitor.py:155-161, OrderMonitor=347-427, compile_check=738-783; _seq synthesis moved to openobserve.py:138 / clickhouse.py:160 / victorialogs.py:175; CHECK_REGISTRY lives in engine/gate.py, compile_check is the monitor-side dispatcher. (2) Specify the authority mechanism: OrderMonitor only sees event dicts, so it cannot tell ship-order _seq (memory/jsonl, authoritative) from server page-order _seq (OO/CH/VL). Cleanest realization: memory/jsonl ship paths also stamp _emit_seq (process-global counter, mirroring memory.py:71)
+
+**즉시 구현 완료 (2026-07-23)**: `rate-limit-retry-after-poll` + `sampling-aware-evidence-cap` (조정 스코프 그대로, commit 3472931). **백로그 이관 (KG PlanTask)**: `settle-confirm-anti-flap` / `queryspec-cursor-pagination` / `order-skew-tie-window` (엔진 중형 3건) + `mutation-score-ci-credibility` 잔여(canary+doc) / `anonymized-case-study-template` 잔여(TEMPLATE+sanitizer) / `public-arrival-benchmark-spec` / `category-death-adoption-narrative` 잔여(문서 4건).
