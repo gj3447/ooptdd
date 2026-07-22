@@ -84,7 +84,7 @@ def _check_label(check: dict) -> str:
         return str(check["event"])
     for key in ("present", "absent", "forbid", "must_order", "trajectory", "conforms",
                 "heartbeat", "ratioMetric", "ratio", "invariant", "metamorphic",
-                "external", "indicatorRef"):
+                "duration", "external", "indicatorRef"):
         if key in check:
             return key
     return "check"
