@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Comparator `where` (op-dict).** A `where` value may be `{op: gte|gt|eq|ne|lte|lt|
+  contains|not_contains, value: V}` instead of a literal — numeric thresholds and substring/
+  membership filters in any matcher (count/present/absent/ratio/…). Fail-safe rules: a
+  missing field never matches an op-dict (not even `ne`), ordering ops require real numbers,
+  and an unknown op raises instead of silently matching nothing (which would fake-green the
+  absent wing). `must_order` is name-based and intentionally unaffected.
+- **`duration:` check — a universal field threshold.** `{duration: {event: E, field: F,
+  op: lte, target: N, where: …}}`: every matched event's `F` must satisfy the threshold
+  (OpenSLO shape). LTL3 semantics: one offender latches VIOL immediately; satisfaction never
+  latches mid-stream (universal claims stay PEND until end-of-stream); zero matched events is
+  `no_evidence`, not a pass; a matched event with a missing/non-numeric field fails closed.
+- **Arrival policy: the blind-window guard.** `BackendCaps.query_visibility_delay_ms` lets a
+  backend declare its officially documented ingest-to-queryable lag (openobserve 5000,
+  clickhouse 1000, victorialogs 1000; memory/jsonl 0), and VictoriaLogs gains `force_flush()`
+  (`POST /internal/force_flush`, the endpoint its docs recommend for automated tests — called
+  once, best-effort, before the first read). The poller never concludes ABSENT while the total
+  wait is inside the declared window — if the retry budget ran out early it extends once past
+  the window and re-reads; past the window a reachable+complete empty read is still ABSENT
+  (catching silent loss is the product). Every polled verdict now carries
+  `arrival{visibility_delay_ms, waited_ms, flushed, extended_for_visibility}`.
+- **JUnit INFRA policy is now explicit: `--junit-inconclusive=skipped|error`.** Default stays
+  `skipped` (? never renders red); `error` is the fail-closed opt-in for pipelines that must
+  not let an unverified run scroll past — `<error type="ooptdd.inconclusive">`, an infra rung,
+  still never a `<failure>`.
+
 ### Fixed
 - **CLI: a missing cid or spec file is a clean error, not a traceback.** A `gate`/`monitor`/
   `can-i-deploy` spec with no `cid:` and no `OOPTDD_CID`, or a missing spec path, used to dump an
