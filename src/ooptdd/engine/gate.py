@@ -40,6 +40,12 @@ Spec format (``gates/*.yaml``)::
         op: ">="               #   but it IS surfaced (and an unreachable store is still
         count: 1               #   INFRA, reported via `reachable`, never a clean pass)
         optional: true
+      - tool_calls:            # agent-trajectory predicates (ooptdd.engine.trajectory):
+          expected: [search]   #   expected-vs-ARRIVED tool calls, match exact/subset/
+          match: subset        #   ordered, optional argument scoring + matchers
+      - forbidden_tools: [rm]  # arrival of a forbidden tool call = RED
+      - aggregate:             # numeric rollup budget (sum/max/min/avg of an attr)
+          {fn: sum, attr: gen_ai.usage.output_tokens, target: 50000}
     forbid_errors: true        # optional (spec-level): inject an implicit ERROR/CRITICAL
                                #   `absent` into the gate (default = env OOPTDD_FORBID_ERRORS;
                                #   set false here to opt a spec out). Levels via `error_levels:`.

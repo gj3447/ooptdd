@@ -15,6 +15,8 @@ from .gate import can_i_deploy, check, evaluate, load_gate
 from .monitor import Monitor, run_monitor
 from .verify import session_finish, verify_policy, verify_trace
 
+from . import trajectory  # noqa: E402,F401  registers tool_calls/forbidden_tools via @check
+
 __all__ = [
     "evaluate",
     "can_i_deploy",
