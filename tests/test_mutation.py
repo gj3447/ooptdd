@@ -79,3 +79,34 @@ def test_baseline_not_green_is_flagged():
     spec = {"expect": [{"present": [{"event": "never.happens"}]}]}
     rep = mutation_report(_EVENTS, spec)
     assert rep["baseline_green"] is False  # inputs don't pass -> score is meaningless
+
+
+# ── the drop-all canary: dynamic vacuity cross-check ───────────────────────────
+def test_canary_dies_on_a_gate_with_a_positive_expectation():
+    events = [{"event": "a"}]
+    spec = {"expect": [{"event": "a", "op": ">=", "count": 1}]}
+    rep = mutation_report(events, spec)
+    assert rep["canary_survived"] is False
+
+
+def test_canary_survives_a_gate_with_no_gating_positive_expectation():
+    # An absent-only gate passes on an EMPTY stream — dropping every event cannot
+    # kill it. That is not "the harness is broken" (there is no external runner
+    # here): it is the dynamic proof the gate asserts nothing positive — the
+    # cross-check of the static vacuity lint.
+    events = [{"event": "ok"}]
+    spec = {"expect": [{"absent": {"where": {"level": "ERROR"}}}]}
+    rep = mutation_report(events, spec)
+    assert rep["canary_survived"] is True
+
+
+def test_cli_canary_survival_is_the_inconclusive_rung(tmp_path, capsys):
+    import json as _json
+    from ooptdd.cli import main
+    spec = tmp_path / "s.yaml"
+    spec.write_text("expect:\n  - {absent: {where: {level: ERROR}}}\n", encoding="utf-8")
+    ev = tmp_path / "e.json"
+    ev.write_text(_json.dumps([{"event": "ok"}]), encoding="utf-8")
+    rc = main(["mutate", str(spec), "--events", str(ev), "--min-score", "0.5"])
+    capsys.readouterr()
+    assert rc == 2  # vacuous-by-measurement — inconclusive, never a clean pass

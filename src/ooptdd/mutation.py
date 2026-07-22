@@ -130,10 +130,19 @@ def mutation_report(events: list[dict], spec: dict) -> dict:
         rows.append({"mutation": label, "caught": not _run(mevents, spec, f"mut-{i}")})
     survivors = [r["mutation"] for r in rows if not r["caught"]]
     score = round((len(rows) - len(survivors)) / len(rows), 3) if rows else 1.0
+    # The drop-ALL canary: run the gate on an EMPTY stream. If it still passes, the
+    # gate has no gating positive expectation — vacuity PROVEN by measurement (the
+    # dynamic cross-check of the static lint/strength `vacuous` signals). In this pure
+    # data-list model that is what a surviving drop-everything mutant means — there is
+    # no external test runner whose brokenness it could indicate (contrast mutmut's
+    # forced-fail subprocess check). Not counted into `score`: it grades the GATE's
+    # shape, not a deviation the gate should catch.
+    canary_survived = _run([], spec, "mut-canary")
     return {
         "baseline_green": baseline_green,
         "mutations": rows,
         "survivors": survivors,
         "score": score,
         "n": len(rows),
+        "canary_survived": canary_survived,
     }

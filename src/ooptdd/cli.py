@@ -224,6 +224,13 @@ def _cmd_mutate(args) -> int:
           f"survivors={report['survivors']} (baseline_green={report['baseline_green']})")
     if not report["baseline_green"]:
         return 2  # couldn't even establish a baseline — the score is meaningless
+    if report.get("canary_survived"):
+        # the gate passed on an EMPTY stream: vacuous by MEASUREMENT — the score grades
+        # nothing. Same rung as the static vacuity findings: inconclusive, never a pass.
+        print("INCONCLUSIVE - the drop-all canary survived: the gate passes on an empty "
+              "stream (no gating positive expectation); fix the gate before scoring it",
+              file=sys.stderr)
+        return 2
     if report["n"] == 0:
         # No derivable mutants (e.g. a trajectory-only gate: tool_calls/forbidden_tools/
         # aggregate are excluded from count mutation). score defaults to 1.0 — a VACUOUS
