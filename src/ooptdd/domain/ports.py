@@ -55,6 +55,12 @@ class QueryResult:
     events: list[dict] = field(default_factory=list)
     complete: bool = True
     error: str | None = None
+    #: typed diagnosis of WHY the query failed: rate_limited (429/503) / auth (401/403)
+    #: / timeout (408, socket timeouts) / other. Advisory, like ``error``.
+    error_kind: str | None = None
+    #: parsed ``Retry-After`` seconds when the store throttled us — the poller honors it
+    #: instead of burning retry attempts inside the throttle window.
+    retry_after_s: float | None = None
 
 
 # ── time: an injectable Clock port + a typed query window ───────────────────────
@@ -129,6 +135,10 @@ class BackendCaps:
                    in-memory — the "external judge" positioning claim, as data. memory (same
                    process) and jsonl (same-host, author-writable file) are NOT independent:
                    they prove gate mechanics, not arrival.
+    samples:       the store (or its ingest pipeline) SAMPLES — head/tail sampling, a
+                   dropping BatchSpanProcessor, etc. A sampled store can prove SOME events
+                   arrived but not cross-event causal claims: the evidence-tier ladder caps
+                   store-derived rungs at ``arrived`` (external corroboration is untouched).
     query_visibility_delay_ms: the store's OFFICIALLY documented ingest-to-queryable lag
                    (its blind window). The poller never concludes ABSENT while the total
                    wait is still inside this window — the arrival-policy guard that keeps
@@ -141,6 +151,7 @@ class BackendCaps:
     write_only: bool = False
     independent: bool = True
     query_visibility_delay_ms: int = 0
+    samples: bool = False
 
 
 DEFAULT_CAPS = BackendCaps()

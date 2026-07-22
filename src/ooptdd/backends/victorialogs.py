@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from .base import BackendCaps, QueryResult, _raise_for_status
+from .base import BackendCaps, QueryResult, _raise_for_status, classify_http_error
 
 
 def _logsql_str(value: str) -> str:
@@ -157,7 +157,9 @@ class VictoriaLogsBackend:
             with self._open(req, timeout=self.timeout) as r:
                 payload = r.read().decode()
         except Exception as exc:
-            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
+            kind, retry_after = classify_http_error(exc)
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}",
+                               error_kind=kind, retry_after_s=retry_after)
         events = []
         complete = True
         for line in payload.splitlines():

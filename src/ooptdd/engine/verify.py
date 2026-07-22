@@ -112,12 +112,14 @@ def poll_until_present(
     last_events: list[dict] = []
     last_reachable = False
     last_complete = True
+    last_retry_after = None  # store-sent Retry-After (throttled): honored below
 
     def _read(attempt: int, *, final: bool):
-        nonlocal queried_ok, last_events, last_reachable, last_complete
+        nonlocal queried_ok, last_events, last_reachable, last_complete, last_retry_after
         window = TimeWindow.around_now(clock, lookback_s, future_buffer_s)
         res = fetch(backend, QuerySpec(cid=cid, window=window))
         queried_ok = queried_ok or res.reachable
+        last_retry_after = getattr(res, "retry_after_s", None)
         events = sorted(res.events, key=stream_key)
         # getattr default keeps duck-typed/older result objects (no `complete` field) working.
         complete = getattr(res, "complete", True)
@@ -133,7 +135,12 @@ def poll_until_present(
             body["attempts"] = attempt
             return _stamp_arrival(body, extended=False)
         if attempt < attempts:
-            sleeper(min(delay * backoff ** (attempt - 1), max_delay))
+            pause = min(delay * backoff ** (attempt - 1), max_delay)
+            if last_retry_after:
+                # The store TOLD us when to come back (429/503 Retry-After): honor it
+                # instead of burning the remaining attempts inside the throttle window.
+                pause = max(pause, float(last_retry_after))
+            sleeper(pause)
     # Blind-window guard: the budget is spent, but if the store answered and the total
     # wait has not yet covered the store's DECLARED visibility delay, a negative settle
     # would be judging inside the blind window — the exact conflation (ingestion lag

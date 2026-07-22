@@ -35,7 +35,7 @@ import os
 import urllib.parse
 import urllib.request
 
-from .base import BackendCaps, QueryResult, _raise_for_status
+from .base import BackendCaps, QueryResult, _raise_for_status, classify_http_error
 
 
 class ClickHouseBackend:
@@ -141,7 +141,9 @@ class ClickHouseBackend:
                 _raise_for_status(r)
                 payload = json.loads(r.read().decode())
         except Exception as exc:
-            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}")
+            kind, retry_after = classify_http_error(exc)
+            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}",
+                               error_kind=kind, retry_after_s=retry_after)
         data = payload.get("data", [])
         complete = len(data) <= self.max_rows
         events = []

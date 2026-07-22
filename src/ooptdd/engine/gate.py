@@ -536,6 +536,8 @@ def evaluate(
         # Read from the driver's typed caps — this is what makes `require_independent_store` a
         # real gate instead of dead data (grill A1: caps.independent was never consulted).
         emit_independent=backend_caps(backend).independent,
+        # a sampled store cannot prove cross-event causal claims — evidence_tier caps on it
+        emit_sampled=backend_caps(backend).samples,
     )
 
 
@@ -551,6 +553,7 @@ def evaluate_events(
     emit_backend: str | None = None,
     emit_identity: str | None = None,
     emit_independent: bool | None = None,
+    emit_sampled: bool = False,
 ) -> dict:
     """Judge an already-fetched event set against a gate spec (no I/O).
 
@@ -808,6 +811,10 @@ def evaluate_events(
     if score is not None:
         result["score"] = score
         result["threshold"] = float(threshold)
+    if emit_sampled:
+        # honest flag: this verdict was read from a SAMPLED store (see BackendCaps.samples);
+        # evidence_tier caps store-derived rungs at `arrived` on it.
+        result["sampled"] = True
     return result
 
 
@@ -997,7 +1004,10 @@ def evidence_tier(result: dict) -> str:
         return "external_verdict"
     passing = {c.get("strength") for c in result.get("checks", []) if c.get("passed")}
     if passing & {"invariant", "metamorphic"}:
-        return "queryable_causal"
+        # a sampled store (BackendCaps.samples) cannot prove cross-event causal claims —
+        # the causal rung caps at `arrived`. external_verdict (above) is untouched: a
+        # passing separate-source external: check bypasses the sampled store entirely.
+        return "arrived" if result.get("sampled") else "queryable_causal"
     if (scope.get("charge_ratio") or 0) > 0:
         return "arrived"
     return "emitted"

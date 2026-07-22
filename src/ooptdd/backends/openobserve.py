@@ -19,7 +19,7 @@ import json
 import os
 import urllib.request
 
-from .base import BackendCaps, QueryResult, _raise_for_status
+from .base import BackendCaps, QueryResult, _raise_for_status, classify_http_error
 
 
 class OpenObserveBackend:
@@ -131,9 +131,12 @@ class OpenObserveBackend:
                 # A failure mid-paging means we don't have the complete set: if we already
                 # have some rows it's an incomplete read, else fully unreachable.
                 err = f"{type(exc).__name__}: {exc}"
+                kind, retry_after = classify_http_error(exc)
                 if offset == 0:
-                    return QueryResult(reachable=False, error=err)
-                return QueryResult(reachable=True, events=events, complete=False, error=err)
+                    return QueryResult(reachable=False, error=err,
+                                       error_kind=kind, retry_after_s=retry_after)
+                return QueryResult(reachable=True, events=events, complete=False, error=err,
+                                   error_kind=kind, retry_after_s=retry_after)
             for h in hits:
                 h["_seq"] = len(events)  # deterministic tie-break: preserve server return order
                 events.append(h)
