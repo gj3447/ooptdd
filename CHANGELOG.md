@@ -7,6 +7,32 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`tie_skew_ms` ordering window + emitter-authoritative `_emit_seq`.** `must_order`
+  gains a per-pair authority ladder: both events carry `_emit_seq` (memory/jsonl ship
+  paths stamp it; a SUT-stamped value wins) → compare those; else inside the check's
+  `tie_skew_ms` window a timestamp "inversion" is CONCURRENT (cross-node clocks cannot
+  prove order tighter than their skew — never a false RED); else the composite
+  `(ts, _seq)` stands. The window never excuses missing names or a proven emit-seq
+  inversion.
+- **Anti-flap confirm rounds (`confirm_rounds` / `confirm_delay_s`).** A FINAL-path
+  revocable green (absent/forbid, exact counts, …) is re-read N extra times; any round
+  no longer green wins. Irrevocable SAT-latched greens still early-settle with zero
+  extra reads; RED/inconclusive terminals are never re-proved. On Settings, the pytest
+  ini (`ooptdd_confirm_rounds`), `verify_gate`/`verify_trace`/`session_finish`; the
+  count lands in `arrival.confirm_rounds_run`. Default 0 = byte-identical behavior.
+- **QuerySpec `limit`/`cursor` activated — OpenObserve reference `query_spec` +
+  `fetch_all_pages`.** `QueryResult.next_cursor` + a generic cursor walker (honest
+  `max_rows` guard: `complete=False` + the unconsumed cursor). Without limit/cursor the
+  OO `query_spec` delegates to the read-to-completion `query()` byte-identically — the
+  engine's live path is untouched. CH/VL paged opt-ins remain follow-ups.
+- **Mutation drop-all canary.** `mutation_report` runs the gate once on an EMPTY
+  stream; survival (`canary_survived: true`) proves the gate has no gating positive
+  expectation — vacuity by measurement, the dynamic cross-check of the static lint.
+  Not counted into `score`; `ooptdd mutate` maps survival onto the exit-2 rung.
+- **Docs batch:** `docs/ci_mutation_gate.md`, `docs/case_study_template.md` + a
+  deterministic `scripts/sanitize_case_study.py` (hash-anonymizes identities, `--check`
+  leak gate), `docs/research/arrival_benchmark_spec.md` (spec-only), and
+  `docs/why_arrival_testing.md` (the category-history narrative, wording verified).
 - **`gen_ai@1.41` ontology preset — dual-track semconv versioning.** The certified final
   in-repo state of the OTel GenAI conventions before the v1.42 repo split: 9 operations
   (+`retrieval`), the 15-member `gen_ai.provider.name` enum (`x_ai` rename enforced),
