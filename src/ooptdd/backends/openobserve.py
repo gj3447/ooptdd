@@ -25,7 +25,10 @@ from .base import BackendCaps, QueryResult, _raise_for_status
 class OpenObserveBackend:
     #: reads to completion across pages (the query loop below) over SQL — the
     #: reference network store: an independent, queryable, complete-read judge.
-    caps = BackendCaps(queryable=True, paginates=True, supports_where=True)
+    #: Blind window: memtable/WAL persist path (ZO_MEM_PERSIST_INTERVAL default 5s) —
+    #: a just-ingested record may be invisible to /_search for up to that interval.
+    caps = BackendCaps(queryable=True, paginates=True, supports_where=True,
+                       query_visibility_delay_ms=5000)
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
     queryable = True  # SQL read side over /_search

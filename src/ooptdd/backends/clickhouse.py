@@ -40,7 +40,10 @@ from .base import BackendCaps, QueryResult, _raise_for_status
 
 class ClickHouseBackend:
     #: single bounded read (LIMIT max_rows+1 sentinel -> honest `complete`), no paging.
-    caps = BackendCaps(queryable=True, paginates=False, supports_where=True)
+    #: Blind window: async_insert buffering (async_insert_busy_timeout_ms band, 200-1000ms)
+    #: — a just-inserted row may not be SELECTable until the buffer flushes.
+    caps = BackendCaps(queryable=True, paginates=False, supports_where=True,
+                       query_visibility_delay_ms=1000)
     default_lookback_s = 3600
     default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
 

@@ -129,6 +129,10 @@ class BackendCaps:
                    in-memory — the "external judge" positioning claim, as data. memory (same
                    process) and jsonl (same-host, author-writable file) are NOT independent:
                    they prove gate mechanics, not arrival.
+    query_visibility_delay_ms: the store's OFFICIALLY documented ingest-to-queryable lag
+                   (its blind window). The poller never concludes ABSENT while the total
+                   wait is still inside this window — the arrival-policy guard that keeps
+                   ingestion lag from masquerading as a RED. 0 = immediately visible.
     """
 
     queryable: bool = True
@@ -136,6 +140,7 @@ class BackendCaps:
     supports_where: bool = False
     write_only: bool = False
     independent: bool = True
+    query_visibility_delay_ms: int = 0
 
 
 DEFAULT_CAPS = BackendCaps()
