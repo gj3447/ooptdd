@@ -231,8 +231,13 @@ def _truthy(v) -> bool:
 
 
 def _run(rule: dict, events: list, ctx: CheckCtx) -> dict:
+    # allow_errors is scoped to the AUTO-injected forbid_errors wing ONLY (grill F2b): it is
+    # the known-benign allowlist for the implicit ERROR/CRITICAL absent, and must NOT bleed
+    # into a USER-authored `absent:` check — a user who forbids `zdf.drop@B` means it, and the
+    # spec-level allowlist (intended for the error wing) silently exempting it is a fail-open.
+    allow = ctx.allow_errors if rule.get("_auto") == "forbid_errors" else None
     monitor = compile_check(rule, indicators=ctx.indicators, ontology=ctx.ontology,
-                            allow=ctx.allow_errors)
+                            allow=allow)
     return run_monitor(monitor, events, ctx.reachable)
 
 
@@ -555,6 +560,15 @@ def evaluate_events(
     # override with `forbid_errors: false` (opt out) or exempt known-benign ones via
     # `allow_errors:`. Without it, a cycle whose good events all arrived but which also
     # logged an error reads as green-and-noisy — the field-error blind spot.
+    # allow_errors entries exempt known-benign errors from the forbid wing — but an entry
+    # with neither `event` nor `where` matches EVERY event and silently disables the whole
+    # negative wing (grill F2a). That is never a legitimate allowlist; it is a fail-open, so
+    # it is a loud spec error, not a silent green.
+    for a in (spec.get("allow_errors") or []):
+        if not isinstance(a, dict) or not (a.get("event") or a.get("where")):
+            raise ValueError(
+                f"allow_errors entry {a!r} matches every event (no event/where) — it would "
+                "disable the entire negative wing; name the benign error explicitly")
     fe = spec.get("forbid_errors")
     if fe is None:
         fe = _truthy(os.getenv("OOPTDD_FORBID_ERRORS"))
@@ -855,10 +869,16 @@ def lint_spec(spec: dict) -> list[dict]:
                                f"{(1 - float(t)) * 100:.0f}% of expectations every run; add a "
                                "`justification:` field if this quorum is intentional."})
     for i, r in enumerate(gating):
-        _cnt = r.get("count", r.get("want", 1))
-        if r.get("op") == ">=" and isinstance(_cnt, int) and _cnt <= 0:
+        # read the `target:` alias too (grill F4: VAC4 only checked count/want, so a
+        # `target: 0` gate escaped with a mere medium finding), and match the FULL tautology
+        # set the monitor now flags: `>=`(n<=0), `>`(n<0), `!=`(n<0) — counts are non-negative.
+        _op = _norm_op(str(r.get("op", ">="))) if r.get("op") else None
+        _cnt = r.get("count", r.get("target", r.get("want", 1)))
+        _taut = isinstance(_cnt, (int, float)) and (
+            (_op == ">=" and _cnt <= 0) or (_op == ">" and _cnt < 0) or (_op == "!=" and _cnt < 0))
+        if _taut:
             out.append({"code": "VAC4", "severity": "high", "label": _label(r),
-                        "message": f"check #{i} ({_label(r)}) is `count >= {_cnt}` — counts are "
+                        "message": f"check #{i} ({_label(r)}) is `count {_op} {_cnt}` — counts are "
                                    "non-negative, so it is always satisfied and can never fail "
                                    "(tautology). Use `>= 1`, a `where`, or a real threshold."})
             continue

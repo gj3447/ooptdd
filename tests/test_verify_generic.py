@@ -181,18 +181,37 @@ def test_verify_gate_green_anti_monotone_gate_waits_for_the_final_poll():
 
 
 def test_verify_gate_still_settles_early_when_every_check_is_monotone():
-    """The performance path survives: a gate of only monotone-positive checks (>= count,
-    present, must_order) latches SAT and may settle the moment the prefix satisfies it."""
+    """The performance path survives: a gate of only genuinely monotone-positive checks
+    (>= count, present) latches SAT and may settle the moment the prefix satisfies it.
+    (must_order is NOT here — its SAT is reorder-revocable under ingest-order polling, see
+    test_verify_gate_never_early_settles_an_order_check.)"""
     spec = {"expect": [
         {"event": "cycle", "op": ">=", "count": 1},
         {"present": [{"event": "cycle"}]},
-        {"must_order": ["start", "cycle"]},
     ]}
     events = [{"event": "start", "_timestamp": 1}, {"event": "cycle", "_timestamp": 2}]
     b = _LateBackend(ready_on=2, events=events)
     out = verify_gate(b, "c", spec, retries=5, clock=_FakeClock(), sleeper=_no_sleep)
     assert out["ok"] and out["verdict"] == "present"
     assert out["attempts"] == 2 and b.calls == 2  # settled as soon as the events arrived
+
+
+def test_verify_gate_never_early_settles_an_order_check():
+    """grill F1: must_order/trajectory SAT is only valid for timestamp-ordered extensions,
+    but polls arrive in INGEST order — a late event with an earlier timestamp can flip it.
+    So a gate with a gating order check must poll to the final window, never settle early."""
+    from ooptdd.engine.gate import evaluate_events
+    from ooptdd.engine.verify import _settled_green
+    # a prefix where a@1 then b@2 satisfies must_order[a,b] in the batch (sorted) view...
+    prefix = [{"event": "a", "cid": "c", "_timestamp": 10},
+              {"event": "b", "cid": "c", "_timestamp": 20}]
+    res = evaluate_events({"cid": "c", "expect": [{"must_order": ["a", "b"]}]},
+                          prefix, reachable=True, cid="c")
+    assert res["ok"] and not _settled_green(res)  # green now, but NOT safe to settle
+    # ...because a later-ingested b@5 (earlier ts) would flip the full-window verdict RED
+    full = [*prefix, {"event": "b", "cid": "c", "_timestamp": 5}]
+    assert not evaluate_events({"cid": "c", "expect": [{"must_order": ["a", "b"]}]},
+                               full, reachable=True, cid="c")["ok"]
 
 
 def test_verify_gate_fail_closed_for_a_check_without_a_kernel_verdict():

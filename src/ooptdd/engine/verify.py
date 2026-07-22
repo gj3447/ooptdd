@@ -234,19 +234,27 @@ def _settled_green(result: dict) -> bool:
 
     The kernel already answers monotonicity per check: LTL₃ ``SAT`` means "no extension
     of this prefix can falsify" (:data:`ooptdd.engine.monitor.SAT`), and only the
-    monotone-positive automata (``>=``/``>`` counts, ``present``, ``must_order``) ever
-    latch it. So a prefix green is settled iff every gating check reports
-    ``verdict == SAT``. A check without a kernel verdict (``external:``, custom
-    ``@check`` predicates) is conservatively treated as revocable — fail-closed.
-    Signature enforcement (``require_signature``) verifies the WHOLE hash chain, which
-    a later off-chain event still breaks, so it forbids early settle as well.
+    monotone-positive automata (``>=``/``>`` counts, ``present``) ever latch it. So a
+    prefix green is settled iff every gating check reports ``verdict == SAT``. A check
+    without a kernel verdict (``external:``, custom ``@check`` predicates) is
+    conservatively treated as revocable — fail-closed. Signature enforcement
+    (``require_signature``) verifies the WHOLE hash chain, which a later off-chain event
+    still breaks, so it forbids early settle as well.
+
+    ⚠ ``must_order``/``trajectory`` (OrderMonitor) latch SAT too, but their SAT is only
+    valid for extensions appended in TIMESTAMP order — and the poller feeds prefixes in
+    INGEST order. A later-ingested event carrying an EARLIER timestamp rewrites the
+    first-occurrence map and can flip an ordered SAT to VIOL (grill F1: a real early-settle
+    forgery). So an order check is treated as revocable-by-reorder here regardless of its
+    within-prefix SAT — a gate with any gating order check must poll to the final window.
+    (The within-call batch verdict is unaffected: there the stream is timestamp-sorted.)
     """
     if not result["ok"]:
         return False
     if (result.get("oracle") or {}).get("signature_enforced"):
         return False
     return all(
-        c.get("verdict") == SAT
+        c.get("verdict") == SAT and "must_order" not in c  # order SAT is not reorder-stable
         for c in result["checks"]
         if not c.get("optional") and not c.get("pending") and not c.get("tautological")
     )

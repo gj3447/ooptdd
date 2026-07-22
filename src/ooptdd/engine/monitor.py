@@ -172,10 +172,16 @@ class CountMonitor(Monitor):
             "event": self.event, "where": self.where, "op": self.op,
             "want": self.want, "got": self.got,
             "passed": reachable and _OPS[self.op](self.got, self.want),
-            # `>= n` with n<=0 is satisfied by any prefix incl. the empty one — a failure-
-            # incapable check. Flagged so the gate excludes it from `gating` (a tautology must
-            # not make a gate assert-anything) and lint can warn at author time.
-            "tautological": self.op == ">=" and self.want <= 0,
+            # A count `got` is always >= 0, so several op/target combos can NEVER fail — a
+            # failure-incapable check. Flagged so the gate excludes it from `gating` (a
+            # tautology must not make a gate assert-anything) and lint can warn at author time.
+            # `>= n` (n<=0), `> n` (n<0: got>=0 > any negative), `!= n` (n<0: a count is never
+            # negative). Grill F4: `>-1` and `!=-1` slipped through the `>=`-only check.
+            "tautological": (
+                (self.op == ">=" and self.want <= 0)
+                or (self.op == ">" and self.want < 0)
+                or (self.op == "!=" and self.want < 0)
+            ),
         })
 
 
@@ -308,21 +314,42 @@ class HeartbeatMonitor(Monitor):
     """Liveness ``G[0,every_s] F event`` (MTL): the event must fire at least once and never
     go silent longer than ``every_s`` between beats. An over-long gap is an inevitable VIOL
     (the gap is fixed once both beats are seen); the property is never inevitably SAT over an
-    unbounded future, so it stays PEND until violated or the stream ends."""
+    unbounded future, so it stays PEND until violated or the stream ends.
+
+    Liveness is measured across the cid's FULL observed span, not just between beats: the
+    silence from the window start (first event of ANY kind) to the first beat, and from the
+    last beat to the window end (last event of any kind), are edge-silence violations if they
+    exceed ``every_s``. Without this, a heartbeat that died while the system kept emitting
+    other events read GREEN (grill F3). Consequence to know: scoping a heartbeat gate over a
+    cid whose stream extends far past the service's beating phase (a late unrelated event)
+    will RED it — that IS a liveness violation for that span; scope the cid to the phase you
+    mean to police.  No ``now`` is needed — the stream's own min/max timestamp is the window."""
 
     def __init__(self, name, every_s):
         super().__init__()
         self.name = name
         self.every_s = float(every_s)
         self.beats = 0
+        self.first_ts: int | None = None
         self.last_ts: int | None = None
         self.max_gap_us = 0
+        # the observed window, inferred from the WHOLE stream's time span (any event) — so
+        # leading/trailing silence can be checked without threading `now` into collapse.
+        self.stream_min_ts: int | None = None
+        self.stream_max_ts: int | None = None
 
     def step(self, ev, idx):
-        if ev.get("event") != self.name or ev.get("_timestamp") is None:
+        ts = ev.get("_timestamp")
+        if ts is not None:
+            # every timestamped event bounds the observation window (a beat that only fires
+            # in the middle third of its cid's activity was passing — grill F3).
+            self.stream_min_ts = ts if self.stream_min_ts is None else min(self.stream_min_ts, ts)
+            self.stream_max_ts = ts if self.stream_max_ts is None else max(self.stream_max_ts, ts)
+        if ev.get("event") != self.name or ts is None:
             return
-        ts = ev["_timestamp"]
         self.beats += 1
+        if self.first_ts is None:
+            self.first_ts = ts
         if self.last_ts is not None:
             gap = ts - self.last_ts
             self.max_gap_us = max(self.max_gap_us, gap)
@@ -336,12 +363,31 @@ class HeartbeatMonitor(Monitor):
                 "heartbeat": self.name, "every_s": self.every_s, "beats": 0,
                 "max_gap_s": None, "passed": False, "reason": "no_beat",
             })
-        ok = self.max_gap_us <= self.every_s * 1_000_000
-        return self._stamp({
+        # leading/trailing silence: a gap from the window start to the first beat, or from the
+        # last beat to the window end, that exceeds every_s is a liveness violation the
+        # inter-beat check alone is blind to (heartbeat dead before the first / after the last
+        # observed event while the system kept emitting). Uses the stream's own span, so it
+        # needs no `now`; a single-event stream (min==max) has no edge silence.
+        # beats>=1 here, so first_ts/last_ts and the stream span are all set (a beat is a
+        # timestamped event that also bounds the stream); the `is not None` guards keep the
+        # type checker happy and are defensively correct.
+        lead = (self.first_ts - self.stream_min_ts) if (
+            self.first_ts is not None and self.stream_min_ts is not None) else 0
+        trail = (self.stream_max_ts - self.last_ts) if (
+            self.stream_max_ts is not None and self.last_ts is not None) else 0
+        edge_gap = max(lead, trail)
+        effective = max(self.max_gap_us, edge_gap)
+        ok = effective <= self.every_s * 1_000_000
+        chk = {
             "heartbeat": self.name, "every_s": self.every_s, "beats": self.beats,
-            "max_gap_s": round(self.max_gap_us / 1_000_000, 6),
+            "max_gap_s": round(effective / 1_000_000, 6),
+            "inter_beat_max_gap_s": round(self.max_gap_us / 1_000_000, 6),
+            "edge_silence_s": round(edge_gap / 1_000_000, 6),
             "passed": reachable and ok,
-        })
+        }
+        if not ok and edge_gap > self.max_gap_us:
+            chk["reason"] = "leading_silence" if lead >= trail else "trailing_silence"
+        return self._stamp(chk)
 
 
 class RatioMonitor(Monitor):
