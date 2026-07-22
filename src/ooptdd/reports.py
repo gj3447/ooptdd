@@ -15,16 +15,41 @@ Honesty rules carried into the formats:
 from __future__ import annotations
 
 import json
+import re
 from xml.sax.saxutils import escape, quoteattr
 
 from .engine.gate import _label
 
+# XML 1.0 forbids most C0 control chars (only tab/LF/CR are legal). A cid or label
+# carrying e.g. \x01 (a cid can arrive via OOPTDD_CID) otherwise produces a report that
+# is not well-formed XML — so the CI uploader rejects the report of a possibly-RED gate
+# (grill MEDIUM-5). Strip them to a visible marker before quoting.
+_XML_ILLEGAL = re.compile(r"[^\x09\x0A\x0D\x20-퟿-�]")
+
+
+def _xsafe(s) -> str:
+    return _XML_ILLEGAL.sub("�", str(s))
+
+
+def _mdcell(s) -> str:
+    """Markdown table-cell safe: neutralize pipes and newlines so an untrusted string
+    (e.g. an observed tool name in `offenders`) can't forge extra cells/rows or a fake
+    '✅ pass' (grill MEDIUM-5)."""
+    return escape(str(s)).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
 
 def _infra(result: dict) -> str | None:
+    """INCONCLUSIVE (?) reasons — every rung the CLI maps to exit 2, so the exported
+    artifact demotes none of them to ⊥ (failure). Must mirror cli._cmd_gate's exit
+    ladder: unreachable store, truncated read, AND an unreachable external probe (grill
+    HIGH-1: probe_reachable=False was rendering as <failure>, the exact ?→⊥ demotion
+    this library forbids)."""
     if not result.get("reachable", True):
         return "store unreachable"
     if not result.get("complete", True):
         return "readback truncated (incomplete evidence)"
+    if result.get("probe_reachable") is False:
+        return "external probe unreachable"
     return None
 
 
@@ -62,15 +87,16 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate") -> str:
     A suite-level RED (vacuous/uncorroborated/…) gets a synthetic failing testcase
     so the artifact can never read green while the verdict was red."""
     infra = _infra(result)
+    cid_attr = quoteattr(_xsafe(result.get("cid")))
     cases, failures, skipped = [], 0, 0
     for label, chk, detail in _check_rows(result):
-        name = quoteattr(label)
+        name = quoteattr(_xsafe(label))
         body = ""
         if infra is not None:
             skipped += 1
             body = f"<skipped message={quoteattr('INCONCLUSIVE: ' + infra)}/>"
         elif not chk.get("passed"):
-            payload = escape(json.dumps(detail, ensure_ascii=False, default=str))
+            payload = escape(_xsafe(json.dumps(detail, ensure_ascii=False, default=str)))
             if chk.get("optional") or chk.get("pending"):
                 kind = "optional" if chk.get("optional") else "pending"
                 skipped += 1
@@ -86,17 +112,16 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate") -> str:
             else:
                 failures += 1
                 body = f"<failure message={quoteattr('gate check failed')}>{payload}</failure>"
-        cases.append(f"  <testcase classname={quoteattr(str(result.get('cid')))} "
-                     f"name={name}>{body}</testcase>")
+        cases.append(f"  <testcase classname={cid_attr} name={name}>{body}</testcase>")
     suite_red = _suite_level_red(result)
     if suite_red is not None:
         failures += 1
-        cases.append(f"  <testcase classname={quoteattr(str(result.get('cid')))} name=\"(gate)\">"
-                     f"<failure message={quoteattr('gate RED: ' + suite_red)}/></testcase>")
+        cases.append(f"  <testcase classname={cid_attr} name=\"(gate)\">"
+                     f"<failure message={quoteattr('gate RED: ' + _xsafe(suite_red))}/></testcase>")
     props = (f'  <properties>\n'
-             f'    <property name="cid" value={quoteattr(str(result.get("cid")))}/>\n'
+             f'    <property name="cid" value={cid_attr}/>\n'
              f'    <property name="backend" '
-             f'value={quoteattr(str(result.get("oracle", {}).get("emit_identity", "")))}/>\n'
+             f'value={quoteattr(_xsafe(result.get("oracle", {}).get("emit_identity", "")))}/>\n'
              f'  </properties>')
     return ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
             f"<testsuite name={quoteattr(suite)} tests=\"{len(cases)}\" "
@@ -135,8 +160,10 @@ def to_markdown(result: dict) -> str:
         brief = {k: v for k, v in detail.items()
                  if k in ("got", "want", "score", "target", "missing", "offenders",
                           "value", "violations", "reason", "verdict")}
-        cell = escape(json.dumps(brief, ensure_ascii=False, default=str)) if brief else ""
-        lines.append(f"| `{label}` | {state} | {cell} |")
+        # _mdcell, not escape(): `brief` can carry untrusted observed strings (e.g. an
+        # offender tool name) whose raw `|`/newline would forge table cells/rows (MEDIUM-5).
+        cell = _mdcell(json.dumps(brief, ensure_ascii=False, default=str)) if brief else ""
+        lines.append(f"| `{_mdcell(label)}` | {state} | {cell} |")
     lines += ["",
               f"Re-verify independently: `ooptdd verify {cid} --backend <your-backend>`",
               ""]

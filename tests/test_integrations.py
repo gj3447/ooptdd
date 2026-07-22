@@ -116,16 +116,44 @@ def test_emit_verdict_event_is_itself_arrival_assertable(mem):
     res = evaluate(mem, _spec([{"event": "boot", "op": "gte", "target": 1}]))
     ev = emit_verdict_event(mem, res)
     assert ev["verdict"] == "present" and ev["annotator_kind"] == "CODE"
-    # grill regression: the verdict event must honor the repo's OWN envelope contract
-    # (spec_version/service/level) — a bare dict poisoned pin_service gates on its cid.
+    # the verdict event honors the envelope contract (spec_version/service/level).
     assert ev["spec_version"] and ev["service"] == "ooptdd.gate" and ev["level"] == "INFO"
-    res_pin = evaluate(mem, {**_spec([{"event": "boot", "op": "gte", "target": 1}]),
-                             "pin_service": "demo.svc"})
-    # (the boot fixture has no service either, so just assert the verdict event itself
-    # carries one — the poisoning vector was the MISSING service field)
-    assert all("service" in e for e in
-               mem.query(CID, since_us=0, until_us=10**15).events
-               if e.get("event") == "ooptdd.verdict"), res_pin
+
+
+def test_verdict_event_does_not_poison_a_closed_world_conforms_gate(mem):
+    """grill HIGH-2: a closed-world `conforms:` gate over the cid must NOT flip RED after
+    export — ooptdd.* framework meta-events are exempt from closed-world drift."""
+    from ooptdd.domain.ontology import Ontology
+    from ooptdd.engine.gate import evaluate
+    onto = Ontology.from_dict({"closed_world": True, "event_types": {"boot": {}}})
+    _ship(mem, "boot")
+    before = evaluate(mem, _spec([{"conforms": "boot", "closed_world": True}]), ontology=onto)
+    assert before["ok"]
+    emit_verdict_event(mem, before)
+    after = evaluate(mem, _spec([{"conforms": "boot", "closed_world": True}]), ontology=onto)
+    assert after["ok"], "ooptdd.verdict must not be closed-world drift"
+
+
+def test_verdict_event_IS_invasive_to_a_pin_service_gate_honest(mem):
+    """grill HIGH-2, honest recant: pin_service is count(all)==count(pinned) and cannot
+    exempt a namespace, so exporting a verdict with a DIFFERENT service DOES flip a
+    whole-cid pin_service gate. The library documents this (run strict gates before
+    export, or align `service=`). Pin the true behavior instead of dodging it."""
+    from ooptdd.engine.gate import evaluate
+    mem.ship([{"event": "boot", "cid": CID, "correlation_id": CID, "cycle_id": CID,
+               "service": "myapp"}])
+    spec = {**_spec([{"event": "boot", "op": "gte", "target": 1}]), "pin_service": "myapp"}
+    assert evaluate(mem, spec)["ok"]
+    # default service=ooptdd.gate: DOES flip (honest, documented)
+    emit_verdict_event(mem, evaluate(mem, spec))
+    assert not evaluate(mem, spec)["ok"], "the invasive interaction is real, not hidden"
+    # the documented escape hatch: align the verdict's service with the pin
+    reset()
+    mem2 = MemoryBackend()
+    mem2.ship([{"event": "boot", "cid": CID, "correlation_id": CID, "cycle_id": CID,
+                "service": "myapp"}])
+    emit_verdict_event(mem2, evaluate(mem2, spec), service="myapp")
+    assert evaluate(mem2, spec)["ok"], "service= alignment keeps pin_service green"
     # dogfood: the verdict event's own arrival is gated
     res2 = evaluate(mem, _spec([
         {"event": "ooptdd.verdict", "where": {"verdict": "present"}, "op": "gte", "target": 1},

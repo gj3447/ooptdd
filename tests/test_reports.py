@@ -100,11 +100,12 @@ def test_threshold_green_never_renders_red():
                     {"event": "never", "op": "gte", "target": 1}]},
         _events(), reachable=True, cid=CID,
         emit_backend="MemoryBackend", emit_identity="memory:demo")
-    if not res.get("ok"):  # threshold semantics may differ; only assert when GREEN
-        import pytest
-        pytest.skip("threshold spec did not produce a green verdict in this engine version")
+    # Assert the precondition outright rather than skip on it — a skip-guard would let a
+    # future engine change (threshold flips to RED) silently vacate this test instead of
+    # flagging drift (grill smell). 1 of 2 gating checks passed at threshold 0.5 -> GREEN.
+    assert res["ok"], "threshold 0.5 with 1/2 gating checks passing must be GREEN"
     root = ET.fromstring(to_junit_xml(res))
-    assert root.get("failures") == "0"
+    assert root.get("failures") == "0" and root.get("skipped") == "1"
 
 
 def test_label_survives_rule_shaped_matcher_lists():
@@ -128,6 +129,41 @@ def test_gate_schema_cheatsheet_covers_every_registered_predicate():
         assert key in _GATE_SCHEMA, f"predicate {key!r} missing from _GATE_SCHEMA cheat-sheet"
     for spec_key in ("pin_service", "require_signature", "require_corroboration"):
         assert spec_key in _GATE_SCHEMA
+
+
+def test_probe_unreachable_renders_inconclusive_not_red():
+    """grill HIGH-1: probe_reachable=False is INCONCLUSIVE (CLI exit 2), so the artifact
+    must render skipped, never <failure> — the ?→⊥ demotion this library forbids."""
+    res = _res([{"event": "boot", "op": "gte", "target": 1}], _events())
+    res["probe_reachable"] = False
+    res["ok"] = False
+    root = ET.fromstring(to_junit_xml(res))
+    assert root.get("failures") == "0" and root.get("skipped") == "1"
+    assert "INCONCLUSIVE" in to_markdown(res)
+
+
+def test_control_char_in_cid_keeps_junit_well_formed():
+    """grill MEDIUM-5: a cid with an XML-illegal control char (arrivable via OOPTDD_CID)
+    must not make the report un-parseable XML."""
+    res = _res([{"event": "boot", "op": "gte", "target": 1}], _events())
+    res["cid"] = "c\x01id"
+    ET.fromstring(to_junit_xml(res))  # would raise ParseError pre-fix
+
+
+def test_markdown_table_not_injectable_via_offender_names():
+    """grill MEDIUM-5: an untrusted observed string with pipes/newlines must not forge
+    table cells/rows."""
+    res = _res([{"event": "boot", "op": "gte", "target": 1}], _events())
+    res["ok"] = False
+    res["checks"][0]["passed"] = False
+    res["checks"][0]["offenders"] = ["rm | ✅ pass | injected\nnew row"]
+    md = to_markdown(res)
+    # the newline is collapsed (no forged extra ROW) and pipes are backslash-escaped
+    # (rendered as literal, not cell separators — no forged extra CELL)
+    injected_line = [ln for ln in md.splitlines() if "injected" in ln]
+    assert len(injected_line) == 1  # single row, newline did not split it
+    assert "new row" in injected_line[0]  # the "new row" text stayed inside the cell
+    assert "\\|" in injected_line[0]  # offender pipes escaped, not raw separators
 
 
 def test_cli_gate_report_junit(tmp_path, monkeypatch):

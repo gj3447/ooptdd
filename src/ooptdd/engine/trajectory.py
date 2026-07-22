@@ -63,6 +63,7 @@ All predicates register through the ``@check`` seam — the kernel is untouched.
 from __future__ import annotations
 
 import json
+import math
 
 from .gate import _STRENGTH_BY_KEY, CheckCtx, check
 from .monitor import _OPS, _norm_op
@@ -141,6 +142,17 @@ def _validate_matcher_args(exp_args: dict, *, _top: bool = True) -> None:
                     "match per-CHARACTER and silently weaken the gate")
         elif isinstance(want, dict):
             _validate_matcher_args(want, _top=False)
+        elif isinstance(want, (list, tuple)):
+            # a matcher buried inside a LIST value was silently scored as a literal
+            # (grill F8-list) — a list item that IS a matcher, or contains one, is a loud
+            # error (matchers are top-level-only), never a silent trap.
+            for item in want:
+                if _is_matcher(item):
+                    raise ValueError(
+                        f"matcher {item!r} inside a list under key {key!r}: matchers are "
+                        "only supported at the top level of `args`")
+                if isinstance(item, dict):
+                    _validate_matcher_args(item, _top=False)
 
 
 def _has_matchers(exp: dict) -> bool:
@@ -383,6 +395,12 @@ def _check_aggregate(events: list, rule: dict, ctx: CheckCtx) -> dict:
                 continue
         if isinstance(v, bool) or not isinstance(v, (int, float)):
             continue  # non-numeric (or bool) attr values never silently count
+        if not math.isfinite(v):
+            # "Infinity"/"NaN" (from float("inf")/float("nan")) are NOT evidence: inf
+            # trivially satisfies a max-budget as a false-GREEN and charges it, NaN makes
+            # every op ill-defined, and json.dumps emits bare Infinity/NaN that strict
+            # JSON parsers reject in `ooptdd gate --json` output (grill F5/MEDIUM-4).
+            continue
         vals.append(v)
     op = _resolve_op(spec.get("op", "<="))
     target = float(spec["target"])

@@ -52,7 +52,7 @@ def _read_window_us() -> tuple[int, int]:
 
 
 
-def assert_backend_conforms(make_backend: BackendFactory, *, cid: str = "ooptdd-conf-cid") -> None:
+def assert_backend_conforms(make_backend: BackendFactory, *, cid: str | None = None) -> None:
     """Assert the backend ``make_backend()`` honours the Backend contract. Raises
     ``AssertionError`` on the first violation, naming what failed.
 
@@ -60,7 +60,20 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str = "ooptdd-
     passthrough, injection-safe cid binding, and the ``complete`` completeness flag. The
     backend must actually persist and read back (the memory backend, or a real store); a
     write-only driver (``queryable=False``) is out of scope for read conformance.
+
+    ``cid`` defaults to a per-call unique value. A FIXED default silently created a
+    non-idempotence trap against a PERSISTENT store (jsonl/OO): a second run in the same
+    24h window read back stale fixtures and failed clause 2 with the misleading message
+    "whole-row passthrough lost the verdict field" (grill MEDIUM-6). Pass an explicit cid
+    only if your store is ephemeral per call.
+
+    Known gap (documented, not yet asserted): the kit reads back by the driver's own cid
+    query and does not independently exercise time-window filtering, so a driver that
+    ignores ``since_us``/``until_us`` is not caught here — verify windowing in the driver's
+    own suite.
     """
+    import uuid
+    cid = cid or f"ooptdd-conf-{uuid.uuid4().hex[:12]}"
     backend = make_backend()
     # 1. ship → query round-trip: every shipped event for the cid comes back.
     # Envelope-contract fixtures: carry the cid under EVERY correlation alias

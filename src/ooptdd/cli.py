@@ -216,10 +216,21 @@ def _cmd_mutate(args) -> int:
     events = _load_json_file(args.events)
     report = mutation_report(events, spec)
     _emit(report, args,
-          f"mutation score={report['score']} survivors={report['survivors']} "
-          f"(baseline_green={report['baseline_green']})")
+          f"mutation score={report['score']} n={report['n']} "
+          f"survivors={report['survivors']} (baseline_green={report['baseline_green']})")
     if not report["baseline_green"]:
         return 2  # couldn't even establish a baseline — the score is meaningless
+    if report["n"] == 0:
+        # No derivable mutants (e.g. a trajectory-only gate: tool_calls/forbidden_tools/
+        # aggregate are excluded from count mutation). score defaults to 1.0 — a VACUOUS
+        # perfect, not a measured one. Never let --min-score read that as "strong" (grill
+        # MEDIUM-6): it is inconclusive, exit 2, not a clean pass.
+        if args.min_score is not None:
+            print("INCONCLUSIVE - no mutants derivable for this gate's predicates; the "
+                  "score is vacuous (n=0), not a measured discriminating power",
+                  file=sys.stderr)
+            return 2
+        return 0
     if args.min_score is not None and report["score"] < args.min_score:
         return 1  # gate too weak: it let mutants through
     return 0

@@ -41,22 +41,29 @@ def verdict_span_attributes(result: dict) -> dict:
     }
 
 
-def emit_verdict_event(backend, result: dict) -> dict:
+def emit_verdict_event(backend, result: dict, *, service: str = "ooptdd.gate") -> dict:
     """Ship one ``ooptdd.verdict`` event for ``result``'s cid and return it.
 
     The event goes through ``backend.ship`` like any other — meaning the verdict
     itself becomes arrival-assertable (a gate can `present:` it) and visible to
     anything tailing the stream. Phoenix's annotation vocabulary would call this
-    an ``annotator_kind=CODE`` annotation bound to the trace."""
+    an ``annotator_kind=CODE`` annotation bound to the trace.
+
+    **It IS invasive to the cid, and honestly so.** Shipping any event into the cid
+    adds a row. `build_event` makes it envelope-conformant (`spec_version`/`service`/
+    `level`) so it can't break a `conforms:` gate on the missing-field grounds, and
+    closed-world `conforms:` now exempts `ooptdd.*` framework events (ontology.py). But
+    a whole-cid `pin_service: <not ooptdd.gate>` invariant counts THIS row too, so it
+    will flip after export — the pin_service mechanism is count(all)==count(pinned) and
+    cannot express a namespace exemption. Rule of thumb (grill A/HIGH-2): run any
+    strict whole-cid gate BEFORE exporting the verdict, or pass ``service=`` to align
+    the verdict's service with your pin. Do not claim this is free."""
     cid = str(result.get("cid"))
     failed = _failed_labels(result)
-    # build_event, not a hand-rolled dict: the verdict lands in the SAME cid it annotates,
-    # so it must honor the envelope contract (spec_version/service/level) — a bare dict
-    # here poisons pin_service / closed-world `conforms:` gates over that cid (grill
-    # finding). level stays INFO even for an `absent` verdict: the exported verdict is
-    # information ABOUT a failure, not an error event, and must not trip forbid_errors.
+    # level stays INFO even for an `absent` verdict: the exported verdict is information
+    # ABOUT a failure, not an error event, and must not trip forbid_errors (verified).
     event = build_event(
-        cid, "ooptdd.verdict", service="ooptdd.gate",
+        cid, "ooptdd.verdict", service=service,
         level="INFO",
         verdict=_verdict_word(result),
         ok=bool(result.get("ok")),

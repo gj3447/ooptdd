@@ -251,6 +251,13 @@ def check_conformance(
         name = ev.get("event")
         if not scope_all and name != event_type:
             continue
+        # ooptdd.* framework meta-events (e.g. ooptdd.verdict from emit_verdict_event) are not
+        # part of any SUT's domain vocabulary — a closed-world DOMAIN ontology must not flag them
+        # as drift, or shipping a verdict annotation into a cid would RED a conforms gate over it.
+        # A domain ontology that deliberately declares an ooptdd.* type still validates it (get()
+        # hits below); this only exempts the UNDECLARED case.
+        if isinstance(name, str) and name.startswith("ooptdd.") and ontology.get(name) is None:
+            continue
         et = ontology.get(name)
         if et is None:
             # only flag unknowns we were asked to police: in closed-world, any in-scope

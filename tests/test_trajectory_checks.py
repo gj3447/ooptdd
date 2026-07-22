@@ -215,6 +215,28 @@ def test_f8_nested_matcher_is_a_loud_spec_error_not_silent_literal():
               [_tool("cfg", args={"opts": {"q": "x"}})])
 
 
+def test_f8_matcher_inside_a_list_value_is_also_loud():
+    """grill F8-list: a matcher buried in a LIST value was silently scored as a literal."""
+    import pytest
+    exp = [{"name": "f", "args": {"tags": [{"contains_any": ["secret"]}]}}]
+    with pytest.raises(ValueError, match="top level"):
+        _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+              [_tool("f", args={"tags": ["secret"]})])
+
+
+def test_aggregate_rejects_infinity_and_nan_strings():
+    """grill MEDIUM-4: float('inf')/'nan' strings must not count as evidence (false-GREEN
+    on a max-budget, invalid bare-NaN JSON output)."""
+    import json
+    res = _eval([{"aggregate": {"fn": "max", "attr": "gen_ai.usage.output_tokens",
+                                "event": "gen_ai.chat", "target": 100}}],
+                [{"event": "gen_ai.chat", "gen_ai.usage.output_tokens": "Infinity",
+                  "cid": CID, "_timestamp": 0}])
+    chk = _chk(res)
+    assert chk["n"] == 0 and chk["value"] is None and not chk["passed"]
+    json.dumps(res, allow_nan=False)  # would raise if a bare Infinity/NaN slipped through
+
+
 def test_compare_as_comma_string_is_normalized():
     res = _eval([{"tool_calls": {
         "expected": [{"name": "search", "args": {"q": "cats"}}],
