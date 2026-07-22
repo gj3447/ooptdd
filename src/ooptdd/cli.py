@@ -48,6 +48,7 @@ from .engine.gate import (
 )
 from .engine.verify import verify_gate, verify_trace
 from .mutation import mutation_report
+from .report import dispatch_reports
 
 
 def _settings(args):
@@ -102,6 +103,7 @@ def _cmd_verify(args) -> int:
         gate = load_gate(args.gate)
         res = verify_gate(backend, args.cid, gate, retries=args.retries,
                           delay=args.delay, probe=_resolve_probe(gate))
+        dispatch_reports(args, "verify", res)
         print(json.dumps(res, ensure_ascii=False, indent=2))
         v = res["verdict"]
         msg = {"present": "GREEN — arrival confirmed", "absent": "RED — not all expected "
@@ -112,6 +114,7 @@ def _cmd_verify(args) -> int:
         backend, args.cid, expect_total=args.expect_total, retries=args.retries,
         delay=args.delay,
     )
+    dispatch_reports(args, "verify", res)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     verdict = res["verdict"]
     if res["ok"]:
@@ -128,6 +131,7 @@ def _cmd_gate(args) -> int:
     backend = _backend(args)
     spec = load_gate(args.spec)
     res = evaluate(backend, spec, probe=_resolve_probe(spec))
+    dispatch_reports(args, "gate", res)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     if res.get("optional_failed"):
         print(f"WARN - optional checks failed (not gating): {res['optional_failed']}",
@@ -352,6 +356,15 @@ def _add_json(p):
     p.add_argument("--json", action="store_true", help="machine-readable JSON on stdout")
 
 
+def _add_report(p):
+    p.add_argument("--report", action="append", metavar="FMT=PATH",
+                   help="write a report artifact (repeatable): junit=out.xml, "
+                        "markdown=out.md, json=out.json")
+    p.add_argument("--junit-inconclusive", choices=["error", "skipped"], default="error",
+                   help="JUnit mapping for INCONCLUSIVE: error (fail-closed, default) "
+                        "or skipped (explicit opt-in)")
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="ooptdd", description="logs-as-spec test verification")
     p.add_argument("--version", action="version", version=f"ooptdd {__version__}")
@@ -364,11 +377,13 @@ def main(argv=None) -> int:
     v.add_argument("--expect-total", type=int)
     v.add_argument("--retries", type=int, default=4)
     v.add_argument("--delay", type=float, default=1.0)
+    _add_report(v)
     v.set_defaults(func=_cmd_verify)
 
     g = sub.add_parser("gate", help="evaluate a YAML gate spec")
     g.add_argument("spec")
     g.add_argument("--backend")
+    _add_report(g)
     g.set_defaults(func=_cmd_gate)
 
     ln = sub.add_parser("lint", help="static strength audit of a gate spec (catch vacuous gates)")
