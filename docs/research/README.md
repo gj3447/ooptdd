@@ -49,3 +49,16 @@ No long-horizon operational data; OTel GenAI semantic conventions still maturing
 large-scale (1000+ events/s) unproven; query-portability across backends is a
 myth, not a feature. Hard log-free zones (precise numerics, security redaction,
 µs races) are out of scope by design.
+
+---
+
+## F 시리즈 — OSS 소스레벨 흡수 (2026-07-22)
+
+두 트랙 동시 진행, 상호 검증:
+
+| 문서 | 트랙 | 내용 |
+|---|---|---|
+| [ooptdd_F_oss_absorption_20260722.md](ooptdd_F_oss_absorption_20260722.md) | 클론 소스 심독 (Claude 흡수 17 + Grok 종합 6·검증 42) | 경쟁/인접 OSS 18종 지형도 + 검증 생존 제안 29건 + 로드맵. 데이터: [ooptdd_F_proposals_verified_20260722.json](ooptdd_F_proposals_verified_20260722.json) |
+| [prom16_grok_20260722/](prom16_grok_20260722/PROM_16_REPORT.md) | 웹+클론 하이브리드 PROM 16 (Grok 실행자) | 합의 6 · 충돌해소 1 · KG 씨앗 8 · 1차소스 88 |
+
+핵심 수렴: VerdictExport 순수투영 레지스트리(단, `_emit` 라우팅 통일 선행) · 3치 판정 절대 보존 · ArrivalPolicy 일급화(TBT 카테고리 사망 교훈) · gen_ai preset 듀얼트랙(semconv-genai repo 분리 v1.42 확정).
