@@ -284,6 +284,11 @@ def _check_metamorphic(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)  # within-run: pure, two matched subsets of the one stream
 
 
+@check("duration")
+def _check_duration(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    return _run(rule, events, ctx)  # universal field threshold (kernel DurationMonitor)
+
+
 @check("external")
 def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The independent-oracle check: assert against an external fact (ctx.probe), NOT the system's
@@ -335,6 +340,7 @@ _KEY_PROBES = (
     ("conforms", "conforms"),
     ("invariant", "invariant"),
     ("metamorphic", "metamorphic"),
+    ("duration", "duration"),
     ("external", "external"),
 )
 
@@ -361,7 +367,7 @@ def _detect_check_key(rule: dict) -> str | None:
 _STRENGTH_BY_KEY = {
     "absent": "forbid", "must_order": "ordered", "ratioMetric": "ratio",
     "heartbeat": "liveness", "conforms": "conformance", "invariant": "invariant",
-    "metamorphic": "metamorphic", "external": "external",
+    "metamorphic": "metamorphic", "external": "external", "duration": "threshold",
 }
 
 # Discriminating-power weight per strength class — basis of the scalar strength score that turns
@@ -416,6 +422,8 @@ def _rule_event_names(rule: dict) -> set[str]:
             for side in sides:
                 if isinstance(c.get(side), dict):
                     names.add(c[side].get("event"))
+    if isinstance(rule.get("duration"), dict):
+        names.add(rule["duration"].get("event"))
     names.add(rule.get("heartbeat"))
     if isinstance(rule.get("conforms"), str):
         names.add(rule["conforms"])

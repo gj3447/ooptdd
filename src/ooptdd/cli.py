@@ -328,6 +328,10 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
   expect:                       # the list of checks
     - {event: NAME, op: ">="|">"|"=="|"!="|"<="|"<"|gte|gt|eq|ne|lte|lt, count|target: N}
     - {event: NAME, where: {field: value, ...}}      # partial-dict field filter
+    #   a where value may be an op-dict: {field: {op: gte|gt|eq|ne|lte|lt|contains|
+    #   not_contains, value: V}} — missing field never matches (fail-safe)
+    - {duration: {event: E, field: elapsed_s, op: lte, target: 1.5, where: {...}}}
+    #   UNIVERSAL threshold: every matched event's field must satisfy; 0 matches != pass
     - {present: [{event: A}, {event: B, where: {...}}]}   # subset, any order
     - {absent: {where: {level: ERROR}}}              # forbid wing (a.k.a. forbid:)
     - {must_order: [a, b, c], within_s: S}           # sequencing (a.k.a. trajectory:)
