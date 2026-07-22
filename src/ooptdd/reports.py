@@ -80,21 +80,36 @@ def _suite_level_red(result: dict) -> str | None:
     return None
 
 
-def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate") -> str:
+def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
+                 inconclusive: str = "skipped") -> str:
     """One <testcase> per check; gating failures are <failure>, INFRA is <skipped>,
     optional AND pending misses are <skipped> (surfaced, never red — pending checks
     are designed never to gate, so they must not fail the build via the report).
     A suite-level RED (vacuous/uncorroborated/…) gets a synthetic failing testcase
-    so the artifact can never read green while the verdict was red."""
+    so the artifact can never read green while the verdict was red.
+
+    ``inconclusive`` picks the INFRA policy for the artifact (both wings of the
+    study's resolved mapping conflict are preserved): ``skipped`` (default) keeps
+    ? out of ⊥ entirely; ``error`` renders ``<error type="ooptdd.inconclusive">`` —
+    fail-closed for pipelines that must not let an unverified run scroll past
+    (an <error> is an infra rung, still never a <failure>/falsified)."""
+    if inconclusive not in ("skipped", "error"):
+        raise ValueError(f"junit inconclusive policy must be skipped|error, "
+                         f"got {inconclusive!r}")
     infra = _infra(result)
     cid_attr = quoteattr(_xsafe(result.get("cid")))
-    cases, failures, skipped = [], 0, 0
+    cases, failures, skipped, errors = [], 0, 0, 0
     for label, chk, detail in _check_rows(result):
         name = quoteattr(_xsafe(label))
         body = ""
         if infra is not None:
-            skipped += 1
-            body = f"<skipped message={quoteattr('INCONCLUSIVE: ' + infra)}/>"
+            if inconclusive == "error":
+                errors += 1
+                body = (f"<error type=\"ooptdd.inconclusive\" "
+                        f"message={quoteattr('INCONCLUSIVE: ' + infra)}/>")
+            else:
+                skipped += 1
+                body = f"<skipped message={quoteattr('INCONCLUSIVE: ' + infra)}/>"
         elif not chk.get("passed"):
             payload = escape(_xsafe(json.dumps(detail, ensure_ascii=False, default=str)))
             if chk.get("optional") or chk.get("pending"):
@@ -125,7 +140,7 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate") -> str:
              f'  </properties>')
     return ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
             f"<testsuite name={quoteattr(suite)} tests=\"{len(cases)}\" "
-            f"failures=\"{failures}\" errors=\"0\" skipped=\"{skipped}\">\n"
+            f"failures=\"{failures}\" errors=\"{errors}\" skipped=\"{skipped}\">\n"
             + props + "\n" + "\n".join(cases) + "\n</testsuite>\n")
 
 

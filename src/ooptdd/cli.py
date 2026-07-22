@@ -129,8 +129,12 @@ def _cmd_gate(args) -> int:
     spec = load_gate(args.spec)
     res = evaluate(backend, spec, probe=_resolve_probe(spec))
     if getattr(args, "report", None):
-        from .reports import RENDERERS
-        rendered = RENDERERS[args.report](res)
+        from .reports import RENDERERS, to_junit_xml
+        if args.report == "junit":
+            rendered = to_junit_xml(
+                res, inconclusive=getattr(args, "junit_inconclusive", "skipped"))
+        else:
+            rendered = RENDERERS[args.report](res)
         if getattr(args, "report_out", None):
             with open(args.report_out, "w", encoding="utf-8") as fh:
                 fh.write(rendered)
@@ -406,6 +410,10 @@ def main(argv=None) -> int:
     g.add_argument("--report", choices=["junit", "md"],
                    help="render a CI report instead of raw JSON (junit XML / markdown)")
     g.add_argument("--report-out", help="write the report to this path (default: stdout)")
+    g.add_argument("--junit-inconclusive", choices=["skipped", "error"], default="skipped",
+                   help="JUnit INFRA policy: skipped (default; ? never renders as red) or "
+                        "error (fail-closed <error type=ooptdd.inconclusive> for pipelines "
+                        "that must not let an unverified run scroll past)")
     g.set_defaults(func=_cmd_gate)
 
     ln = sub.add_parser("lint", help="static strength audit of a gate spec (catch vacuous gates)")

@@ -182,3 +182,49 @@ def test_cli_gate_report_junit(tmp_path, monkeypatch):
     root = ET.fromstring(out.read_text())
     assert root.get("failures") == "0" and root.get("tests") == "1"
     reset()
+
+
+# ── the fail-closed INFRA policy (opt-in; the study's resolved mapping conflict) ──
+def test_junit_inconclusive_error_mode_is_fail_closed_opt_in():
+    # Both wings preserved: default keeps ? as <skipped>; --junit-inconclusive=error
+    # renders <error type="ooptdd.inconclusive"> — an infra rung, still never a
+    # <failure> (? must not be demoted to falsified even when fail-closed).
+    res = _res([{"event": "boot", "op": "gte", "target": 1}], [], reachable=False)
+    root = ET.fromstring(to_junit_xml(res, inconclusive="error"))
+    assert root.get("errors") == "1" and root.get("failures") == "0"
+    assert root.get("skipped") == "0"
+    err = next(root.iter("error"))
+    assert err.get("type") == "ooptdd.inconclusive" and "INCONCLUSIVE" in err.get("message")
+
+
+def test_junit_inconclusive_policy_unknown_value_is_loud():
+    import pytest
+    res = _res([{"event": "boot", "op": "gte", "target": 1}], [], reachable=False)
+    with pytest.raises(ValueError):
+        to_junit_xml(res, inconclusive="pass")
+
+
+def test_junit_error_mode_does_not_touch_green_or_red(tmp_path):
+    green = _res([{"event": "boot", "op": "gte", "target": 1}], _events())
+    red = _res([{"event": "never", "op": "gte", "target": 1}], _events())
+    g_root = ET.fromstring(to_junit_xml(green, inconclusive="error"))
+    r_root = ET.fromstring(to_junit_xml(red, inconclusive="error"))
+    assert g_root.get("errors") == "0" and g_root.get("failures") == "0"
+    assert r_root.get("errors") == "0" and r_root.get("failures") == "1"
+
+
+def test_cli_junit_inconclusive_flag(tmp_path, capsys, monkeypatch):
+    from ooptdd.cli import main
+    spec = tmp_path / "spec.yaml"
+    spec.write_text("cid: cli-inc\nexpect:\n  - {event: a, op: '>=', count: 1}\n",
+                    encoding="utf-8")
+    out = tmp_path / "r.xml"
+    # openobserve without env -> constructing succeeds but query is unreachable -> INFRA
+    monkeypatch.setenv("OOPTDD_OO_URL", "http://127.0.0.1:1")  # closed port
+    rc = main(["gate", str(spec), "--backend", "openobserve",
+               "--report", "junit", "--report-out", str(out),
+               "--junit-inconclusive", "error"])
+    capsys.readouterr()
+    assert rc == 2  # INFRA rung unchanged by the report policy
+    root = ET.parse(out).getroot()
+    assert root.get("errors") >= "1"
