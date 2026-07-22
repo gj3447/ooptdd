@@ -64,6 +64,7 @@ def pytest_addoption(parser):
         ("ooptdd_enabled", "auto|1|0"),
         ("ooptdd_cid_env", "env var holding the correlation id"),
         ("ooptdd_retries", "arrival-poll attempts (int, default 4)"),
+        ("ooptdd_confirm_rounds", "anti-flap confirm re-reads after a revocable green (int, default 0)"),
         ("ooptdd_delay", "initial arrival-poll delay in seconds (float, default 1.0)"),
         ("ooptdd_backoff", "arrival-poll backoff multiplier (float, default 2.0)"),
     ]:
@@ -79,6 +80,7 @@ def _settings_from_config(config) -> Settings:
         ("ooptdd_enabled", "enabled"),
         ("ooptdd_cid_env", "cid_env"),
         ("ooptdd_retries", "retries"),
+        ("ooptdd_confirm_rounds", "confirm_rounds"),
         ("ooptdd_delay", "delay"),
         ("ooptdd_backoff", "backoff"),
     ]:
@@ -208,6 +210,8 @@ def pytest_sessionfinish(session, exitstatus):
         retries=s.retries,
         delay=s.delay,
         backoff=s.backoff,
+        confirm_rounds=s.confirm_rounds,
+        confirm_delay_s=s.confirm_delay_s,
         signing_key=signing_key,
         # enforce-if-keyed: a configured key makes unsigned receipts a failure by default,
         # unless OOPTDD_REQUIRE_SIGNATURE explicitly opts out (and keyless stays lenient).

@@ -43,6 +43,10 @@ class Settings:
     retries: int = 4
     delay: float = 1.0
     backoff: float = 2.0
+    #: anti-flap: after a FINAL-path revocable green, re-read this many extra times
+    #: (confirm_delay_s apart); any round no longer green wins. 0 = off (default).
+    confirm_rounds: int = 0
+    confirm_delay_s: float = 1.0
     backend_options: dict = field(default_factory=dict)
 
     def is_enabled(self) -> bool:
@@ -87,6 +91,8 @@ def from_mapping(table: dict | None) -> Settings:
         retries=table.get("retries", 4),
         delay=table.get("delay", 1.0),
         backoff=table.get("backoff", 2.0),
+        confirm_rounds=int(table.get("confirm_rounds", 0)),
+        confirm_delay_s=float(table.get("confirm_delay_s", 1.0)),
         backend_options=dict(table.get("backend_options", {})),
     )
     # environment overrides

@@ -64,6 +64,8 @@ def poll_until_present(
     max_delay: float = 30.0,
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
+    confirm_rounds: int = 0,
+    confirm_delay_s: float = 1.0,
     clock: Clock | None = None,
     sleeper: Sleeper | None = None,
 ) -> dict:
@@ -98,12 +100,13 @@ def poll_until_present(
             flushed = False  # best-effort: a broken flush endpoint must not gate anything
     started_us = clock.now_us()
 
-    def _stamp_arrival(body: dict, *, extended: bool) -> dict:
+    def _stamp_arrival(body: dict, *, extended: bool, confirms: int = 0) -> dict:
         body["arrival"] = {
             "visibility_delay_ms": visibility_us // 1000,
             "waited_ms": max(0, (clock.now_us() - started_us) // 1000),
             "flushed": flushed,
             "extended_for_visibility": extended,
+            "confirm_rounds_run": confirms,
         }
         return body
 
@@ -159,8 +162,17 @@ def poll_until_present(
         last_events, reachable=last_reachable, complete=last_complete,
         queried_ok=queried_ok, attempt=attempts, final=True,
     )
+    # Anti-flap confirm: a FINAL-path green passed on the last-read prefix but was
+    # not irrevocable (else it would have early-settled above) — a late offender can
+    # land right after that read. Re-read confirm_rounds extra times; any round that
+    # is no longer green WINS. RED/inconclusive terminals need no re-proof.
+    confirms_run = 0
+    while body.get("ok") and confirms_run < max(confirm_rounds, 0):
+        sleeper(confirm_delay_s)
+        confirms_run += 1
+        body = _read(attempts, final=True)
     body["attempts"] = attempts
-    return _stamp_arrival(body, extended=extended)
+    return _stamp_arrival(body, extended=extended, confirms=confirms_run)
 
 
 def verify_trace(
@@ -174,6 +186,8 @@ def verify_trace(
     max_delay: float = 30.0,
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
+    confirm_rounds: int = 0,
+    confirm_delay_s: float = 1.0,
     signing_key: str | None = None,
     require_signature: bool = False,
     clock: Clock | None = None,
@@ -269,6 +283,7 @@ def verify_trace(
     return poll_until_present(
         backend, cid, evaluate_prefix, retries=retries, delay=delay, backoff=backoff,
         max_delay=max_delay, lookback_s=lookback_s, future_buffer_s=future_buffer_s,
+        confirm_rounds=confirm_rounds, confirm_delay_s=confirm_delay_s,
         clock=clock, sleeper=sleeper,
     )
 
@@ -325,6 +340,8 @@ def verify_gate(
     max_delay: float = 30.0,
     lookback_s: int | None = None,
     future_buffer_s: int | None = None,
+    confirm_rounds: int = 0,
+    confirm_delay_s: float = 1.0,
     ontology=None,
     clock: Clock | None = None,
     sleeper: Sleeper | None = None,
@@ -376,6 +393,7 @@ def verify_gate(
     return poll_until_present(
         backend, cid, evaluate_prefix, retries=retries, delay=delay, backoff=backoff,
         max_delay=max_delay, lookback_s=lookback_s, future_buffer_s=future_buffer_s,
+        confirm_rounds=confirm_rounds, confirm_delay_s=confirm_delay_s,
         clock=clock, sleeper=sleeper,
     )
 
@@ -446,6 +464,8 @@ def session_finish(
     retries: int = 4,
     delay: float = 1.0,
     backoff: float = 2.0,
+    confirm_rounds: int = 0,
+    confirm_delay_s: float = 1.0,
     meta: dict | None = None,
     signing_key: str | None = None,
     require_signature: bool = False,
@@ -501,6 +521,7 @@ def session_finish(
     try:
         v = verify_trace(
             backend, cid, expect_total=n_total, retries=retries, delay=delay,
+            confirm_rounds=confirm_rounds, confirm_delay_s=confirm_delay_s,
             backoff=backoff, signing_key=signing_key, require_signature=require_signature,
             clock=clock, sleeper=sleeper,
         )
