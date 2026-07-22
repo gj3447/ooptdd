@@ -16,17 +16,40 @@ Usage (in a driver's own test suite)::
 
 It lives in the adapter layer (it drives a concrete backend and runs the engine's gate over
 the result), so it never widens the engine's dependency surface.
+
+This function IS the contract — the mock (MemoryBackend) and the real drivers are judged by
+this same callable, never by parallel hand-written expectations that could drift apart. The
+parity claim and its arrival-asserted receipt live in tests/test_contract_mock_parity_receipt.py.
+
+# KG: contract-mock-parity-receipt-2026-07-22 (계약 정본: mock/실물이 같은 함수로 검사됨 —
+#     clause 어휘 roundtrip/whole_row/timestamp/complete/gate/cid-injection, 영수증은 positive log)
 """
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
+from ..domain.model import correlation_keys
 from ..domain.ports import backend_caps
 from ..engine.gate import evaluate
 
 #: A factory returning a *fresh, write-and-read* backend bound to whatever store the author
 #: wants exercised (the in-memory default, or a real OpenObserve/ClickHouse/… via env/opener).
 BackendFactory = Callable[[], object]
+
+
+def _read_window_us() -> tuple[int, int]:
+    """Read bounds for the kit's just-shipped fixtures: (now-24h, now+1h) in µs.
+
+    NOT (0, 10**19): both extremes are mock-only fictions a real store rejects —
+    10**19 exceeds i64::MAX (~9.22e18) and start_time=0 is an "invalid time range"
+    on OpenObserve. Found by the live-store parity wing
+    (# KG: contract-mock-parity-receipt-2026-07-22): the in-memory mock accepted the
+    absurd bounds, the real store 400'd — exactly the drift class this kit exists
+    to catch, caught in the kit itself."""
+    now = time.time()
+    return int((now - 86400) * 1_000_000), int((now + 3600) * 1_000_000)
+
 
 
 def assert_backend_conforms(make_backend: BackendFactory, *, cid: str = "ooptdd-conf-cid") -> None:
@@ -40,13 +63,19 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str = "ooptdd-
     """
     backend = make_backend()
     # 1. ship → query round-trip: every shipped event for the cid comes back.
+    # Envelope-contract fixtures: carry the cid under EVERY correlation alias
+    # (correlation_keys: cid ≡ correlation_id ≡ cycle_id). Shipping bare {"cid": ...}
+    # violated the envelope contract — the in-memory mock tolerated it, but a real
+    # store's readback (OO: WHERE cycle_id = ...) 400s on the missing column. Found
+    # by the live parity wing (# KG: contract-mock-parity-receipt-2026-07-22).
     events = [
-        {"cid": cid, "event": "alpha", "verdict": "PASS", "n": 1},
-        {"cid": cid, "event": "alpha", "verdict": "NG", "n": 2},
-        {"cid": cid, "event": "beta", "verdict": "PASS", "n": 3},
+        {**correlation_keys(cid), "event": "alpha", "verdict": "PASS", "n": 1},
+        {**correlation_keys(cid), "event": "alpha", "verdict": "NG", "n": 2},
+        {**correlation_keys(cid), "event": "beta", "verdict": "PASS", "n": 3},
     ]
     backend.ship(events)
-    res = backend.query(cid, since_us=0, until_us=10**19)
+    since_us, until_us = _read_window_us()
+    res = backend.query(cid, since_us=since_us, until_us=until_us)
     assert res.reachable, "query of a just-shipped cid must be reachable"
     got = res.events
     assert len(got) >= 3, f"round-trip lost events: shipped 3, read {len(got)}"
@@ -71,8 +100,8 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str = "ooptdd-
     # 6. injection-safe cid binding: a cid with quotes/specials round-trips, never breaks.
     nasty = "conf'\"; OR 1=1 --:cid"
     b2 = make_backend()
-    b2.ship([{"cid": nasty, "event": "safe", "marker": "yes"}])
-    r2 = b2.query(nasty, since_us=0, until_us=10**19)
+    b2.ship([{**correlation_keys(nasty), "event": "safe", "marker": "yes"}])
+    r2 = b2.query(nasty, since_us=since_us, until_us=until_us)
     assert r2.reachable, "a cid with special characters must still query cleanly"
     assert any(e.get("marker") == "yes" for e in r2.events), \
         "a cid with quotes/specials must round-trip (cid binding must be escaped/parameterized)"
@@ -105,8 +134,8 @@ def assert_writeonly_backend_conforms(
     """
     backend, capture = make()
     events = [
-        {"cid": cid, "event": "alpha", "verdict": "PASS", "n": 1},
-        {"cid": cid, "event": "beta", "verdict": "NG", "n": 2},
+        {**correlation_keys(cid), "event": "alpha", "verdict": "PASS", "n": 1},
+        {**correlation_keys(cid), "event": "beta", "verdict": "NG", "n": 2},
     ]
     backend.ship(events)
 
@@ -126,6 +155,7 @@ def assert_writeonly_backend_conforms(
 
     # 4. the read side is honest: query is inconclusive (reachable=False), never a silent absent.
     # A write-only driver that returns reachable=True would let `strict` read a false ⊥ off it.
-    res = backend.query(cid, since_us=0, until_us=10**19)
+    wo_since, wo_until = _read_window_us()
+    res = backend.query(cid, since_us=wo_since, until_us=wo_until)
     assert res.reachable is False, \
         "a write-only backend's query must be inconclusive (reachable=False), never a silent absent"

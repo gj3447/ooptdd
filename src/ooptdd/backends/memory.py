@@ -10,6 +10,14 @@ Events live in a module-global store so that a `ship` in one place and a
 process. `reachable` is always True — there is no network to fail — so the only
 verdicts you can get are `present` or `absent`, never `inconclusive`. That makes
 it perfect for reproducing the silent-ingest-loss bug on purpose.
+
+Why this mock is legitimate (and where that claim is proven): it passes the SAME
+executable contract as the real drivers (backends/conformance.py) and its caps
+refuse the external-judge role (independent=False) — contract parity + honest
+caps, receipt-pinned in tests/test_contract_mock_parity_receipt.py.
+
+# KG: contract-mock-parity-receipt-2026-07-22 (mock=계약 후보(OOPTDD-R05): 같은 계약 통과 +
+#     external-judge 미참칭이 성립 조건)
 """
 from __future__ import annotations
 
