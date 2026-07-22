@@ -350,7 +350,7 @@ class OrderMonitor(Monitor):
     set, so a timestamp inversion (or an over-bound gap under MTL ``within_s``) is an
     inevitable VIOL, and once every name has fired in order it is an inevitable SAT."""
 
-    def __init__(self, seq, within_s=None):
+    def __init__(self, seq, within_s=None, tie_skew_ms=None):
         super().__init__()
         self.seq = list(seq)
         # `firsts`/`_keys` are name-keyed dicts, so a repeated name silently collapses to one
@@ -363,7 +363,15 @@ class OrderMonitor(Monitor):
                 f"must_order/trajectory names must be distinct — {sorted(dupes)} repeated; "
                 "first-occurrence sequencing cannot express multiplicity")
         self.within_s = within_s
+        # Concurrency window (ms): cross-node wall clocks cannot prove order tighter
+        # than their skew, so a first-occurrence "inversion" whose timestamps sit
+        # within this window is CONCURRENT, not a violation. None = strict (default).
+        self.tie_skew_ms = tie_skew_ms
         self.firsts: dict = {name: None for name in self.seq}
+        # Emitter-authoritative order (`_emit_seq`, stamped at emission — memory/jsonl
+        # ship paths stamp it; SUTs on network stores stamp their own): when BOTH events
+        # of a pair carry it, it beats the server (ts, _seq) page order entirely.
+        self._emits: dict = {name: None for name in self.seq}
         # Ordering is compared on a composite (ts, seq) key so same-batch events (identical ts) are
         # ordered by the backend's per-event seq — not vacuously "concurrent". `firsts` stays plain
         # ts (its reported shape is a contract); the seq only sharpens the *order* comparison.
@@ -375,9 +383,22 @@ class OrderMonitor(Monitor):
     def _order_keys(self):
         return [self._keys[name] for name in self.seq]
 
+    def _pair_ok(self, name_a, name_b) -> bool:
+        """Is the (a before b) claim satisfied for two OBSERVED first-occurrences?
+        Authority ladder: both `_emit_seq` -> compare those; else inside `tie_skew_ms`
+        -> concurrent (unprovable, never a false RED); else composite (ts, _seq)."""
+        ka, kb = self._keys[name_a], self._keys[name_b]
+        ea, eb = self._emits[name_a], self._emits[name_b]
+        if ea is not None and eb is not None:
+            return ea <= eb
+        if (self.tie_skew_ms is not None
+                and abs(ka[0] - kb[0]) <= self.tie_skew_ms * 1000):
+            return True
+        return ka <= kb
+
     def _ordered_so_far(self) -> bool:
-        known = [k for k in self._order_keys() if k is not None]
-        return all(known[i] <= known[i + 1] for i in range(len(known) - 1))
+        seen = [n for n in self.seq if self._keys[n] is not None]
+        return all(self._pair_ok(seen[i], seen[i + 1]) for i in range(len(seen) - 1))
 
     def _gaps_exceeded(self):
         out = []
@@ -400,6 +421,8 @@ class OrderMonitor(Monitor):
             self.firsts[name] = ts
             s = ev.get("_seq")
             self._keys[name] = (ts, s if s is not None else 0)
+            emit = ev.get("_emit_seq")
+            self._emits[name] = emit if isinstance(emit, int) else None
         # inevitable VIOL: a known first-occurrence is now out of order, or a bounded gap
         # has already been exceeded — neither can be undone by later events.
         if not self._ordered_so_far() or self._gaps_exceeded():
@@ -411,9 +434,9 @@ class OrderMonitor(Monitor):
     def collapse(self, reachable):
         fl = self._firsts_list()
         missing = [name for name, ts in fl if ts is None]
-        keys = self._order_keys()  # (ts, seq) composite so a same-batch inversion is not "ordered"
+        # same authority ladder as the streaming path (emit_seq > skew window > (ts,_seq))
         ordered = not missing and all(
-            keys[i] <= keys[i + 1] for i in range(len(keys) - 1)
+            self._pair_ok(self.seq[i], self.seq[i + 1]) for i in range(len(self.seq) - 1)
         )
         gaps = self._gaps_exceeded() if ordered else []
         chk = {
@@ -752,7 +775,8 @@ def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
                                 edge_silence=rule.get("edge_silence", False))
     if "must_order" in rule or "trajectory" in rule:
         seq = rule.get("must_order") or rule.get("trajectory")
-        return OrderMonitor(seq, within_s=rule.get("within_s"))
+        return OrderMonitor(seq, within_s=rule.get("within_s"),
+                            tie_skew_ms=rule.get("tie_skew_ms"))
     if "present" in rule:
         return PresentMonitor(rule["present"], indicators)
     if "ratioMetric" in rule:

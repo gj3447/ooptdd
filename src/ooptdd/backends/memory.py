@@ -61,7 +61,12 @@ class MemoryBackend:
         now_us = int(time.time() * 1_000_000)
         for ev in events:
             cid = ev.get("cid") or ev.get("correlation_id") or ev.get("cycle_id") or ""
-            _STORE.setdefault(cid, []).append((now_us, next(_SEQ), ev))
+            seq = next(_SEQ)
+            # Ship order IS emit order here (same process): stamp the emitter-authoritative
+            # `_emit_seq` ordering key (never overwriting a SUT-provided one) so must_order
+            # can rank same-timestamp events by emission, not by server page order.
+            stored = ev if "_emit_seq" in ev else {**ev, "_emit_seq": seq}
+            _STORE.setdefault(cid, []).append((now_us, seq, stored))
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         # Stamp each returned event with its store-receive time under ``_timestamp``

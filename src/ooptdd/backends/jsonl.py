@@ -71,7 +71,9 @@ class JsonlBackend:
         # append-only: 한 줄 = {_stored_us, _stored_seq, ev}. ensure_ascii=False 로 한글 보존.
         with open(self.path, "a", encoding="utf-8") as f:
             for ev in events:
-                rec = {"_stored_us": now_us, "_stored_seq": next(_SEQ), "ev": ev}
+                seq = next(_SEQ)
+                stored = ev if "_emit_seq" in ev else {**ev, "_emit_seq": seq}
+                rec = {"_stored_us": now_us, "_stored_seq": seq, "ev": stored}
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
