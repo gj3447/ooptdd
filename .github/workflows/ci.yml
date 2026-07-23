@@ -47,6 +47,20 @@ jobs:
       - name: Backend matrix current (belt-and-braces for filtered pytest runs)
         run: python scripts/gen_backend_matrix.py --check
 
+  deepeval-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install real DeepEval surface
+        # Pin the API we actually verified; this is an integration canary, not a
+        # hard runtime dependency of ooptdd.
+        run: python -m pip install -e ".[dev]" "deepeval==4.0.7"
+      - name: DeepEval custom-metric loop (real package, no LLM/API key)
+        run: pytest -q examples/integrations/test_deepeval_arrival.py
+
   # The founding-incident trio + the live parity wing against a REAL OpenObserve —
   # keeps the strongest demos from decaying into "demonstrated once and framed".
   openobserve-demos:

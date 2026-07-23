@@ -85,8 +85,8 @@ schema consumed by GitHub's test summary.
 ## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd.integrations`), HARDENED 2026-07-23
 
 Acceptance status: deepeval bridge verified against REAL deepeval v4.0.7
-(evaluate() loop end-to-end, 2026-07-22 grill); worked examples exist for all
-three adapters under examples/integrations/.
+(evaluate() loop end-to-end) and now pinned as its own hosted-CI integration
+job; worked examples exist for all three adapters under examples/integrations/.
 
 **Weakness:** DeepEval/Ragas/Phoenix/LangSmith have rich agent-quality metrics;
 ooptdd should not rebuild them ("What not to do") but currently offers no bridge,

@@ -13,7 +13,8 @@ All notable changes to this project are documented here. The format follows
   the tool wholesale (unreadable arrived args fail closed). Phoenix `CODE`
   annotations gain a stable upsert `identifier`, optional metadata, and
   `sync=true` POST mode. The trajectory and verdict-export examples are now
-  explicit hosted-CI steps instead of session-only demos.
+  explicit hosted-CI steps instead of session-only demos, and a dedicated job
+  installs real DeepEval 4.0.7 to pin the custom-metric API end to end.
 - **ClickHouse / VictoriaLogs typed read surfaces.** CH synthesizes an opaque
   decimal-offset cursor over `LIMIT n OFFSET k` (walkable by `fetch_all_pages`, `_seq`
   stays the global position); VL is **limit-only** by design — LogsQL has no paging
