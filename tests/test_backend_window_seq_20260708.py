@@ -50,7 +50,8 @@ def test_clickhouse_query_bounds_time_window_in_sql(monkeypatch):
     b.query("c1", since_us=1000, until_us=9999)
     url = captured["url"]
     # the µs window is the only enforceable guard without a live server
-    assert "fromUnixTimestamp64Micro" in url or "fromUnixTimestamp64Micro" in url.replace("%28", "(")
+    unquoted = url.replace("%28", "(")
+    assert "fromUnixTimestamp64Micro" in url or "fromUnixTimestamp64Micro" in unquoted
     assert "since%3AInt64" in url or "{since:Int64}" in url
     assert "until%3AInt64" in url or "{until:Int64}" in url
     assert "param_since=1000" in url and "param_until=9999" in url

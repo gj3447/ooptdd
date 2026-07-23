@@ -91,7 +91,8 @@ def gen_ai_ontology(*, closed_world: bool = False) -> Ontology:
 # must never see drift — tests/test_semconv_1_41.py pins its vocabulary). Version
 # bumps ADD a ``gen_ai@<ver>`` preset; they never edit an existing one.
 
-SEMCONV_VERSION_1_41 = "1.41.0-development (final in-repo state; moved to semantic-conventions-genai at core v1.42)"
+SEMCONV_VERSION_1_41 = ("1.41.0-development (final in-repo state; moved to "
+                        "semantic-conventions-genai at core v1.42)")
 
 #: 9 operations: retrieval added v1.40.0, invoke_workflow v1.41.0
 #: (registry-deprecated.yaml:914-965).

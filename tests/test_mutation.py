@@ -102,6 +102,7 @@ def test_canary_survives_a_gate_with_no_gating_positive_expectation():
 
 def test_cli_canary_survival_is_the_inconclusive_rung(tmp_path, capsys):
     import json as _json
+
     from ooptdd.cli import main
     spec = tmp_path / "s.yaml"
     spec.write_text("expect:\n  - {absent: {where: {level: ERROR}}}\n", encoding="utf-8")

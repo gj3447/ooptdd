@@ -20,11 +20,11 @@ from __future__ import annotations
 
 from ooptdd.domain.ontology import Ontology
 from ooptdd.domain.semconv import (
+    _REQUIRED,
     GEN_AI_OPERATIONS,
     GEN_AI_OPERATIONS_1_41,
     GEN_AI_PROVIDERS_1_41,
     SEMCONV_VERSION_1_41,
-    _REQUIRED,
 )
 
 

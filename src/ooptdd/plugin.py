@@ -64,7 +64,7 @@ def pytest_addoption(parser):
         ("ooptdd_enabled", "auto|1|0"),
         ("ooptdd_cid_env", "env var holding the correlation id"),
         ("ooptdd_retries", "arrival-poll attempts (int, default 4)"),
-        ("ooptdd_confirm_rounds", "anti-flap confirm re-reads after a revocable green (int, default 0)"),
+        ("ooptdd_confirm_rounds", "anti-flap confirm re-reads after a green (int, default 0)"),
         ("ooptdd_delay", "initial arrival-poll delay in seconds (float, default 1.0)"),
         ("ooptdd_backoff", "arrival-poll backoff multiplier (float, default 2.0)"),
     ]:
