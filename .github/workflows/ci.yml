@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # manual re-run: lets a maintainer re-prove a green on demand (and makes it
+  # observable whether Actions is wired at all on this repo, without waiting for a push).
+  workflow_dispatch:
 
 jobs:
   test:
