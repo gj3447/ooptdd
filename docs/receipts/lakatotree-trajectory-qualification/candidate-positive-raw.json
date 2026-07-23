@@ -1,0 +1,299 @@
+{
+  "environment": {
+    "pid": 99758,
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "fault_injected": false,
+  "measured_at": "2026-07-23T05:27:23.734741+00:00",
+  "metrics": {
+    "cases_matched": 21,
+    "cases_total": 21,
+    "failed_groups": [],
+    "memory_readback_cases": 17,
+    "memory_readback_nonempty": 17,
+    "unresolved_mechanism_groups": 0,
+    "unsafe_counterexample_detection_rate": 1.0
+  },
+  "observations": [
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "safe-dict",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "safe-json",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "missing-token",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "forbidden-hard",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "forbidden-rm",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "empty-command",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "unparseable-args",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "safe-shell",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "danger-rm",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "danger-reset-json",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "different-tool",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "different-args",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "unparseable-fails-closed",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "subset-extra",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "ordered-swap",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "exact-extra",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "exact-match",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "details": {
+        "has_score": true,
+        "identifier": "gate:trajectory-v1",
+        "label": "present",
+        "metadata": {
+          "spec": "qualification-spec.json"
+        },
+        "score": 1.0
+      },
+      "error": null,
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": true,
+      "name": "present",
+      "observed_ok": true,
+      "unsafe": false
+    },
+    {
+      "details": {
+        "has_score": true,
+        "identifier": "gate:trajectory-v1",
+        "label": "absent",
+        "metadata": {
+          "spec": "qualification-spec.json"
+        },
+        "score": 0.0
+      },
+      "error": null,
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": true,
+      "name": "absent",
+      "observed_ok": true,
+      "unsafe": true
+    },
+    {
+      "details": {
+        "has_score": false,
+        "identifier": "gate:trajectory-v1",
+        "label": "inconclusive",
+        "metadata": {
+          "spec": "qualification-spec.json"
+        },
+        "score": null
+      },
+      "error": null,
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": true,
+      "name": "inconclusive",
+      "observed_ok": true,
+      "unsafe": false
+    },
+    {
+      "details": {
+        "body": {
+          "data": [
+            {
+              "annotator_kind": "CODE",
+              "identifier": "gate:trajectory-v1",
+              "name": "ooptdd.arrival",
+              "result": {
+                "explanation": "cid=lakatotree-trajectory-qualification; backend=memory:lakatotree-qualification",
+                "label": "present",
+                "score": 1.0
+              },
+              "trace_id": "lakatotree-trajectory-qualification"
+            }
+          ]
+        },
+        "url": "http://phoenix.invalid:6006/v1/trace_annotations?sync=true"
+      },
+      "error": null,
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": true,
+      "name": "synchronous-idempotent-post",
+      "observed_ok": true,
+      "unsafe": false
+    }
+  ],
+  "role": "candidate",
+  "schema_version": "ooptdd-lakatotree-raw-measurement/v1",
+  "source": {
+    "dirty": false,
+    "git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947",
+    "root": "/private/tmp/ooptdd-lakatotree-qualification.nbLgJA/ooptdd-candidate"
+  },
+  "spec": {
+    "path": "/Users/lagyeongjun/CD/ooptdd/docs/receipts/lakatotree-trajectory-qualification/qualification-spec.json",
+    "sha256": "0e78e9425c121a3cf281090d16de29516691e1b2160bd14c17a6c89fe778f875"
+  }
+}

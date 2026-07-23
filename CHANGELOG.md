@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **LakatoTree-qualified trajectory programme.** A preregistered, frozen
+  baseline/candidate/negative-control programme now exercises the DeepEval and
+  Phoenix trajectory surface through 27 cases.  The canonical LakatoTree judge
+  is pinned by commit and replayed in hosted CI; linked ooptdd, judgment, and PI
+  receipts keep the claim auditable outside its authoring session.
 - **DeepEval/Phoenix trajectory closeout.** Phoenix-compatible argument matchers
   now compose compatible constraints in one object, and
   `forbidden_tool_calls` gates a prohibited tool+argument subset without banning

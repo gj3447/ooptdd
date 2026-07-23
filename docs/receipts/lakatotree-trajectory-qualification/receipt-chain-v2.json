@@ -1,0 +1,21 @@
+{
+  "schema_version": "ooptdd-lakatotree-receipt-chain/v1",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "receipts": [
+    {
+      "kind": "prediction",
+      "path": "docs/receipts/lakatotree-trajectory-qualification/preregistration-response-v2.json",
+      "sha256": "e0b36d53687ba20f7cfa297f296ac26fc6fe0fd5a7577d1fdbb9e6672e811de3",
+      "binds": "d860442241e7204ed6e825e2daeaf5cacb378a86d4f4dea36f8e2b15ca7d223d",
+      "previous": null
+    },
+    {
+      "kind": "judgment",
+      "path": "docs/receipts/lakatotree-trajectory-qualification/judge-response-v2.json",
+      "sha256": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc",
+      "binds": "416c30265b6bd2f75665b31d2a8ea58c2c936841008e964fd4d2e0ea6ad7037f",
+      "previous": "e0b36d53687ba20f7cfa297f296ac26fc6fe0fd5a7577d1fdbb9e6672e811de3"
+    }
+  ],
+  "head": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc"
+}

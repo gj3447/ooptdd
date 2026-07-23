@@ -1,0 +1,11 @@
+{
+  "schema_version": "ooptdd-lakatotree-unjudged/v1",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "registration": "docs/receipts/lakatotree-trajectory-qualification/preregistration-request.json",
+  "evidence": "docs/receipts/lakatotree-trajectory-qualification/evidence-record.json",
+  "state": "UNJUDGED",
+  "reason": "The v1 registration pinned lakatos.judge:judge, but the pinned current LakatoTree commit exposes lakatos.verdict.judge:judge. No compatibility shim or post-hoc registration edit was accepted.",
+  "failed_command": ".venv/bin/python scripts/run_lakatotree_trajectory_judge.py judge --lakatotree-root <pinned-checkout> --prereg <v1> --evidence <v1>",
+  "error": "ModuleNotFoundError: No module named 'lakatos.judge'",
+  "superseded_by": "docs/receipts/lakatotree-trajectory-qualification/preregistration-request-v2.json"
+}

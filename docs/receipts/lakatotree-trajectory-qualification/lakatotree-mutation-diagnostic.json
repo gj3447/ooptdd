@@ -1,0 +1,24 @@
+{
+  "schema_version": "lakatotree-mutation-diagnostic/v1",
+  "lakatotree_git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+  "initial_environment": {
+    "requirement": "mutmut>=2.4",
+    "resolved_version": "3.6.0",
+    "exit_code": 1,
+    "failure": "The current mutation script passes removed --paths-to-mutate and --runner CLI options; mutmut 3.6 required config instead and stopped before mutation."
+  },
+  "compatibility_replay": {
+    "version": "mutmut 2.5.1",
+    "command": "PY=.venv/bin/python bash scripts/mutation_kernel.sh",
+    "exit_code": 10,
+    "mutants_total": 246,
+    "killed": 121,
+    "survived": 124,
+    "suspicious": 1,
+    "timeout": 0,
+    "skipped": 0,
+    "mutation_score_percent_excluding_suspicious": 49.19
+  },
+  "interpretation": "LakatoTree's judge and Bayes kernel tests have substantial surviving mutants, and the unbounded dependency currently prevents the CI script from starting under the latest mutmut. This is a LakatoTree quality backlog item, not evidence that the ooptdd trajectory candidate failed its preregistered gates.",
+  "recommended_fix": "Pin mutmut<3 or migrate the script to mutmut 3 configuration, then classify or kill the 124 surviving mutants and add a blocking score ratchet."
+}

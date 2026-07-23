@@ -1,0 +1,31 @@
+{
+  "schema_version": "ooptdd-lakatotree-qualification-spec/v2",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory",
+  "conjecture": "The candidate closes the three deterministic trajectory gaps under a held-out expanded battery and remains correctly observable through the real DeepEval 4.0.7 metric interface.",
+  "primary_metric": {
+    "name": "unresolved_mechanism_groups",
+    "direction": "lower",
+    "baseline": 3.0,
+    "noise_band": 0.0,
+    "target": 0.0,
+    "groups": [
+      "matcher_composition",
+      "forbidden_tool_calls",
+      "phoenix_annotation"
+    ],
+    "v2_heldout_extensions": [
+      "composed dictionary matchers",
+      "forbidden filesystem paths",
+      "real DeepEval safe-danger-corrupt probe"
+    ]
+  },
+  "novel_target": {
+    "name": "actual_deepeval_trajectory_pass_rate",
+    "direction": "higher",
+    "threshold": 1.0,
+    "independent_artifact_required": true
+  },
+  "kill_condition": "Kill if unresolved_mechanism_groups > 0, the held-out DeepEval pass rate is below 1.0, the baseline does not expose all three claimed gaps, the same-spec destructive-call injection does not break the harness, or positive replay does not restore it.",
+  "oracle_boundary": "Trajectory cases use MemoryBackend ship-query-readback. The novel target runs in a separate DeepEval 4.0.7 process and is hash-separated from the primary measurement, but both still use the same ooptdd source commit. Phoenix HTTP uses a recording opener rather than a live Phoenix service."
+}

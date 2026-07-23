@@ -1,0 +1,30 @@
+{
+  "schema_version": "ooptdd-lakatotree-verification/v1",
+  "ok": true,
+  "from_receipt": true,
+  "scripted_source_confirmed": true,
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "lakatotree": {
+    "git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+    "entrypoint": "lakatos.verdict.judge:judge"
+  },
+  "bindings": {
+    "preregistration": "d860442241e7204ed6e825e2daeaf5cacb378a86d4f4dea36f8e2b15ca7d223d",
+    "evidence": "416c30265b6bd2f75665b31d2a8ea58c2c936841008e964fd4d2e0ea6ad7037f",
+    "primary_measurement": "3ee2360e892ee4e2f532f0a1a3676b7fea70ab8503ccca6b9d95b6ad14a46c59",
+    "novel_measurement": "552dfe95460eb8fea839754c2ab1d8cd30fcd347e930a9da286e00508a4f0a30",
+    "negative_measurement": "9833a0dbbca9f4f92354539897ab6d6dab4642843fdc018fc93a5f320c25d59f",
+    "judge_response": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc"
+  },
+  "checks": {
+    "registration_precedes_measurement": true,
+    "evidence_contains_authored_result": false,
+    "primary_and_novel_hashes_differ": true,
+    "baseline_exposes_all_three_groups": true,
+    "candidate_closes_all_three_groups": true,
+    "same_spec_negative_breaks": true,
+    "positive_replay_restores": true,
+    "kill_condition_triggered": false
+  },
+  "head_receipt_sha256": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc"
+}

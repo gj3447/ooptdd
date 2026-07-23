@@ -1,0 +1,70 @@
+{
+  "schema_version": "symposium-lakatotree-judgment/v1",
+  "template_only": false,
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory-v2",
+  "conjecture": "The expanded held-out trajectory battery closes all three deterministic gaps and remains correctly observable through a separately executed DeepEval 4.0.7 metric probe.",
+  "roles": {
+    "implementer": "codex-root-ooptdd-lakatotree-20260723",
+    "judge": "lakatotree-local-deterministic-kernel-4525f0e"
+  },
+  "preregistration": {
+    "request_path": "docs/receipts/lakatotree-trajectory-qualification/preregistration-request-v2.json",
+    "request_sha256": "d860442241e7204ed6e825e2daeaf5cacb378a86d4f4dea36f8e2b15ca7d223d",
+    "response_path": "docs/receipts/lakatotree-trajectory-qualification/preregistration-response-v2.json",
+    "response_sha256": "e0b36d53687ba20f7cfa297f296ac26fc6fe0fd5a7577d1fdbb9e6672e811de3",
+    "prediction_receipt_sha256": "e0b36d53687ba20f7cfa297f296ac26fc6fe0fd5a7577d1fdbb9e6672e811de3",
+    "registered_at": "2026-07-23T05:38:38+00:00",
+    "registered_before_measurement": true,
+    "prediction": {
+      "metric": "unresolved_mechanism_groups",
+      "direction": "lower",
+      "baseline": 3.0,
+      "noise_band": 0.0,
+      "scale_type": "ratio"
+    },
+    "novel_target": {
+      "metric": "actual_deepeval_trajectory_pass_rate",
+      "direction": "higher",
+      "threshold": 1.0
+    },
+    "kill_condition": "Kill on any unresolved group, held-out DeepEval rate below 1.0, missing baseline delta, ineffective same-spec negative, failed restore, reused evidence hash, or unavailable pinned judge entrypoint.",
+    "judge_script_path": "scripts/run_lakatotree_trajectory_judge.py",
+    "judge_script_sha256": "ce181026ff4fc28033c27f6e89c61fcfeb6e88fbfcc33c77228bb9a28274852a"
+  },
+  "measurement": {
+    "started_at": "2026-07-23T05:40:09.975734+00:00",
+    "evidence_records": [
+      {
+        "path": "docs/receipts/lakatotree-trajectory-qualification/evidence-record-v2.json",
+        "sha256": "416c30265b6bd2f75665b31d2a8ea58c2c936841008e964fd4d2e0ea6ad7037f",
+        "schema": "lakato-evidence-record/v1",
+        "grounded": true,
+        "contains_verdict": false
+      }
+    ],
+    "novel_result_path": "docs/receipts/lakatotree-trajectory-qualification/deepeval-heldout-v2.json",
+    "novel_result_sha256": "552dfe95460eb8fea839754c2ab1d8cd30fcd347e930a9da286e00508a4f0a30"
+  },
+  "judge": {
+    "command": ".venv/bin/python scripts/run_lakatotree_trajectory_judge.py judge --lakatotree-root /tmp/ooptdd-lakatotree-qualification.nbLgJA/lakatotree --prereg docs/receipts/lakatotree-trajectory-qualification/preregistration-request-v2.json --evidence docs/receipts/lakatotree-trajectory-qualification/evidence-record-v2.json --output docs/receipts/lakatotree-trajectory-qualification/judge-response-v2.json",
+    "cwd": "/Users/lagyeongjun/CD/ooptdd",
+    "git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+    "entrypoint": "lakatos.verdict.judge:judge",
+    "exit_code": 0,
+    "response_path": "docs/receipts/lakatotree-trajectory-qualification/judge-response-v2.json",
+    "response_sha256": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc",
+    "verdict_receipt_sha256": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc",
+    "prev_receipt_sha256": "e0b36d53687ba20f7cfa297f296ac26fc6fe0fd5a7577d1fdbb9e6672e811de3"
+  },
+  "verification": {
+    "receipt_chain_path": "docs/receipts/lakatotree-trajectory-qualification/receipt-chain-v2.json",
+    "receipt_chain_sha256": "5f138d30811aa77e86b759a4cd129dbcc32fed6f20160ac0889d3d52a5cd4f7c",
+    "verify_output_path": "docs/receipts/lakatotree-trajectory-qualification/verification-v2.json",
+    "verify_output_sha256": "5fc28aceb3d93b84413df17a3fc0cebc173fc2e5b807e653b433cb0f669df6ec",
+    "head_receipt_sha256": "d61b3cca082c0d596464a343f34822fab29cdd9d8b7c2cac3dbc085dba41f9cc",
+    "ok": true,
+    "from_receipt": true,
+    "scripted_source_confirmed": true
+  }
+}

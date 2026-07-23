@@ -1,0 +1,11 @@
+{
+  "schema_version": "ooptdd-lakatotree-registration-response/v1",
+  "accepted": true,
+  "accepted_at": "2026-07-23T05:26:02+00:00",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory",
+  "request_path": "docs/receipts/lakatotree-trajectory-qualification/preregistration-request.json",
+  "request_sha256": "bc66a1545eaf40d342681a01719474fb2f4ce6eec641ad162b16ade6649a4fcd",
+  "registration_authority": "local-immutable-file-before-measurement",
+  "note": "Registration fixes the new qualification battery only; it does not backdate earlier branch tests."
+}

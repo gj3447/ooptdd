@@ -1,0 +1,84 @@
+{
+  "schema_version": "ooptdd-lakatotree-regression-guards/v1",
+  "recorded_at": "2026-07-23T05:41:20+00:00",
+  "candidate_git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947",
+  "lakatotree_git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+  "checks": [
+    {
+      "command": "UV_CACHE_DIR=$PWD/.uv-cache uv run --extra dev pytest -q",
+      "cwd": "/Users/lagyeongjun/CD/ooptdd",
+      "exit_code": 0,
+      "result": "646 passed, 3 skipped"
+    },
+    {
+      "command": "UV_CACHE_DIR=$PWD/.uv-cache uv run --extra dev pytest -q -n auto",
+      "cwd": "/Users/lagyeongjun/CD/ooptdd",
+      "exit_code": 0,
+      "result": "646 passed, 3 skipped"
+    },
+    {
+      "command": "uv run --python 3.12 --with deepeval==4.0.7 --extra dev pytest -q examples/integrations/test_deepeval_arrival.py",
+      "cwd": "/Users/lagyeongjun/CD/ooptdd",
+      "exit_code": 0,
+      "result": "1 passed"
+    },
+    {
+      "command": ".venv/bin/python -m pytest -q",
+      "cwd": "fresh gj3447/lakatotree checkout",
+      "exit_code": 0,
+      "result": "1821 passed, 109 skipped, 1 deprecation warning"
+    },
+    {
+      "command": ".venv/bin/lint-imports",
+      "cwd": "fresh gj3447/lakatotree checkout",
+      "exit_code": 0,
+      "result": "5 contracts kept, 0 broken"
+    },
+    {
+      "command": ".venv/bin/python -m lakatos.longinus audit",
+      "cwd": "fresh gj3447/lakatotree checkout",
+      "exit_code": 0,
+      "result": "235/235 OK; 88 non-fatal line_hint cache warnings"
+    },
+    {
+      "command": ".venv/bin/python ooptdd_receipts/run_all.py",
+      "cwd": "fresh gj3447/lakatotree checkout",
+      "exit_code": 0,
+      "result": "49/49 green"
+    },
+    {
+      "command": "PY=.venv/bin/python bash scripts/coverage_kernel.sh",
+      "cwd": "fresh gj3447/lakatotree checkout",
+      "exit_code": 0,
+      "result": "98.24 percent coverage; threshold 95 percent; 1773 passed, 109 skipped"
+    },
+    {
+      "command": "uv run --extra dev ruff check src tests examples scripts/run_lakatotree_trajectory_judge.py",
+      "cwd": "/Users/lagyeongjun/CD/ooptdd",
+      "exit_code": 0,
+      "result": "all checks passed after test-only import and line-format repair"
+    }
+  ],
+  "failed_attempts": [
+    {
+      "command": "python3 scripts/run_lakatotree_trajectory_judge.py measure ...",
+      "exit_code": 1,
+      "reason": "macOS system Python 3.9 cannot execute the repository's Python 3.10+ union syntax; no measurement was produced"
+    },
+    {
+      "command": "first full ooptdd suite with in-process harness import",
+      "exit_code": 1,
+      "reason": "the new test reloaded ooptdd modules inside pytest and split class and registry identity; the test was isolated in a subprocess and the full suite then passed"
+    },
+    {
+      "command": "v1 LakatoTree judge",
+      "exit_code": 1,
+      "reason": "legacy lakatos.judge entrypoint was absent from the pinned latest checkout; v1 was preserved UNJUDGED and v2 was newly registered"
+    }
+  ],
+  "oracle_boundaries": [
+    "MemoryBackend is same-process arrival readback, not an independent external store.",
+    "Phoenix HTTP is tested through a recording opener, not a live Phoenix deployment.",
+    "The held-out DeepEval process has a distinct artifact hash but uses the same ooptdd source commit."
+  ]
+}

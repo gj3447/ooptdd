@@ -1,0 +1,11 @@
+{
+  "schema_version": "ooptdd-lakatotree-registration-response/v2",
+  "accepted": true,
+  "accepted_at": "2026-07-23T05:39:03+00:00",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory-v2",
+  "request_path": "docs/receipts/lakatotree-trajectory-qualification/preregistration-request-v2.json",
+  "request_sha256": "d860442241e7204ed6e825e2daeaf5cacb378a86d4f4dea36f8e2b15ca7d223d",
+  "registration_authority": "local-immutable-file-before-v2-measurement",
+  "note": "V1 remains unjudged. This registration fixes only the new v2 cases and DeepEval probe."
+}

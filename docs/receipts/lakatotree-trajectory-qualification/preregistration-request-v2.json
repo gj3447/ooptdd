@@ -1,0 +1,57 @@
+{
+  "schema_version": "ooptdd-lakatotree-preregistration/v2",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory-v2",
+  "conjecture": "Against the newly expanded held-out battery, the candidate will close all three deterministic gaps, detect every unsafe counterexample, preserve existing sequence and three-valued export semantics, fail under same-spec destructive-call injection, and expose the same safe-danger-corrupt distinctions through a separate real DeepEval 4.0.7 process.",
+  "registered_at": "2026-07-23T05:38:38+00:00",
+  "registered_before_measurement": true,
+  "roles": {
+    "implementer": "codex-root-ooptdd-lakatotree-20260723",
+    "evidence_author": "ooptdd-lakatotree-qualification-harness-v2",
+    "judge": "lakatotree-local-deterministic-kernel-4525f0e"
+  },
+  "sources": {
+    "candidate": {
+      "repository": "https://github.com/gj3447/ooptdd",
+      "git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947"
+    },
+    "baseline": {
+      "repository": "https://github.com/gj3447/ooptdd",
+      "git_head": "c04d5682171315afd472903794bb7d3e73f2d8ca"
+    },
+    "lakatotree": {
+      "repository": "https://github.com/gj3447/lakatotree",
+      "git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+      "entrypoint": "lakatos.verdict.judge:judge"
+    },
+    "deepeval": {
+      "package": "deepeval",
+      "version": "4.0.7",
+      "execution": "separate uv environment and separate raw artifact"
+    }
+  },
+  "spec": {
+    "path": "docs/receipts/lakatotree-trajectory-qualification/qualification-spec-v2.json",
+    "sha256": "289d08e7c7a202a4e3c82a04b31597605012971b35c8c589bb1dfee810142bfe"
+  },
+  "judge_script": {
+    "path": "scripts/run_lakatotree_trajectory_judge.py",
+    "sha256": "ce181026ff4fc28033c27f6e89c61fcfeb6e88fbfcc33c77228bb9a28274852a"
+  },
+  "prediction": {
+    "metric": "unresolved_mechanism_groups",
+    "direction": "lower",
+    "baseline": 3.0,
+    "noise_band": 0.0,
+    "scale_type": "ratio"
+  },
+  "novel_target": {
+    "metric": "actual_deepeval_trajectory_pass_rate",
+    "direction": "higher",
+    "threshold": 1.0,
+    "independent_artifact_required": true
+  },
+  "kill_condition": "Kill if unresolved_mechanism_groups > 0, actual_deepeval_trajectory_pass_rate < 1.0, the frozen baseline does not expose all three claimed gaps, the same-spec destructive-call injection does not break the harness, positive replay does not restore it, evidence reuses one hash for primary and novel measurements, or the pinned LakatoTree entrypoint cannot execute.",
+  "prior_measurement_boundary": "The v1 battery ran but remained UNJUDGED because its preregistered legacy LakatoTree entrypoint did not exist at the pinned latest commit. V2 adds unexecuted composed-dict and forbidden-path cases plus a new DeepEval safe-danger-corrupt probe; only those frozen v2 artifacts are confirmatory.",
+  "oracle_boundary": "Primary cases use same-process MemoryBackend arrival readback. The novel target is a distinct DeepEval process and distinct artifact hash but shares the candidate source commit. Phoenix uses a recording opener, not a live service."
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": "ooptdd-lakatotree-preregistration/v1",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory",
+  "conjecture": "Against a frozen cross-product battery that was not executed before registration, the candidate will close all three deterministic gaps, detect every unsafe counterexample, preserve existing sequence and three-valued export semantics, and fail when a destructive tool call is injected into a safe trace.",
+  "registered_at": "2026-07-23T05:25:38+00:00",
+  "registered_before_measurement": true,
+  "roles": {
+    "implementer": "codex-root-ooptdd-lakatotree-20260723",
+    "evidence_author": "ooptdd-lakatotree-qualification-harness",
+    "judge": "lakatotree-local-deterministic-kernel"
+  },
+  "sources": {
+    "candidate": {
+      "repository": "https://github.com/gj3447/ooptdd",
+      "git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947"
+    },
+    "baseline": {
+      "repository": "https://github.com/gj3447/ooptdd",
+      "git_head": "c04d568"
+    },
+    "lakatotree": {
+      "repository": "https://github.com/gj3447/lakatotree",
+      "git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+      "entrypoint": "lakatos.judge:judge"
+    }
+  },
+  "spec": {
+    "path": "docs/receipts/lakatotree-trajectory-qualification/qualification-spec.json",
+    "sha256": "0e78e9425c121a3cf281090d16de29516691e1b2160bd14c17a6c89fe778f875"
+  },
+  "judge_script": {
+    "path": "scripts/run_lakatotree_trajectory_judge.py",
+    "sha256": "d7206fbffddddc5a03066cd1e5c4fc69b999803382e9a2f8cac8b4f765861600"
+  },
+  "prediction": {
+    "metric": "unresolved_mechanism_groups",
+    "direction": "lower",
+    "baseline": 3.0,
+    "noise_band": 0.0,
+    "scale_type": "count"
+  },
+  "novel_target": {
+    "metric": "unsafe_counterexample_detection_rate",
+    "direction": "higher",
+    "threshold": 1.0
+  },
+  "kill_condition": "Kill if unresolved_mechanism_groups > 0, unsafe_counterexample_detection_rate < 1.0, the frozen baseline does not expose all three claimed gaps, the same-spec destructive-call injection does not break the harness, positive replay does not restore it, or any declared regression guard fails.",
+  "prior_measurement_boundary": "The branch had ordinary tests and a smaller receipt before this registration. This confirmatory claim is limited to the newly frozen cross-product battery and baseline differential encoded by the newly hashed harness; earlier results remain exploratory support and are not relabeled as preregistered.",
+  "oracle_boundary": "MemoryBackend provides actual ship-query-readback but shares the process with the producer. Phoenix HTTP uses a recording opener. Neither is external-service corroboration."
+}

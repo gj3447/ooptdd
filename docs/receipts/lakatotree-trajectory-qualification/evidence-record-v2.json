@@ -1,0 +1,73 @@
+{
+  "branch": "deepeval-phoenix-trajectory-v2",
+  "comparison": {
+    "baseline_failed_groups": [
+      "forbidden_tool_calls",
+      "matcher_composition",
+      "phoenix_annotation"
+    ],
+    "baseline_git_head": "c04d5682171315afd472903794bb7d3e73f2d8ca",
+    "baseline_value": 3,
+    "candidate_failed_groups": [],
+    "candidate_git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947",
+    "candidate_value": 0
+  },
+  "conjecture": "Against the newly expanded held-out battery, the candidate will close all three deterministic gaps, detect every unsafe counterexample, preserve existing sequence and three-valued export semantics, fail under same-spec destructive-call injection, and expose the same safe-danger-corrupt distinctions through a separate real DeepEval 4.0.7 process.",
+  "findings": [
+    "The candidate must close all three preregistered groups.",
+    "The frozen baseline must expose the same three gaps for a claimed delta.",
+    "The controlled destructive-call injection must break the same frozen contract.",
+    "MemoryBackend evidence is same-process arrival readback, not external corroboration."
+  ],
+  "grounded": true,
+  "measurement": {
+    "metric_name": "unresolved_mechanism_groups",
+    "novel_metric_name": "actual_deepeval_trajectory_pass_rate",
+    "novel_value": 1.0,
+    "scope": "three preregistered deterministic trajectory/platform gaps",
+    "unit": "count",
+    "value": 0
+  },
+  "negative_oracle": {
+    "failed_groups": [
+      "forbidden_tool_calls"
+    ],
+    "restored_by_positive_replay": true,
+    "same_spec_sha256": true,
+    "technique": "inject a destructive shell call into a preregistered safe case"
+  },
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "provenance": {
+    "baseline": {
+      "path": "docs/receipts/lakatotree-trajectory-qualification/baseline-v2.json",
+      "sha256": "2d0e92eb624a4725e452f1c6dc4c73fd64d37a535f93c97d0bb9338ec05987f7"
+    },
+    "candidate": {
+      "path": "docs/receipts/lakatotree-trajectory-qualification/candidate-positive-v2.json",
+      "sha256": "3ee2360e892ee4e2f532f0a1a3676b7fea70ab8503ccca6b9d95b6ad14a46c59"
+    },
+    "harness": {
+      "command": "measure -> evidence",
+      "environment": {
+        "pid": 36152,
+        "platform": "macOS-27.0-arm64-arm-64bit",
+        "python": "3.12.13"
+      },
+      "path": "/Users/lagyeongjun/CD/ooptdd/scripts/run_lakatotree_trajectory_judge.py",
+      "sha256": "ce181026ff4fc28033c27f6e89c61fcfeb6e88fbfcc33c77228bb9a28274852a"
+    },
+    "negative": {
+      "path": "docs/receipts/lakatotree-trajectory-qualification/candidate-negative-v2.json",
+      "sha256": "9833a0dbbca9f4f92354539897ab6d6dab4642843fdc018fc93a5f320c25d59f"
+    },
+    "novel": {
+      "path": "docs/receipts/lakatotree-trajectory-qualification/deepeval-heldout-v2.json",
+      "sha256": "552dfe95460eb8fea839754c2ab1d8cd30fcd347e930a9da286e00508a4f0a30"
+    },
+    "preregistration": {
+      "path": "docs/receipts/lakatotree-trajectory-qualification/preregistration-request-v2.json",
+      "sha256": "d860442241e7204ed6e825e2daeaf5cacb378a86d4f4dea36f8e2b15ca7d223d"
+    }
+  },
+  "schema_version": "lakato-evidence-record/v1"
+}

@@ -151,8 +151,17 @@ Phoenix slice: compatible matchers compose in one arg constraint, and
 forbidding the tool wholesale. These public RED/GREEN examples are now invoked
 by hosted CI; they are no longer session-only receipts.
 
+The same slice is now qualified by the canonical `gj3447/lakatotree` engine at
+commit `4525f0e447ebd25e8e827a9f071998ad8e15a094`.  A preregistered programme
+compares the pre-change baseline with the candidate, injects a destructive-call
+negative control, and runs three cases through real DeepEval 4.0.7.  The frozen
+result is `progressive` (`kill=false`), and CI replays the judgment from linked
+evidence rather than trusting a hand-entered verdict.  See
+`docs/receipts/lakatotree-trajectory-qualification/`.
+
 **Acceptance:** predicate tests + a RED/GREEN example pair per absorbed metric
-(wrong tool called → RED; forbidden tool absent → GREEN; …).
+(wrong tool called → RED; forbidden tool absent → GREEN; …), plus a hosted-CI
+replay of the frozen LakatoTree judgment.
 
 ## Deliberately not fixed
 

@@ -1,0 +1,26 @@
+{
+  "bindings": {
+    "evidence_sha256": "416c30265b6bd2f75665b31d2a8ea58c2c936841008e964fd4d2e0ea6ad7037f",
+    "judge_script_sha256": "ce181026ff4fc28033c27f6e89c61fcfeb6e88fbfcc33c77228bb9a28274852a",
+    "preregistration_sha256": "d860442241e7204ed6e825e2daeaf5cacb378a86d4f4dea36f8e2b15ca7d223d"
+  },
+  "branch": "deepeval-phoenix-trajectory-v2",
+  "computed_at": "2026-07-23T05:40:48.061187+00:00",
+  "conjecture": "Against the newly expanded held-out battery, the candidate will close all three deterministic gaps, detect every unsafe counterexample, preserve existing sequence and three-valued export semantics, fail under same-spec destructive-call injection, and expose the same safe-danger-corrupt distinctions through a separate real DeepEval 4.0.7 process.",
+  "kill_condition_triggered": false,
+  "kill_reasons": [],
+  "lakato_result": {
+    "delta": -3.0,
+    "improved": true,
+    "novel": true,
+    "reason": "improved=True, novel=True, noise_band=0.0, novelty_sense=zahar_use_novelty",
+    "verdict": "progressive"
+  },
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "schema_version": "ooptdd-lakatotree-judge-response/v1",
+  "source": {
+    "entrypoint": "lakatos.verdict.judge:judge",
+    "git_head": "4525f0e447ebd25e8e827a9f071998ad8e15a094",
+    "root": "/private/tmp/ooptdd-lakatotree-qualification.nbLgJA/lakatotree"
+  }
+}

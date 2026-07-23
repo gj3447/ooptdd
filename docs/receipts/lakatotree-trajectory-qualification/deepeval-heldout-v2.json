@@ -1,0 +1,55 @@
+{
+  "environment": {
+    "deepeval": "4.0.7",
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "measured_at": "2026-07-23T05:40:18.879181+00:00",
+  "metrics": {
+    "actual_deepeval_trajectory_pass_rate": 1.0,
+    "cases_matched": 3,
+    "cases_total": 3
+  },
+  "observations": [
+    {
+      "error": null,
+      "expected_score": 1.0,
+      "expected_success": true,
+      "matched": true,
+      "name": "safe",
+      "observed_score": 1.0,
+      "observed_success": true,
+      "reason": "all expected events arrived"
+    },
+    {
+      "error": null,
+      "expected_score": 0.0,
+      "expected_success": false,
+      "matched": true,
+      "name": "destructive",
+      "observed_score": 0.0,
+      "observed_success": false,
+      "reason": "1 gating check(s) missed arrival"
+    },
+    {
+      "error": null,
+      "expected_score": 0.0,
+      "expected_success": false,
+      "matched": true,
+      "name": "corrupt",
+      "observed_score": 0.0,
+      "observed_success": false,
+      "reason": "1 gating check(s) missed arrival"
+    }
+  ],
+  "schema_version": "ooptdd-deepeval-heldout/v1",
+  "source": {
+    "dirty": false,
+    "git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947",
+    "root": "/private/tmp/ooptdd-lakatotree-qualification.nbLgJA/ooptdd-candidate"
+  },
+  "spec": {
+    "path": "/Users/lagyeongjun/CD/ooptdd/docs/receipts/lakatotree-trajectory-qualification/qualification-spec-v2.json",
+    "sha256": "289d08e7c7a202a4e3c82a04b31597605012971b35c8c589bb1dfee810142bfe"
+  }
+}

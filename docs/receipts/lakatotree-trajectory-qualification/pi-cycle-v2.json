@@ -1,0 +1,69 @@
+{
+  "schema_version": "pi-cycle/v1",
+  "template_only": false,
+  "cycle_id": "ooptdd-lakatotree-trajectory-qualification-20260723",
+  "mode": "write",
+  "kind": "progress_claim",
+  "runtime_behavior": true,
+  "progress_claim": true,
+  "repo": {
+    "name": "ooptdd",
+    "logical_path": "ooptdd/agent-deepeval-phoenix-trajectory",
+    "resolved_root": "/Users/lagyeongjun/CD/ooptdd",
+    "git_head": "dcadaeebf93a7f68b11df6f3372e91d13702b947",
+    "instructions_read": [
+      "/Users/lagyeongjun/CD/SYMPOSIUM/AGENTS.md",
+      "/Users/lagyeongjun/CD/SYMPOSIUM/SKILLS/pi-workbench/SKILL.md",
+      "/Users/lagyeongjun/CD/SYMPOSIUM/SKILLS/ooptdd-receipt/SKILL.md",
+      "/Users/lagyeongjun/CD/SYMPOSIUM/SKILLS/lakatotree-judge/SKILL.md"
+    ]
+  },
+  "roles": {
+    "coordinator": "root",
+    "implementer": "codex-root-ooptdd-lakatotree-20260723",
+    "judge": "lakatotree-local-deterministic-kernel-4525f0e"
+  },
+  "coordination": {
+    "task_id": "ooptdd-lakatotree-trajectory-qualification-20260723",
+    "agent_id": "codex-root-ooptdd-lakatotree-20260723",
+    "writes": [
+      "ooptdd/docs/receipts/lakatotree-trajectory-qualification/**",
+      "ooptdd/scripts/run_lakatotree_trajectory_judge.py",
+      "ooptdd/tests/test_lakatotree_trajectory_programme.py",
+      "ooptdd/.github/workflows/ci.yml",
+      "ooptdd/CHANGELOG.md",
+      "ooptdd/docs/WEAKNESS_RESOLUTION_PLAN.md"
+    ],
+    "claim_status": "HELD",
+    "orbit_id": "orb-56649d7437d1",
+    "fence": 30,
+    "heartbeat_at": "2026-07-23T05:50:28.637827+00:00",
+    "released": true,
+    "cancelled": true
+  },
+  "measurement": {
+    "receipt_path": "docs/receipts/lakatotree-trajectory-qualification/ooptdd-receipt-v2.json",
+    "receipt_sha256": "4fc745a526ee66c1b2dab693138d6a63abb4ba6a557af7b26a33a1474e23f6a3",
+    "measurement_type": "ooptdd_receipt",
+    "evidence_path": "docs/receipts/lakatotree-trajectory-qualification/evidence-record-v2.json",
+    "evidence_sha256": "416c30265b6bd2f75665b31d2a8ea58c2c936841008e964fd4d2e0ea6ad7037f",
+    "test_command": "uv run --python 3.12 pytest -q tests/test_lakatotree_trajectory_programme.py",
+    "positive_verdict": "green",
+    "negative_verdict": "red"
+  },
+  "judgment": {
+    "packet_path": "docs/receipts/lakatotree-trajectory-qualification/judgment-packet-v2.json",
+    "packet_sha256": "455bf5458e38a9602db5fd839b0e7ce0f40e725b0fc8e593e51dd88e47a87ccb",
+    "judge_command": "python scripts/run_lakatotree_trajectory_judge.py judge --lakatotree-root <pinned-checkout> --prereg docs/receipts/lakatotree-trajectory-qualification/preregistration-request-v2.json --evidence docs/receipts/lakatotree-trajectory-qualification/evidence-record-v2.json --output <response>",
+    "source": "scripted",
+    "verified_from_receipt": true
+  },
+  "verification": [
+    {
+      "command": "ruff check src tests examples scripts/run_lakatotree_trajectory_judge.py && pytest -q && pytest -q -n 2 && replay LakatoTree and DeepEval probes",
+      "exit_code": 0,
+      "output_path": "docs/receipts/lakatotree-trajectory-qualification/regression-guards-v2.json",
+      "output_sha256": "ab7ba7657d15193a465897571697900686050828d107a7431fa2e308eee6fb09"
+    }
+  ]
+}

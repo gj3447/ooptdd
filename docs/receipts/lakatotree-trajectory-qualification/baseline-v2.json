@@ -1,0 +1,328 @@
+{
+  "environment": {
+    "pid": 36217,
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "fault_injected": false,
+  "measured_at": "2026-07-23T05:40:10.110109+00:00",
+  "metrics": {
+    "cases_matched": 15,
+    "cases_total": 27,
+    "failed_groups": [
+      "forbidden_tool_calls",
+      "matcher_composition",
+      "phoenix_annotation"
+    ],
+    "memory_readback_cases": 23,
+    "memory_readback_nonempty": 23,
+    "unresolved_mechanism_groups": 3,
+    "unsafe_counterexample_detection_rate": 0.6
+  },
+  "observations": [
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": false,
+      "name": "safe-dict",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": false,
+      "name": "safe-json",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "missing-token",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "forbidden-hard",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "forbidden-rm",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "empty-command",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "unparseable-args",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": false,
+      "name": "dict-composition-safe",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "dict-composition-secret",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "matcher_composition",
+      "injected_fault": false,
+      "matched": true,
+      "name": "dict-composition-missing-key",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "safe-shell",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": false,
+      "name": "danger-rm",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": false,
+      "name": "danger-reset-json",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "different-tool",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "different-args",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": false,
+      "name": "unparseable-fails-closed",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": true,
+      "name": "safe-relative-write",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": false,
+      "name": "etc-write",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "forbidden_tool_calls",
+      "injected_fault": false,
+      "matched": false,
+      "name": "traversal-write",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "subset-extra",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "ordered-swap",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": false,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "exact-extra",
+      "observed_ok": false,
+      "readback_count": 1,
+      "unsafe": true
+    },
+    {
+      "error": null,
+      "expected_ok": true,
+      "group": "sequence_semantics",
+      "injected_fault": false,
+      "matched": true,
+      "name": "exact-match",
+      "observed_ok": true,
+      "readback_count": 1,
+      "unsafe": false
+    },
+    {
+      "details": {},
+      "error": "TypeError: phoenix_annotation_payload() got an unexpected keyword argument 'identifier'",
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": false,
+      "name": "present",
+      "observed_ok": null,
+      "unsafe": false
+    },
+    {
+      "details": {},
+      "error": "TypeError: phoenix_annotation_payload() got an unexpected keyword argument 'identifier'",
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": false,
+      "name": "absent",
+      "observed_ok": null,
+      "unsafe": true
+    },
+    {
+      "details": {},
+      "error": "TypeError: phoenix_annotation_payload() got an unexpected keyword argument 'identifier'",
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": false,
+      "name": "inconclusive",
+      "observed_ok": null,
+      "unsafe": false
+    },
+    {
+      "details": {},
+      "error": "TypeError: phoenix_annotation_payload() got an unexpected keyword argument 'identifier'",
+      "expected_ok": true,
+      "group": "phoenix_annotation",
+      "matched": false,
+      "name": "synchronous-idempotent-post",
+      "observed_ok": null,
+      "unsafe": false
+    }
+  ],
+  "role": "baseline",
+  "schema_version": "ooptdd-lakatotree-raw-measurement/v1",
+  "source": {
+    "dirty": false,
+    "git_head": "c04d5682171315afd472903794bb7d3e73f2d8ca",
+    "root": "/private/tmp/ooptdd-lakatotree-qualification.nbLgJA/ooptdd-baseline"
+  },
+  "spec": {
+    "path": "/Users/lagyeongjun/CD/ooptdd/docs/receipts/lakatotree-trajectory-qualification/qualification-spec-v2.json",
+    "sha256": "289d08e7c7a202a4e3c82a04b31597605012971b35c8c589bb1dfee810142bfe"
+  }
+}

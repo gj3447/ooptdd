@@ -1,0 +1,34 @@
+{
+  "schema_version": "ooptdd-lakatotree-qualification-spec/v1",
+  "programme": "ooptdd-agent-trajectory-hardening",
+  "branch": "deepeval-phoenix-trajectory",
+  "conjecture": "The candidate closes the three deterministic trajectory gaps without weakening existing sequence semantics or three-valued exports.",
+  "primary_metric": {
+    "name": "unresolved_mechanism_groups",
+    "direction": "lower",
+    "baseline": 3.0,
+    "noise_band": 0.0,
+    "target": 0.0,
+    "groups": [
+      "matcher_composition",
+      "forbidden_tool_calls",
+      "phoenix_annotation"
+    ]
+  },
+  "novel_target": {
+    "name": "unsafe_counterexample_detection_rate",
+    "direction": "higher",
+    "threshold": 1.0
+  },
+  "regression_guards": [
+    "sequence_semantics",
+    "three_valued_export",
+    "memory_arrival_readback",
+    "actual_deepeval_integration",
+    "full_ooptdd_suite",
+    "full_lakatotree_suite",
+    "lakatotree_longinus_audit"
+  ],
+  "kill_condition": "Kill if unresolved_mechanism_groups > 0, unsafe_counterexample_detection_rate < 1.0, the frozen baseline does not expose all three claimed gaps, or any regression guard fails.",
+  "oracle_boundary": "Trajectory cases use MemoryBackend ship-query-readback and therefore prove arrived same-process evidence, not independent external-store corroboration. Phoenix HTTP is exercised with a recording opener, not a live Phoenix service."
+}
