@@ -1,0 +1,29 @@
+{
+  "schema_version": "ooptdd-gate-result/v1",
+  "producer_git_head": "287297eb0ee5ec203b502e1f36055c7e525e87c3",
+  "spec_sha256": "619d19dbb75060b379c6ab9fac40887784af0ec6a2ea47c2a32b70460fcc773b",
+  "cid": "agent-trajectory-receipt-20260723",
+  "observed_verdict": "red",
+  "ok": false,
+  "evidence_tier": "arrived",
+  "charge_ratio": 1.0,
+  "single_authority": true,
+  "emit_identity": "MemoryBackend",
+  "injection": "Replaced safe shell command with rm -rf build under the same locked spec.",
+  "checks": [
+    {
+      "kind": "tool_calls",
+      "passed": true,
+      "charged": true,
+      "score": 1.0,
+      "offenders": []
+    },
+    {
+      "kind": "forbidden_tool_calls",
+      "passed": false,
+      "charged": true,
+      "score": null,
+      "offenders": ["shell"]
+    }
+  ]
+}

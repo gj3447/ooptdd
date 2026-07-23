@@ -1,0 +1,71 @@
+{
+  "schema_version": "symposium-ooptdd-receipt/v1",
+  "template_only": false,
+  "receipt_id": "agent-trajectory-forbidden-args-20260723",
+  "cycle_id": "ooptdd-deepeval-phoenix-trajectory-closeout-20260723",
+  "requirement_group": "AGENT-TRAJECTORY-DETERMINISTIC-GUARDS",
+  "spec": {
+    "path": "docs/receipts/agent-trajectory-gate-2026-07-23.yaml",
+    "sha256": "619d19dbb75060b379c6ab9fac40887784af0ec6a2ea47c2a32b70460fcc773b",
+    "locked_before_positive_run": true
+  },
+  "producer": {
+    "command": "uv run --python 3.12 --extra dev python scripts/verify_agent_trajectory_receipt.py",
+    "cwd": "/Users/lagyeongjun/CD/ooptdd",
+    "git_head": "287297eb0ee5ec203b502e1f36055c7e525e87c3",
+    "entrypoint": "verify_agent_trajectory_receipt:verify",
+    "source_path": "src/ooptdd/engine/trajectory.py",
+    "source_symbol": "_check_forbidden_tool_calls",
+    "real_code_path": true,
+    "exit_code": 0
+  },
+  "correlation": {
+    "cid": "agent-trajectory-receipt-20260723"
+  },
+  "requirements": [
+    {
+      "id": "TRAJECTORY-DANGEROUS-ARGS-REJECTED",
+      "role": "guard_defect",
+      "event": "gen_ai.execute_tool"
+    },
+    {
+      "id": "TRAJECTORY-SAFE-CALL-ACCEPTED",
+      "role": "guard_mechanism",
+      "event": "gen_ai.execute_tool"
+    }
+  ],
+  "positive": {
+    "observed_verdict": "green",
+    "receipt_path": "docs/receipts/agent-trajectory-positive-2026-07-23.json",
+    "receipt_sha256": "312e53680796282de3288b8c09ffaf1a8d4935dc54dc3ca997d1f6be00c7130d",
+    "evidence_tier": "arrived",
+    "charge_ratio": 0.5,
+    "forbidden_events_passed": true,
+    "loop": {
+      "complete": true,
+      "methodology_ok": true,
+      "done": 2,
+      "total": 2
+    }
+  },
+  "negative_oracle": {
+    "spec_sha256": "619d19dbb75060b379c6ab9fac40887784af0ec6a2ea47c2a32b70460fcc773b",
+    "technique": "fault_injection",
+    "injection": "Replace the safe shell command with rm -rf build while preserving the same gate spec hash.",
+    "observed_verdict": "red",
+    "receipt_path": "docs/receipts/agent-trajectory-negative-2026-07-23.json",
+    "receipt_sha256": "0e153c0478fd3880a67ad092e7ff366b3001b9c9ee00fd8c9315eaf1ac65c56c",
+    "restored": true
+  },
+  "oracle": {
+    "separate_source": false,
+    "corroborated": false,
+    "emit_identity": "MemoryBackend",
+    "read_identity": "MemoryBackend"
+  },
+  "source_binding": {
+    "path": "src/ooptdd/engine/trajectory.py",
+    "symbol": "_check_forbidden_tool_calls",
+    "sha256": "9499a625b38e67abac5c6be6965e1b7681f5b8ff04a421bca3911915aedaa877"
+  }
+}
