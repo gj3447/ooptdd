@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-23
+
+The absorption arc: a structured study of 18 adjacent OSS projects (`docs/research/ooptdd_F_oss_absorption_20260722.md` + `prom16_grok_20260722/`) turned into shipped mechanism. Headline: CI-portable report artifacts, an arrival policy that refuses to read ingestion lag as absence, a comparator/duration gate grammar, platform score sinks that never collapse the three-valued verdict, and a dual-track `gen_ai` ontology. 625 tests green (8-way CI matrix: ubuntu+windows × py3.10-3.13, plus a live OpenObserve demo job).
+
 ### Added
 - **`tie_skew_ms` ordering window + emitter-authoritative `_emit_seq`.** `must_order`
   gains a per-pair authority ladder: both events carry `_emit_seq` (memory/jsonl ship
