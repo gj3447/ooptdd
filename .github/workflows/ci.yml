@@ -33,6 +33,15 @@ jobs:
         run: ruff check src/ tests/ examples/
       - name: Test
         run: pytest -q
+      - name: Agent-trajectory and verdict-export demos
+        # These are public adoption artifacts, not session-only receipts. Keep the
+        # exact README commands runnable on every supported Python/OS combination.
+        run: >-
+          pytest -q
+          examples/test_agent_trajectory.py
+          examples/integrations/test_otel_verdict_export.py
+      - name: Locked trajectory receipt (GREEN / injected RED / restored GREEN)
+        run: python scripts/verify_agent_trajectory_receipt.py
       - name: Test under xdist (ship-once invariant)
         run: pytest -q -n 2
       - name: Backend matrix current (belt-and-braces for filtered pytest runs)

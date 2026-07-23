@@ -81,6 +81,15 @@ def test_baseline_not_green_is_flagged():
     assert rep["baseline_green"] is False  # inputs don't pass -> score is meaningless
 
 
+def test_trajectory_negative_wings_do_not_get_meaningless_drop_mutants():
+    events = [{"event": "gen_ai.execute_tool", "gen_ai.tool.name": "search"}]
+    spec = {"expect": [
+        {"forbidden_tools": ["delete_db"]},
+        {"forbidden_tool_calls": {"name": "shell", "args": {"command": "rm"}}},
+    ]}
+    assert derive_mutations(events, spec) == []
+
+
 # ── the drop-all canary: dynamic vacuity cross-check ───────────────────────────
 def test_canary_dies_on_a_gate_with_a_positive_expectation():
     events = [{"event": "a"}]

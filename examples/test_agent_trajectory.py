@@ -7,6 +7,7 @@ return-value test cannot see, because the evidence is the *arrived* trace:
 
   * the agent claims "done" but the expected tool call never landed   -> RED
   * the agent called a forbidden tool                                  -> RED
+  * the agent called a normally-valid tool with a prohibited arg shape -> RED
   * the run blew its token budget                                      -> RED
 """
 from __future__ import annotations
@@ -60,6 +61,23 @@ def test_red_forbidden_tool_arrived():
     run_agent(b, cid, tools=["search", "shell_exec"])
     res = assert_gate_red(_gate(cid, [{"forbidden_tools": ["shell_exec"]}]),
                           backend=b)
+    assert res["checks"][0]["offenders"] == ["shell_exec"]
+    reset()
+
+
+def test_red_forbidden_tool_argument_shape_arrived():
+    reset()
+    b = MemoryBackend()
+    cid = "traj-red-forbidden-args"
+    b.ship([{
+        "event": "gen_ai.execute_tool", "gen_ai.tool.name": "shell_exec",
+        "gen_ai.tool.call.arguments": {"command": "rm -rf build"},
+        "cid": cid, "correlation_id": cid, "cycle_id": cid,
+    }])
+    res = assert_gate_red(_gate(cid, [{"forbidden_tool_calls": [{
+        "name": "shell_exec",
+        "args": {"command": {"non_empty": True, "contains_any": ["rm -rf"]}},
+    }]}]), backend=b)
     assert res["checks"][0]["offenders"] == ["shell_exec"]
     reset()
 

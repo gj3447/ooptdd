@@ -361,6 +361,8 @@ _GATE_SCHEMA = """gate spec (gates/*.yaml) — keys:
     - {tool_calls: {expected: [search, {name: t, args: {...}}],  # agent trajectory:
                     match: subset|ordered|exact, compare: [name, args]}}  # arrived tool calls
     - {forbidden_tools: [rm, delete_db]}             # arrival of a forbidden tool = RED
+    - {forbidden_tool_calls: [{name: shell, args: {command: {contains_any: [rm -rf]}}}]}
+                                                     # matching tool+args arrival = RED
     - {aggregate: {fn: sum|max|min|avg, attr: F, target: N, event: E}}  # rollup budget
   optional: true / pending: true / weight: N    (per-check modifiers)
   cid: ... | cid_env: OOPTDD_CID | timeWindow: 1h | threshold: 0.9

@@ -101,7 +101,16 @@ def test_phoenix_annotation_shape():
     ann = p["data"][0]
     assert ann["trace_id"] == "trace-1" and ann["annotator_kind"] == "CODE"
     assert ann["name"] == FEEDBACK_KEY
+    assert ann["identifier"] == FEEDBACK_KEY  # retry-safe upsert, not duplicate rows
     assert ann["result"]["label"] == "present" and ann["result"]["score"] == 1.0
+
+
+def test_phoenix_annotation_custom_identifier_and_metadata():
+    p = phoenix_annotation_payload(
+        GREEN, identifier="gate:deploy-v2", metadata={"spec": "gates/deploy.yaml"})
+    ann = p["data"][0]
+    assert ann["identifier"] == "gate:deploy-v2"
+    assert ann["metadata"] == {"spec": "gates/deploy.yaml"}
 
 
 def test_phoenix_inconclusive_has_label_but_no_score():
@@ -138,3 +147,28 @@ def test_phoenix_poster_hits_trace_annotations():
     assert seen["url"].endswith("/v1/trace_annotations")
     assert seen["api_key"] == "k1"
     assert seen["body"]["data"][0]["result"]["label"] == "absent"
+
+
+def test_phoenix_poster_sync_mode_is_explicit():
+    seen = {}
+
+    def opener(req, timeout):
+        seen["url"] = req.full_url
+
+        class R:
+            status = 200
+
+            def read(self):
+                return b"{}"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        return R()
+
+    status = post_phoenix_annotations(
+        "http://phx:6006", phoenix_annotation_payload(GREEN), sync=True, opener=opener)
+    assert status == 200 and seen["url"].endswith("/v1/trace_annotations?sync=true")

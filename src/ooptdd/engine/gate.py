@@ -435,6 +435,8 @@ def _rule_event_names(rule: dict) -> set[str]:
         names.add(rule["tool_calls"].get("event", "gen_ai.execute_tool"))
     if "forbidden_tools" in rule:
         names.add(rule.get("event", "gen_ai.execute_tool"))
+    if "forbidden_tool_calls" in rule:
+        names.add(rule.get("event", "gen_ai.execute_tool"))
     if isinstance(rule.get("aggregate"), dict):
         names.add(rule["aggregate"].get("event"))
     names.add(rule.get("event"))

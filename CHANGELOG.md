@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **DeepEval/Phoenix trajectory closeout.** Phoenix-compatible argument matchers
+  now compose compatible constraints in one object, and
+  `forbidden_tool_calls` gates a prohibited tool+argument subset without banning
+  the tool wholesale (unreadable arrived args fail closed). Phoenix `CODE`
+  annotations gain a stable upsert `identifier`, optional metadata, and
+  `sync=true` POST mode. The trajectory and verdict-export examples are now
+  explicit hosted-CI steps instead of session-only demos.
 - **ClickHouse / VictoriaLogs typed read surfaces.** CH synthesizes an opaque
   decimal-offset cursor over `LIMIT n OFFSET k` (walkable by `fetch_all_pages`, `_seq`
   stays the global position); VL is **limit-only** by design — LogsQL has no paging

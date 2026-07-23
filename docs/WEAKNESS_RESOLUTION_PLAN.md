@@ -82,7 +82,7 @@ exists (mutation report uses it); add serializers:
 **Acceptance:** golden-file tests per format; JUnit output validated against the
 schema consumed by GitHub's test summary.
 
-## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd.integrations`)
+## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd.integrations`), HARDENED 2026-07-23
 
 Acceptance status: deepeval bridge verified against REAL deepeval v4.0.7
 (evaluate() loop end-to-end, 2026-07-22 grill); worked examples exist for all
@@ -101,6 +101,9 @@ so users must choose.
 - OTel export: `ooptdd.verdict` event (+ span attributes) emitted after each
   gate run, so Phoenix/LangSmith display arrival verdicts inline with traces —
   competitors become distribution.
+- Phoenix native trace annotations: deterministic `CODE` label/score with the
+  ternary preserved, a stable `identifier` for retry-safe upserts, and optional
+  `sync=true` for CI that immediately reads the annotation back.
 
 **Acceptance:** one worked example per adapter under `examples/integrations/`,
 each runnable with the memory backend (no external account required).
@@ -129,7 +132,7 @@ adoption — every case cited must be a receipt resident in CI.
 **Acceptance:** each case study links the (internal) CI job id; external readers
 see the shape, internal readers can audit the claim.
 
-## 6. Agent-trajectory vocabulary absorption — ✅ LANDED 2026-07-22 (`engine/trajectory.py`)
+## 6. Agent-trajectory vocabulary absorption — ✅ LANDED 2026-07-22, DEEPENED 2026-07-23 (`engine/trajectory.py`)
 
 **Weakness:** adjacent tools ship task-completion / tool-correctness / path-
 convergence metrics; ooptdd verifies events but has no first-class trajectory
@@ -141,6 +144,12 @@ side of the §4 bridge. Licensing: concepts and published attribute names only,
 implementations original — this repo is AGPL-3.0; no code is copied from
 Apache/ELv2 sources. See `docs/research/` for the absorption analysis and the
 `agent_trajectory` module for what landed.
+
+The 2026-07-23 official-source recheck closed the remaining deterministic
+Phoenix slice: compatible matchers compose in one arg constraint, and
+`forbidden_tool_calls` rejects a specific tool+argument combination without
+forbidding the tool wholesale. These public RED/GREEN examples are now invoked
+by hosted CI; they are no longer session-only receipts.
 
 **Acceptance:** predicate tests + a RED/GREEN example pair per absorbed metric
 (wrong tool called → RED; forbidden tool absent → GREEN; …).

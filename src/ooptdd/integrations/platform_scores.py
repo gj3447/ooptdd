@@ -109,34 +109,45 @@ def post_langfuse_score(base_url: str, public_key: str, secret_key: str, body: d
 
 # ── Phoenix ────────────────────────────────────────────────────────────────────
 def phoenix_annotation_payload(result: dict, *, trace_id: str | None = None,
-                               name: str = FEEDBACK_KEY) -> dict:
+                               name: str = FEEDBACK_KEY,
+                               identifier: str | None = None,
+                               metadata: dict | None = None) -> dict:
     """Payload for ``POST /v1/trace_annotations`` (``{"data": [TraceAnnotationData]}``).
 
     ``annotator_kind=CODE`` — deterministic, not an LLM/HUMAN judgement.
     Inconclusive carries the label WITHOUT a score key: Phoenix renders the
-    label; a numeric would be a fabricated confidence."""
+    label; a numeric would be a fabricated confidence. ``identifier`` defaults
+    to the annotation name, making retries an idempotent upsert for one verdict
+    name per trace; pass a gate-specific identifier when a trace carries several
+    independent arrival gates."""
     verdict = _verdict_word(result)
     ann_result: dict = {"label": verdict, "explanation": _comment(result)}
     if _SCORE[verdict] is not None:
         ann_result["score"] = _SCORE[verdict]
-    return {"data": [{
+    annotation = {
         "trace_id": trace_id or str(result.get("cid")),
         "name": name,
         "annotator_kind": "CODE",
         "result": ann_result,
-    }]}
+        "identifier": name if identifier is None else identifier,
+    }
+    if metadata is not None:
+        annotation["metadata"] = dict(metadata)
+    return {"data": [annotation]}
 
 
 def post_phoenix_annotations(base_url: str, payload: dict, *, api_key: str | None = None,
-                             opener=None, timeout: float = 10.0) -> int:
+                             sync: bool = False, opener=None, timeout: float = 10.0) -> int:
     """POST trace annotations to a Phoenix server (``api_key`` header optional —
-    self-hosted Phoenix often runs authless)."""
+    self-hosted Phoenix often runs authless). ``sync=True`` asks Phoenix to return
+    only after the upsert is committed — useful for CI that reads the annotation
+    back immediately."""
     opener = opener or (lambda req, timeout: urllib.request.urlopen(req, timeout=timeout))
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["api_key"] = api_key
     req = urllib.request.Request(
-        base_url.rstrip("/") + "/v1/trace_annotations",
+        base_url.rstrip("/") + "/v1/trace_annotations" + ("?sync=true" if sync else ""),
         data=json.dumps(payload).encode(),
         method="POST",
         headers=headers,

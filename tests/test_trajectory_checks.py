@@ -1,4 +1,4 @@
-"""tool_calls / forbidden_tools — the deterministic agent-trajectory predicates.
+"""tool_calls / forbidden_tools / forbidden_tool_calls trajectory predicates.
 
 Pins the three absorbed matching modes (exact / subset / ordered), Jaccard argument
 credit, arrival-grounding (self-reported calls that never landed score zero), the
@@ -159,6 +159,34 @@ def test_matcher_non_empty_and_has_keys():
     res = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
                 [_tool("cfg", args={"opts": {"a": 1, "b": 2, "c": 3}, "tag": "x"})])
     assert _chk(res)["passed"]
+
+
+def test_phoenix_matchers_compose_all_constraints():
+    exp = [{"name": "shell", "args": {
+        "command": {"non_empty": True, "contains_all": ["git", "status"],
+                    "not_contains": ["--hard"]},
+    }}]
+    green = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+                  [_tool("shell", args={"command": "git status --short"})])
+    assert _chk(green)["passed"]
+    red = _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+                [_tool("shell", args={"command": "git status --hard"})])
+    assert not _chk(red)["passed"]
+
+
+def test_exclusive_and_malformed_matchers_are_loud():
+    import pytest
+    bad = [
+        {"absent": True, "equals": "x"},
+        {"empty_or_absent": True, "non_empty": True},
+        {"any": False},
+        {"contains_all": ["ok", 7]},
+    ]
+    for matcher in bad:
+        exp = [{"name": "search", "args": {"q": matcher}}]
+        with pytest.raises(ValueError, match="matcher|list of strings"):
+            _eval([{"tool_calls": {"expected": exp, "compare": ["name", "args"]}}],
+                  [_tool("search", args={"q": "ok"})])
 
 
 # ── grill regressions (2026-07-22 adversarial review F1-F8) ────────────────────
@@ -348,6 +376,47 @@ def test_forbidden_absent_green_uncharged():
     res = _eval([{"forbidden_tools": ["delete_db"]}], [_tool("search")])
     chk = _chk(res)
     assert res["ok"] and chk["passed"] and chk["charged"] is False
+
+
+# ── forbidden_tool_calls: Phoenix's name+args negative wing ────────────────────
+
+
+def test_forbidden_tool_call_args_only_reject_the_prohibited_shape():
+    rule = {"forbidden_tool_calls": [{
+        "name": "shell",
+        "args": {"command": {"contains_any": ["rm -rf", "git reset --hard"]}},
+    }]}
+    safe = _eval([rule], [_tool("shell", args={"command": "git status"})])
+    assert safe["ok"] and _chk(safe)["charged"] is False
+    dangerous = _eval([rule], [_tool("shell", args={"command": "rm -rf build"})])
+    chk = _chk(dangerous)
+    assert not dangerous["ok"] and chk["offenders"] == ["shell"]
+    assert chk["strength"] == "forbid" and chk["charged"] is True
+
+
+def test_forbidden_tool_call_literals_are_subset_matches():
+    rule = {"forbidden_tool_calls": {
+        "name": "deploy", "args": {"environment": "prod"},
+    }}
+    res = _eval([rule], [_tool("deploy", args={"environment": "prod", "region": "apne2"})])
+    assert not res["ok"] and _chk(res)["violations"] == 1
+
+
+def test_forbidden_tool_call_unparseable_args_fail_closed():
+    rule = {"forbidden_tool_calls": {
+        "name": "shell", "args": {"command": {"contains_any": ["rm -rf"]}},
+    }}
+    res = _eval([rule], [_tool("shell", args='{"command": "rm -rf')])
+    chk = _chk(res)
+    assert not res["ok"] and chk["violation_details"] == [
+        {"tool": "shell", "reason": "unparseable_args"}
+    ]
+
+
+def test_forbidden_tool_call_counts_as_stream_coverage():
+    rule = {"forbidden_tool_calls": {"name": "shell", "args": {"command": "rm"}}}
+    res = _eval([rule], [_tool("search")])
+    assert "gen_ai.execute_tool" not in res["scope"]["unasserted_observed"]
 
 
 def test_forbidden_unreachable_store_never_green():

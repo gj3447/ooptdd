@@ -136,6 +136,41 @@ ooptdd verify <cid> --backend openobserve   # manual re-check, exit 0/1/2
 ooptdd gate gates/order_pipeline.yaml        # evaluate a gate spec
 ```
 
+## Agent trajectories: DeepEval quality + Phoenix visibility + arrival proof
+
+ooptdd absorbs only the deterministic part of agent evaluation. DeepEval or
+Phoenix remains the judge for task quality, plan quality, and argument
+reasonableness; ooptdd independently checks that the claimed tool trajectory
+actually arrived in the store.
+
+```yaml
+cid: agent-run-42
+expect:
+  - tool_calls:
+      expected: [plan, search, write]
+      match: ordered                 # subset | ordered | exact
+  - forbidden_tool_calls:
+      - name: shell
+        args:
+          command:
+            non_empty: true
+            contains_any: ["rm -rf", "git reset --hard"]
+  - aggregate:
+      fn: sum
+      attr: gen_ai.usage.output_tokens
+      op: lte
+      target: 50000
+```
+
+`make_arrival_metric(...)` adds the gate as a deterministic DeepEval custom
+metric beside its LLM-judge metrics. `phoenix_annotation_payload(...)` publishes
+the same three-valued verdict as a Phoenix `CODE` annotation; its stable
+`identifier` makes retries update instead of duplicate, and
+`post_phoenix_annotations(..., sync=True)` supports immediate CI readback. See
+[`examples/test_agent_trajectory.py`](examples/test_agent_trajectory.py) and
+[`examples/integrations/`](examples/integrations/); CI runs the public trajectory
+and verdict-export demos on every supported Python/OS combination.
+
 ## Extending: custom check-predicates & ontology presets
 
 Two registration seams let you grow the vocabulary **without editing the core**
@@ -162,12 +197,12 @@ importing the `ooptdd` package (which wires the shipped built-ins), not just a s
 
 ## Verification
 
-The canonical `main` checkout was re-run at commit `e4fe4b14315f` on
-2026-07-15:
+The current checkout was re-run on 2026-07-23:
 
 ```bash
 uv run --extra dev pytest -q
-# 436 passed, 2 skipped
+# 643 passed, 3 skipped
+# [ooptdd] OK arrival confirmed (session 643/645, outcomes=1934, 1 attempt)
 ```
 
 The suite uses the configured `memory` backend and dogfoods the plugin's arrival
@@ -176,7 +211,7 @@ long-horizon production operation or every external backend.
 
 ## Status & honesty
 
-`0.4.0`, extracted from internal harnesses (a service monorepo, a research
+`0.5.0`, extracted from internal harnesses (a service monorepo, a research
 harness, and a PyQt field application) where the core has run in anger. No long-horizon (6-month+) operational data
 yet. Hard **log-free zones** — do *not* use ooptdd for: precise numeric
 regression (use snapshots/metrology), security redaction, or µs-scale concurrency
@@ -206,4 +241,4 @@ corroboration).
 
 ## License
 
-Apache-2.0.
+AGPL-3.0-or-later. See [`LICENSE`](LICENSE).

@@ -1,6 +1,8 @@
 # Agent-trajectory vocabulary absorption — DeepEval / Phoenix
 
-Survey date: 2026-07-22, against local clones of deepeval and arize-phoenix.
+Survey date: 2026-07-22, against local clones of deepeval and arize-phoenix;
+revalidated 2026-07-23 against both projects' official `main` source and current
+documentation.
 Implements `docs/WEAKNESS_RESOLUTION_PLAN.md` §6. Licensing: this repo is
 AGPL-3.0-or-later; the sources surveyed are Apache-2.0 (DeepEval) and
 Phoenix's licenses. **Concepts and published vocabulary only were absorbed —
@@ -18,7 +20,7 @@ arrival oracle); the LLM-judge shell composes via the eval-platform bridge
 
 | Metric | Paradigm | Disposition |
 |---|---|---|
-| `ToolCorrectnessMetric` (tool-calling score) | deterministic | **absorbed** → `tool_calls:` |
+| `ToolCorrectnessMetric` tool-calling core | deterministic; optional `available_tools` selection wing is LLM-judged | **absorbed** → `tool_calls:`; LLM wing stays in bridge |
 | `ArgumentCorrectnessMetric` | LLM-judge | bridge |
 | `TaskCompletionMetric`, `PlanAdherenceMetric`, `PlanQualityMetric` | LLM-judge | bridge |
 | `StepEfficiencyMetric` | LLM-judge | deterministic stand-in: tool-call count check + `aggregate:` token budget |
@@ -48,13 +50,13 @@ their own events; assert them with `present/where` or ontology constraints).
 | Surface | Paradigm | Disposition |
 |---|---|---|
 | `evals/pxi/evaluators/tools.py` `evaluate_tools_called` (required/forbidden/exact_match) | deterministic | **absorbed** → `tool_calls:` modes + `forbidden_tools:` |
-| same file, matcher vocabulary (`_MATCHER_KEYS`) | deterministic | **absorbed** → arg matchers (`equals, contains_all, contains_any, not_contains, any, non_empty, absent, empty_or_absent, has_keys`) |
+| same file, matcher vocabulary (`_MATCHER_KEYS`) | deterministic | **absorbed** → composable arg matchers (`equals, contains_all, contains_any, not_contains, any, non_empty, absent, empty_or_absent, has_keys`) |
+| `evaluate_forbidden_tool_call_args` | deterministic | **absorbed** → `forbidden_tool_calls:` (name + arg-subset negative wing) |
 | `tool_call_count_within_limit` | deterministic | already expressible: `{event: gen_ai.execute_tool, op: lte, target: N}` |
-| `forbidden_tool_call_args_match` | deterministic | expressible: `absent:` with `where`, or `tool_calls` matchers on a forbidden combination |
 | trace rollups (`db/insertion/span.py` cumulative token/error counts) | deterministic | **absorbed (concept)** → `aggregate: {fn, attr, event, op, target}` |
 | span-kind inference + GenAI→OpenInference map (`trace/gen_ai/conversion.py`) | deterministic | not absorbed — conversion vocabulary, not gate logic; we already speak OTel GenAI semconv natively |
 | phoenix-evals classification evaluators (tool_selection, tool_invocation, tool_response_handling, …) | LLM-judge | bridge |
-| eval-attach model (`SpanAnnotation.annotator_kind ∈ {LLM, CODE, HUMAN}`) | schema | informs the §4 bridge: ooptdd verdicts export as `CODE` annotations |
+| eval-attach model (`SpanAnnotation.annotator_kind ∈ {LLM, CODE, HUMAN}`) | schema | §4 bridge: ooptdd verdicts export as retry-safe `CODE` annotations (`identifier` upsert + optional synchronous POST) |
 
 Phoenix has no first-class "trajectory convergence" evaluator; its notion is the
 set/sequence comparison above (TRAJECT-Bench examples: matched/missing/extra tool
@@ -68,13 +70,20 @@ sets, parallel = order-agnostic, sequential = ordered). `tool_calls` `subset` vs
   strength `value-pinned`, charged iff tool events arrived.
 - `forbidden_tools:` — negative wing over tool names; strength `forbid`,
   charged only when it saw an offender (mirrors `absent`).
+- `forbidden_tool_calls:` — negative wing over a specific tool + argument
+  subset/matcher shape, so `shell` may remain allowed while
+  `shell(command contains "rm -rf")` is RED. Unreadable arrived args fail closed.
+- Phoenix matcher objects may combine compatible constraints (for example
+  `non_empty` + `contains_all` + `not_contains`); contradictory absence
+  matchers and malformed values are loud spec errors.
 - `aggregate:` — sum/max/min/avg of a numeric attr over the cid's events vs a
   budget; strength `threshold`; empty-set semantics: `sum` is vacuously within
   budget but uncharged, other fns report `aggregate_no_values` and fail.
 
-All three register through the `@check` seam; the kernel is untouched. Tests:
+All four register through the `@check` seam; the kernel is untouched. Tests:
 `tests/test_trajectory_checks.py`. Runnable RED/GREEN pairs:
-`examples/test_agent_trajectory.py`.
+`examples/test_agent_trajectory.py`; CI runs that exact public demo command on
+every supported Python/OS combination.
 
 ## Deliberately not absorbed
 
@@ -84,3 +93,15 @@ All three register through the `@check` seam; the kernel is untouched. Tests:
 - Phoenix OpenInference conversion layer and UI/annotation storage — platform
   surface, out of lane.
 - Embedding/vector trajectory similarity — neither tool has it; neither do we.
+
+## Primary sources rechecked
+
+- DeepEval `ToolCorrectnessMetric` implementation:
+  <https://github.com/confident-ai/deepeval/blob/main/deepeval/metrics/tool_correctness/tool_correctness.py>
+- DeepEval tool-correctness contract:
+  <https://deepeval.com/docs/metrics-tool-correctness>
+- Phoenix deterministic PXI tool evaluators:
+  <https://github.com/Arize-ai/phoenix/blob/main/evals/pxi/evaluators/tools.py>
+- Phoenix trace-annotation API (including `CODE`, `identifier`, metadata, and
+  synchronous writes):
+  <https://arize.com/docs/phoenix/sdk-api-reference/rest-api/api-reference/traces/create-trace-annotations>

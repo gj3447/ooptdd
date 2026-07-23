@@ -99,7 +99,7 @@ def derive_mutations(events: list[dict], spec: dict) -> list[tuple[str, list[dic
                       # `drop:(any)` that empties the stream is noise, not a discriminator).
                       # Real mutants for these (rename-tool / inject-forbidden / inflate-attr)
                       # are future work — until then, exclusion beats a lying score.
-                      "tool_calls", "forbidden_tools", "aggregate")):
+                      "tool_calls", "forbidden_tools", "forbidden_tool_calls", "aggregate")):
             cover(rule)  # a plain count/where rule
 
     if _forbids_errors(spec):

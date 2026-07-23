@@ -33,6 +33,11 @@ Spec forms (everything inside the predicate dict; all keys but ``expected`` opti
 
     - forbidden_tools: [delete_db, shell_exec]   # arrival of any of these = RED
 
+    - forbidden_tool_calls:                     # name + argument combination = RED
+        - name: shell_exec
+          args:
+            command: {contains_any: ["rm -rf", "git reset --hard"]}
+
     - aggregate:                       # Phoenix-style trace rollup as a budget gate
         fn: sum                        # sum | max | min | avg
         attr: gen_ai.usage.output_tokens
@@ -52,11 +57,13 @@ absorbed vocabulary, from Phoenix's deterministic tool-path evaluators
           debug: {absent: true}                 # key must NOT be present
 
 Matcher keys: ``equals, contains_all, contains_any, not_contains, any, non_empty,
-absent, empty_or_absent, has_keys``. A dict is a matcher iff it has exactly one key
-and that key is a matcher key — any other dict is a literal expectation. When any
-expected value is a matcher, that args dict scores **binary** (all conditions hold
--> 1.0, else 0.0 — the Phoenix labels are binary); pure-literal args keep DeepEval's
-Jaccard partial credit.
+absent, empty_or_absent, has_keys``. A non-empty dict is a matcher iff every key is
+a matcher key, so compatible constraints may compose (for example ``non_empty`` +
+``not_contains``). ``absent`` / ``empty_or_absent`` are exclusive because combining
+them with value predicates would be contradictory. When any expected value is a
+matcher, that args dict scores **binary** (all conditions hold -> 1.0, else 0.0 —
+the Phoenix labels are binary); pure-literal args keep DeepEval's Jaccard partial
+credit.
 
 All predicates register through the ``@check`` seam — the kernel is untouched.
 """
@@ -77,6 +84,7 @@ _DEF_ARGS_ATTR = "gen_ai.tool.call.arguments"
 # honest strength class without declaring one (setdefault: an explicit ``strength:`` wins).
 _STRENGTH_BY_KEY.setdefault("tool_calls", "value-pinned")
 _STRENGTH_BY_KEY.setdefault("forbidden_tools", "forbid")
+_STRENGTH_BY_KEY.setdefault("forbidden_tool_calls", "forbid")
 _STRENGTH_BY_KEY.setdefault("aggregate", "threshold")
 
 # ── argument matchers (Phoenix pxi vocabulary, original implementation) ────────
@@ -120,7 +128,29 @@ _LIST_WANT_MATCHERS = ("contains_all", "contains_any", "not_contains", "has_keys
 
 
 def _is_matcher(v) -> bool:
-    return isinstance(v, dict) and len(v) == 1 and next(iter(v)) in _MATCHERS
+    """Phoenix-compatible matcher object: one or more recognized constraints.
+
+    A dict that mixes a matcher key with an ordinary domain key stays a literal
+    expectation. This matters for legitimate tool arguments such as
+    ``{"equals": "domain-value", "mode": "strict"}``.
+    """
+    return (isinstance(v, dict) and bool(v)
+            and all(isinstance(k, str) and k in _MATCHERS for k in v))
+
+
+def _validate_matcher(matcher: dict) -> None:
+    for kind, arg in matcher.items():
+        if kind in ("any", "non_empty", "absent", "empty_or_absent") and arg is not True:
+            raise ValueError(f"matcher {kind!r} must be true, got {arg!r}")
+        if kind in _LIST_WANT_MATCHERS:
+            if not isinstance(arg, (list, tuple, set)) or not all(
+                    isinstance(item, str) for item in arg):
+                raise ValueError(
+                    f"{kind} wants a list of strings, got {arg!r} — a bare string "
+                    "would match per-CHARACTER and silently weaken the gate")
+    for exclusive in ("absent", "empty_or_absent"):
+        if exclusive in matcher and len(matcher) > 1:
+            raise ValueError(f"matcher {exclusive!r} cannot be combined with other matchers")
 
 
 def _validate_matcher_args(exp_args: dict, *, _top: bool = True) -> None:
@@ -135,11 +165,7 @@ def _validate_matcher_args(exp_args: dict, *, _top: bool = True) -> None:
                     f"matcher {want!r} under nested key {key!r}: matchers are only "
                     "supported at the top level of `args` (nest the parent key instead, "
                     "e.g. has_keys/equals on the parent)")
-            kind, arg = next(iter(want.items()))
-            if kind in _LIST_WANT_MATCHERS and not isinstance(arg, (list, tuple, set)):
-                raise ValueError(
-                    f"{kind} wants a list of needles, got {arg!r} — a bare string would "
-                    "match per-CHARACTER and silently weaken the gate")
+            _validate_matcher(want)
         elif isinstance(want, dict):
             _validate_matcher_args(want, _top=False)
         elif isinstance(want, (list, tuple)):
@@ -172,8 +198,7 @@ def _matcher_args_pass(exp: dict, got) -> bool:
         present = key in got
         val = got.get(key)
         if _is_matcher(want):
-            kind, arg = next(iter(want.items()))
-            if not _MATCHERS[kind](val, arg, present):
+            if not all(_MATCHERS[kind](val, arg, present) for kind, arg in want.items()):
                 return False
         elif not (present and val == want):  # literal key inside a matcher-mode dict
             return False
@@ -438,4 +463,65 @@ def _check_forbidden_tools(events: list, rule: dict, ctx: CheckCtx) -> dict:
         "violations": len(offenders),
         "passed": not offenders,
         "charged": bool(offenders),  # mirrors `absent`: charged only when it SAW an offender
+    }
+
+
+def _forbidden_args_pass(expected: dict, observed) -> tuple[bool, str | None]:
+    """Binary subset match for a prohibited call shape.
+
+    Extra observed keys are tolerated, matching Phoenix's code evaluator. Corrupt
+    arrived arguments fail closed: a verifier that cannot read a prohibited call's
+    arguments cannot honestly certify that the combination was absent.
+    """
+    if observed is _UNPARSEABLE:
+        return True, "unparseable_args"
+    if not isinstance(observed, dict):
+        return False, None
+    for key, want in expected.items():
+        present = key in observed
+        got = observed.get(key)
+        if _is_matcher(want):
+            if not all(_MATCHERS[kind](got, arg, present) for kind, arg in want.items()):
+                return False, None
+        elif not (present and got == want):
+            return False, None
+    return True, None
+
+
+@check("forbidden_tool_calls")
+def _check_forbidden_tool_calls(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    """Fail when an arrived tool call matches a prohibited name+args combination.
+
+    This is narrower than ``forbidden_tools``: the tool may be legitimate in general
+    while one destructive or policy-violating argument shape is not.
+    """
+    raw = rule["forbidden_tool_calls"]
+    items = raw if isinstance(raw, list) else [raw]
+    forbidden = _norm_expected(items)
+    observed = _observed_calls(events, rule.get("event", _DEF_EVENT),
+                               rule.get("name_attr", _DEF_NAME_ATTR),
+                               rule.get("args_attr", _DEF_ARGS_ATTR))
+    offenders: list[str] = []
+    details: list[dict] = []
+    for got_name, got_args in observed:
+        for want_name, want_args in forbidden:
+            if got_name != want_name:
+                continue
+            matched, reason = ((True, None) if want_args is None
+                               else _forbidden_args_pass(want_args, got_args))
+            if matched:
+                offenders.append(got_name)
+                detail = {"tool": got_name}
+                if reason:
+                    detail["reason"] = reason
+                details.append(detail)
+                break
+    return {
+        "label": "forbidden_tool_calls:" + ",".join(sorted({n for n, _ in forbidden})),
+        "forbidden_tool_calls": [n for n, _ in forbidden],
+        "offenders": offenders,
+        "violation_details": details,
+        "violations": len(offenders),
+        "passed": not offenders,
+        "charged": bool(offenders),
     }
