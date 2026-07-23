@@ -137,7 +137,28 @@ class VictoriaLogsBackend:
             getattr(r, "read", lambda: b"")()
         return True
 
+    def query_spec(self, spec) -> QueryResult:
+        """Typed read surface — **limit-only** by design. LogsQL streams every match
+        with no paging primitive, so there is no cursor to synthesize honestly: a
+        ``cursor`` is refused loudly rather than faked, and a FILLED limit reports
+        ``complete=False`` (there may be more rows, unknowably). Without limit or
+        cursor this delegates to the read-to-completion :meth:`query`."""
+        if spec.cursor is not None:
+            raise ValueError(
+                "victorialogs has no paging cursor (LogsQL streams all matches); "
+                "use limit-only query_spec, or the read-to-completion query()")
+        if spec.limit is None:
+            return self.query(spec.cid, since_us=spec.window.since_us,
+                              until_us=spec.window.until_us)
+        return self._read(spec.cid, spec.window.since_us, spec.window.until_us,
+                          limit=int(spec.limit))
+
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
+        """Read to completion (the legacy two-method contract, unchanged)."""
+        return self._read(cid, since_us, until_us)
+
+    def _read(self, cid: str, since_us: int, until_us: int,
+              limit: int | None = None) -> QueryResult:
         try:
             base = self._base()
         except ValueError as exc:
@@ -145,8 +166,11 @@ class VictoriaLogsBackend:
         # LogsQL: exact field match on the correlation id. start/end are unix seconds
         # (VictoriaLogs accepts fractional). SELECT-* equivalent: no field projection, so
         # whole rows come back for the Python-side gate `where:` filters.
+        logsql = f'{self.stream_field}:="{_logsql_str(cid)}"'
+        if limit is not None:
+            logsql += f" | limit {int(limit)}"  # LogsQL pipe: the only bound it offers
         params = urllib.parse.urlencode({
-            "query": f'{self.stream_field}:="{_logsql_str(cid)}"',
+            "query": logsql,
             "start": f"{since_us / 1_000_000:.6f}",
             "end": f"{until_us / 1_000_000:.6f}",
         })
@@ -179,4 +203,8 @@ class VictoriaLogsBackend:
             if len(events) >= self.max_rows:
                 complete = False  # ceiling hit — surfaced, never a silent subset
                 break
+        if limit is not None and len(events) >= limit:
+            # a FILLED limit proves nothing about what lies beyond it, and LogsQL has no
+            # cursor to ask with — so the read is honestly incomplete, never "exhausted".
+            complete = False
         return QueryResult(reachable=True, events=events, complete=complete)
