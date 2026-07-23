@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **ClickHouse / VictoriaLogs typed read surfaces.** CH synthesizes an opaque
+  decimal-offset cursor over `LIMIT n OFFSET k` (walkable by `fetch_all_pages`, `_seq`
+  stays the global position); VL is **limit-only** by design — LogsQL has no paging
+  primitive, so a cursor is refused loudly instead of faked and a filled limit reports
+  `complete=False`. Both delegate byte-identically to `query()` when the spec carries
+  neither limit nor cursor.
+- **OpenLLMetry bridge (`ooptdd.integrations.openllmetry`).** Encodes a verified
+  finding rather than a hope: an OpenLLMetry-instrumented app is *not* gate-ready for
+  free — it names tools `traceloop.entity.name` (never `gen_ai.tool.name`) — so
+  `span_to_event` / `spans_to_events` map its spans onto `gen_ai.*` events, carrying
+  the `gen_ai.system` → `gen_ai.provider.name` rename and keeping each span's original
+  index as `_emit_seq`. It never fabricates a missing required attribute: an unnamed
+  tool span stays unnamed so `conforms:` REDs on the truth.
+
 ## [0.5.0] - 2026-07-23
 
 The absorption arc: a structured study of 18 adjacent OSS projects (`docs/research/ooptdd_F_oss_absorption_20260722.md` + `prom16_grok_20260722/`) turned into shipped mechanism. Headline: CI-portable report artifacts, an arrival policy that refuses to read ingestion lag as absence, a comparator/duration gate grammar, platform score sinks that never collapse the three-valued verdict, and a dual-track `gen_ai` ontology. 625 tests green (8-way CI matrix: ubuntu+windows × py3.10-3.13, plus a live OpenObserve demo job).

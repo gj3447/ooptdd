@@ -14,6 +14,10 @@ independent store. These adapters put both in one run:
   Phoenix's annotation model calls this annotator kind ``CODE``.
 - promptfoo: no adapter code needed — a ``python`` assert that calls
   :func:`ooptdd.assert_gate`; worked example in ``examples/integrations/promptfoo/``.
+- :mod:`openllmetry` — OpenLLMetry/Traceloop spans -> ``gen_ai.*`` events. Encodes a
+  verified finding: an instrumented app is NOT gate-ready for free (it names tools
+  ``traceloop.entity.name``, never ``gen_ai.tool.name``), but the distance is one
+  explicit mapping — and this is it, without fabricating missing required attrs.
 - :mod:`platform_scores` — the verdict as a platform-native score: LangSmith
   categorical feedback kwargs, Langfuse ``POST /api/public/scores`` (CATEGORICAL),
   Phoenix ``CODE`` trace annotations. The three-valued verdict never collapses
@@ -22,6 +26,7 @@ independent store. These adapters put both in one run:
 Zero new hard dependencies; each bridge imports its platform lazily.
 """
 from .deepeval_metric import make_arrival_metric
+from .openllmetry import span_to_event, spans_to_events
 from .platform_scores import (
     langfuse_score_body,
     langsmith_feedback_kwargs,
@@ -35,4 +40,5 @@ __all__ = [
     "make_arrival_metric", "emit_verdict_event", "verdict_span_attributes",
     "langsmith_feedback_kwargs", "langfuse_score_body", "phoenix_annotation_payload",
     "post_langfuse_score", "post_phoenix_annotations",
+    "span_to_event", "spans_to_events",
 ]
