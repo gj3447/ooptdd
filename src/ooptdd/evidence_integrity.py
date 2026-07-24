@@ -52,8 +52,8 @@ def measurement_environment() -> dict:
     }
 
 
-def validate_measurement_lock(lock: Any) -> dict:
-    """Validate exact lock types before Python's bool/int equality can weaken a binding."""
+def _validate_lock(lock: Any, *, tier: str) -> dict:
+    """Shared measurement-lock shape validation; only the accepted tier differs."""
     if not isinstance(lock, dict) or lock.get("schema") != "ooptdd-efficacy-measurement-lock/v1":
         raise EvidenceIntegrityError("measurement lock schema mismatch")
     if lock.get("candidate_dirty") is not False:
@@ -71,8 +71,8 @@ def validate_measurement_lock(lock: Any) -> dict:
         raise EvidenceIntegrityError("measurement seed must be a non-negative integer")
     if isinstance(repetitions, bool) or not isinstance(repetitions, int) or repetitions < 1:
         raise EvidenceIntegrityError("measurement repetitions must be a positive integer")
-    if lock.get("tier") != "tier0-mechanics":
-        raise EvidenceIntegrityError("measurement tier must be tier0-mechanics")
+    if lock.get("tier") != tier:
+        raise EvidenceIntegrityError(f"measurement tier must be {tier}")
     if not isinstance(lock.get("deepeval_version"), str) or not lock["deepeval_version"]:
         raise EvidenceIntegrityError("deepeval_version must be a non-empty string")
     if (
@@ -97,6 +97,24 @@ def validate_measurement_lock(lock: Any) -> dict:
         ):
             raise EvidenceIntegrityError(f"measurement lock {field} must be lowercase SHA-256")
     return lock
+
+
+def validate_measurement_lock(lock: Any) -> dict:
+    """Validate exact lock types before Python's bool/int equality can weaken a binding."""
+    return _validate_lock(lock, tier="tier0-mechanics")
+
+
+def validate_tier1_measurement_lock(lock: Any) -> dict:
+    """Validate a Tier-1 (external-store) measurement lock.
+
+    Identical bindings to :func:`validate_measurement_lock` — clean candidate, exact
+    head/seed/repetition types, complete environment identity, lowercase SHA-256 hash
+    fields, named registration repository — except the tier slot, which must read
+    ``tier1-external-store``. A separate entry point on purpose: the Tier-0 validator is
+    not weakened to accept Tier-1 evidence, and Tier-1 cannot smuggle in a mechanics-only
+    claim.
+    """
+    return _validate_lock(lock, tier="tier1-external-store")
 
 
 def _repository_identity(value: str) -> str:
