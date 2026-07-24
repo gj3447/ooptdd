@@ -204,6 +204,26 @@ def test_junit_inconclusive_policy_unknown_value_is_loud():
         to_junit_xml(res, inconclusive="pass")
 
 
+def test_check_level_inconclusive_marker_cannot_hide_a_red():
+    result = {
+        "cid": "marker-red",
+        "ok": False,
+        "reachable": True,
+        "complete": True,
+        "checks": [{
+            "event": "required",
+            "passed": False,
+            "inconclusive": True,
+            "optional": False,
+            "pending": False,
+        }],
+        "oracle": {"emit_identity": "test"},
+    }
+    root = ET.fromstring(to_junit_xml(result))
+    assert root.get("failures") == "1"
+    assert root.get("skipped") == "0"
+
+
 def test_junit_error_mode_does_not_touch_green_or_red(tmp_path):
     green = _res([{"event": "boot", "op": "gte", "target": 1}], _events())
     red = _res([{"event": "never", "op": "gte", "target": 1}], _events())

@@ -171,6 +171,20 @@ the same three-valued verdict as a Phoenix `CODE` annotation; its stable
 [`examples/integrations/`](examples/integrations/); CI runs the public trajectory
 and verdict-export demos on every supported Python/OS combination.
 
+The deterministic mechanics benchmark exercises silent loss, bounded lag,
+late offenders, outage honesty, independent-source demotion/corroboration, and
+non-vacuous trajectory mutation. It emits canonical JSON plus JUnit/Markdown:
+
+```bash
+python scripts/run_arrival_benchmark.py --tier 0 --seed 20260723 \
+  --repetitions 20 --output /tmp/ooptdd-tier0.json \
+  --junit-out /tmp/ooptdd-tier0.xml --markdown-out /tmp/ooptdd-tier0.md
+```
+
+Tier 0 proves deterministic gate mechanics, not external-store arrival. The
+evidence contract, competitors absorbed, papers, exclusions, and Tier-1 plan
+are in the [PROM 24 efficacy report](docs/research/prom24_ooptdd_efficacy_20260723/INDEX.md).
+
 ## Extending: custom check-predicates & ontology presets
 
 Two registration seams let you grow the vocabulary **without editing the core**
@@ -201,8 +215,8 @@ The current checkout was re-run on 2026-07-23:
 
 ```bash
 uv run --extra dev pytest -q
-# 643 passed, 3 skipped
-# [ooptdd] OK arrival confirmed (session 643/645, outcomes=1934, 1 attempt)
+# 718 passed, 3 skipped
+# [ooptdd] OK arrival confirmed (session 718/720, outcomes=2159, 1 attempt)
 ```
 
 The suite uses the configured `memory` backend and dogfoods the plugin's arrival

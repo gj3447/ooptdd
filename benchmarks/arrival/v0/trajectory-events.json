@@ -1,0 +1,11 @@
+[
+  {
+    "_timestamp": 1000000,
+    "cid": "benchmark-trajectory",
+    "event": "gen_ai.execute_tool",
+    "gen_ai.tool.call.arguments": {
+      "command": "git status --short"
+    },
+    "gen_ai.tool.name": "shell"
+  }
+]

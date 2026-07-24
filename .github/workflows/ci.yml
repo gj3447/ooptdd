@@ -61,6 +61,66 @@ jobs:
       - name: DeepEval custom-metric loop (real package, no LLM/API key)
         run: pytest -q examples/integrations/test_deepeval_arrival.py
 
+  tier0-arrival-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Positive run A and byte-identical replay B
+        run: |
+          mkdir -p /tmp/ooptdd-arrival-benchmark
+          python scripts/run_arrival_benchmark.py --tier 0 --seed 20260723 \
+            --repetitions 20 --output /tmp/ooptdd-arrival-benchmark/positive-a.json \
+            --junit-out /tmp/ooptdd-arrival-benchmark/positive-a.xml \
+            --markdown-out /tmp/ooptdd-arrival-benchmark/positive-a.md
+          python scripts/run_arrival_benchmark.py --tier 0 --seed 20260723 \
+            --repetitions 20 --output /tmp/ooptdd-arrival-benchmark/positive-b.json \
+            --junit-out /tmp/ooptdd-arrival-benchmark/positive-b.xml \
+            --markdown-out /tmp/ooptdd-arrival-benchmark/positive-b.md
+          cmp /tmp/ooptdd-arrival-benchmark/positive-a.json \
+            /tmp/ooptdd-arrival-benchmark/positive-b.json
+          cmp /tmp/ooptdd-arrival-benchmark/positive-a.xml \
+            /tmp/ooptdd-arrival-benchmark/positive-b.xml
+          cmp /tmp/ooptdd-arrival-benchmark/positive-a.md \
+            /tmp/ooptdd-arrival-benchmark/positive-b.md
+      - name: Same-definition injected negative must fail locally
+        run: |
+          if python scripts/run_arrival_benchmark.py --tier 0 --seed 20260723 \
+            --repetitions 20 --inject-fault disable-confirm-rounds \
+            --output /tmp/ooptdd-arrival-benchmark/negative.json \
+            --junit-out /tmp/ooptdd-arrival-benchmark/negative.xml \
+            --markdown-out /tmp/ooptdd-arrival-benchmark/negative.md; then
+            echo "::error::disabled confirm rounds did not fail the frozen oracle"
+            exit 1
+          fi
+      - name: Validate negative localization and restored positive
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("/tmp/ooptdd-arrival-benchmark")
+          negative = json.loads((root / "negative.json").read_text())
+          failed = [row["id"] for row in negative["scenarios"]
+                    if row["oracle_match_rate"] != 1.0]
+          assert failed == ["late-offender-confirm"], failed
+          assert negative["metrics"]["M2b_late_offender_catch_rate"]["value"] == 0.0
+          PY
+          python scripts/run_arrival_benchmark.py --tier 0 --seed 20260723 \
+            --repetitions 20 --output /tmp/ooptdd-arrival-benchmark/restored.json \
+            --junit-out /tmp/ooptdd-arrival-benchmark/restored.xml \
+            --markdown-out /tmp/ooptdd-arrival-benchmark/restored.md
+          cmp /tmp/ooptdd-arrival-benchmark/positive-a.json \
+            /tmp/ooptdd-arrival-benchmark/restored.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tier0-arrival-benchmark
+          path: /tmp/ooptdd-arrival-benchmark/
+
   lakatotree-qualification:
     runs-on: ubuntu-latest
     steps:
@@ -84,6 +144,18 @@ jobs:
           --source-root "$GITHUB_WORKSPACE"
           --spec docs/receipts/lakatotree-trajectory-qualification/qualification-spec-v2.json
           --output /tmp/deepeval-heldout-v2.json
+      - name: Recompute and assert the DeepEval artifact
+        run: >-
+          python scripts/validate_trajectory_evidence.py deepeval
+          --artifact /tmp/deepeval-heldout-v2.json
+          --source-head "$(git rev-parse HEAD)"
+          --spec docs/receipts/lakatotree-trajectory-qualification/qualification-spec-v2.json
+          --expected-version 4.0.7
+      - name: Retain the asserted DeepEval evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepeval-heldout-v2
+          path: /tmp/deepeval-heldout-v2.json
       - name: Replay the frozen LakatoTree judgment
         run: |
           python scripts/run_lakatotree_trajectory_judge.py judge \

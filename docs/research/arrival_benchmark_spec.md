@@ -1,10 +1,14 @@
 # Public arrival-testing benchmark — specification (v0)
 
-**Status: SPEC ONLY.** This document defines what a public arrival-testing
-benchmark measures, how its harness is shaped, and how it scores and reports.
-It deliberately contains no implementation; the spec is the review artifact.
-Everything below is grounded in the current source of this repository — every
-mechanism named here exists today and is cited by module and symbol.
+**Status: TIER 0 IMPLEMENTED / FINAL MEASUREMENT PENDING; TIER 1 NOT
+MEASURED.** The deterministic runner, packaged frozen manifest/fixtures,
+observation-first validator, JSON/JUnit/Markdown projections, and
+same-definition positive/negative/restored protocol now live in
+`src/ooptdd/benchmark.py`, `scripts/run_arrival_benchmark.py`, and
+`src/ooptdd/benchmark_fixtures/arrival/v0/`. The v0 manifest fixes 20
+repetitions and seed `20260723`; each sample receives a unique seed-derived
+identity, while only scenarios with a meaningful factor vary that factor. Tier 0 remains mechanics-only, and code/CI
+wiring is not a final measurement artifact or an external-store arrival claim.
 
 ## 1. Why a benchmark, and why this one is narrow
 
@@ -93,15 +97,16 @@ strict mode, and `reports.to_junit_xml` renders INFRA as `<skipped>` (or
 policy) — never `<failure>`.
 
 - **Measured**: fraction of outage trials producing ? with exit 2 *and* a JUnit
-  artifact with zero `<failure>` elements.
+  artifact whose outage testcase is `<skipped>`/inconclusive, with zero
+  `<failure>` elements. The expected ? may satisfy the benchmark oracle overall;
+  it must not be rendered as an ordinary passing testcase.
 - **Target**: 1.0.
 
-### M4 — Mutation score of the shipped example gates
+### M4 — Mutation score of the frozen trajectory gate
 
-For each fixture gate (starting with `examples/gates/order_pipeline.yaml` plus
-its baseline event list), run `mutation_report` (`ooptdd mutate <spec>
---events <baseline>`): derive drop/corrupt/inject-error mutants from the gate's
-own expectations and re-run the gate on each. Survivors are named blind spots.
+The packaged v0 `trajectory-gate.yaml` and `trajectory-events.json` fixture pair
+runs through `mutation_report`: derive semantic mutants from the gate's own
+expectations and re-run the gate on each. Survivors are named blind spots.
 
 - **Measured**: `score` (caught / total) per fixture gate; `survivors` listed
   verbatim; `canary_survived` (the drop-all canary — the gate run on an empty
@@ -113,19 +118,15 @@ own expectations and re-run the gate on each. Survivors are named blind spots.
 
 Two honesty constraints, stated so the metric cannot lie:
 
-1. `derive_mutations` excludes `absent`/`forbid`/`ratioMetric`/`conforms`/
-   `heartbeat`/`tool_calls`/`forbidden_tools`/`aggregate` rules (negative wings
-   and trajectory predicates have no meaningful drop mutant). A
-   trajectory-only fixture therefore yields a vacuous score — the CLI already
-   refuses it (`n == 0` with `--min-score` exits 2, INCONCLUSIVE). Fixture
-   gates must contain mutation-coverable rules, and the spec of each fixture
-   must say which rules those are. `order_pipeline.yaml` (four required count
-   rules) derives drop mutants only — it has no `where` constraints, so a
-   corrupt-covering fixture gate must be added to the set before the metric can
-   claim value-check coverage.
-2. Ordering mutations are out of scope in `mutation.py` (the in-memory backend
-   stamps one timestamp per `ship`), so M4 does not claim to measure order
-   discrimination. See §8.
+1. Generic drop mutants remain excluded for negative/trajectory predicates,
+   because dropping a forbidden event is meaningless. Trajectory rules instead
+   derive semantic rename, argument-corruption, required-call reorder,
+   exact-mode extra-call, forbidden-tool, and forbidden-call witnesses. The v0
+   trajectory fixture pins `eligible=5`, `score=1.0`, and
+   `canary_survived=false`; `eligible=0` remains unmeasured, never a perfect score.
+2. Ordering discrimination is now covered only when an ordered/exact trajectory
+   has at least two required calls. Generic timestamp rewriting remains outside
+   M4; it belongs to the separate OrderBreak scenario family in §8.
 
 ## 3. Mechanism conformance assertions
 
@@ -162,15 +163,17 @@ receipt rather than from harness timing.
   and `Sleeper` (both are constructor parameters of `poll_until_present`, so
   lag/flap timing is simulated deterministically; the lag wing uses a wrapper
   backend that declares a nonzero `query_visibility_delay_ms` and withholds
-  events until the simulated deadline). Runs M2, M4, C1, C2 deterministically
-  in seconds. Tier 0 proves *gate mechanics*, not arrival — the memory driver
-  itself says so (`independent=False`).
+  events until the simulated deadline). Runs mechanics-only M1–M4 plus C1–C2
+  deterministically in seconds. Tier 0 proves *gate mechanics*, not arrival —
+  the memory driver itself says so (`independent=False`).
 - **Tier 1 — external judge.** The docker-compose OpenObserve from
   `examples/openobserve_demo/docker-compose.yml` (image
   `public.ecr.aws/zinclabs/openobserve:v0.14.7`, port 5080, root credentials in
   the compose env). Runs M1, M2a (real ingest), M3 against a real store.
   **Headline numbers must come from Tier 1**; Tier-0-only results must be
-  labeled as such (see §7).
+  labeled as such (see §7). Tier 1 is currently **NOT MEASURED**: there is no
+  candidate-bound credentialed external-store receipt and no controlled
+  ingest-lag receipt.
 
 ### Fault injection points
 
@@ -184,39 +187,50 @@ receipt rather than from harness timing.
 
 ### Run protocol
 
-Each faulted scenario runs `R` repetitions (v0 default: 20) under a fixed seed
-recorded in the result. The runner is a Python script driving `verify_gate` /
-`verify_trace` / `mutation_report` directly; no new CLI surface is required.
-Every scenario's expected verdict is asserted by the runner itself — the
-benchmark is itself a gate, the same convention the demo scripts already use
-("each script asserts its own expected verdict and exits 0 only when the
-demonstration held").
+Each scenario runs `R` repetitions (v0 default: 20) under a fixed seed
+recorded in the result. For repeat indices `0..19`, the implementation derives
+`variant_id = SHA256(seed, scenario_id, repeat)[:16]`; the v0 result therefore
+contains 20 deterministic repetitions with unique seed-derived identities per
+scenario, bound to the frozen manifest and fixture hashes. Lag, visibility,
+confirmation, and probe parameters vary where meaningful; outage and mutation
+also repeat invariant mechanics, so these are not 20 independent semantic
+trials. The cases are a fixed robustness panel, not a random sample from a population. The runner is a Python script
+driving `verify_gate` / `verify_trace` / `mutation_report` directly; no new CLI
+surface is required. Every scenario's expected verdict is asserted by the
+runner itself — the benchmark is itself a gate, the same convention the demo
+scripts already use ("each script asserts its own expected verdict and exits 0
+only when the demonstration held").
 
 ## 5. Scoring and reporting
 
 **Canonical result** = one JSON document per run:
 
 - `benchmark_version`, `fixture_version`, tool version, seed, tier;
-- backend identity and a `BackendCaps` snapshot (so a result can never hide
-  which judge it used — caps are the honesty surface, not fine print);
-- per-scenario rows: expected vs observed verdict, exit code, `arrival` stamp;
+- explicit `tier`/`independent` fields and per-sample `BackendCaps` snapshots
+  (caps are the honesty surface, not fine print);
+- per-scenario rows: expected vs observed verdict, oracle match, `arrival`
+  stamp, and `pass_hat_k` over the fixed variant panel;
+- `provenance.files` for fixture hashes plus `provenance.code_manifest` for the
+  complete packaged Python surface; `benchmark_definition_sha256` binds both;
 - metric rollups M1–M4 and conformance results C1–C2.
 
 **Summary artifact: reuse `reports.to_junit_xml` — no new format.** The runner
 projects the canonical JSON into the `evaluate()`-result shape (one check row
-per scenario, `passed` = scenario oracle held; the run id as `cid`; backend
-identity in `oracle.emit_identity`) and renders it with
-`to_junit_xml(result, suite="ooptdd.benchmark")`. The existing renderer then
-provides for free: one `<testcase>` per scenario, `<failure>` on a scenario
-miss, the suite `<properties>` naming cid and backend, XML control-character
-hygiene, and the INFRA policy switch (`inconclusive="skipped"` default,
-`"error"` for fail-closed CI). Two mapping rules keep the artifact honest:
+per scenario plus C1/C2 conformance rows; `passed` = scenario oracle held; the
+run id as `cid`; tier identity in `oracle.emit_identity`) and renders it with
+`to_junit_xml(result, suite="ooptdd.arrival-benchmark")`. The existing renderer
+then provides for free: one `<testcase>` per projected check, `<failure>` on a
+scenario or conformance miss, the suite `<properties>` naming cid and backend,
+XML control-character hygiene, and the INFRA policy switch
+(`inconclusive="skipped"` default, `"error"` for fail-closed CI). Two mapping
+rules keep the artifact honest:
 
-1. A store-outage scenario that correctly produced ? is a scenario **pass**
-   (`passed: true`) — the artifact's INFRA path is reserved for the *harness
-   itself* failing to run (compose didn't start, fixture missing), which sets
-   the result-level `reachable`/`complete` fields and renders the whole suite
-   inconclusive rather than red.
+1. A store-outage scenario that correctly produced ? is an oracle **match**, so
+   it can contribute to an overall benchmark pass. The projected check also
+   retains `inconclusive: true`, so its JUnit testcase must be `<skipped
+   message="INCONCLUSIVE: ...">`, never an ordinary pass and never `<failure>`.
+   A failure of the harness itself (compose did not start, fixture missing) is a
+   separate suite-level INFRA condition.
 2. Writers stay pure projections: the JUnit artifact re-judges nothing; the
    verdicts come only from the engine. `to_markdown` may additionally render
    the same result for PR display.
@@ -225,6 +239,13 @@ hygiene, and the INFRA policy switch (`inconclusive="skipped"` default,
 `confirm_rounds=1`; the 0-round control is reported, not gated) · M3 = 1.0 ·
 M4 per the fixture manifest with `canary_survived=False` and `n ≥ 1` · C1, C2
 all assertions hold.
+
+`pass_hat_k = C(c,k) / C(n,k)` answers one deliberately narrow question: how
+consistent were the recorded outcomes across all-`k` subsets of the frozen,
+seeded repetition panel? It
+is **panel robustness**, not an estimate of population success, unseen-input
+generalization, or production reliability. Even `pass_hat_k=1.0` cannot cross
+that boundary.
 
 ## 6. What this benchmark deliberately does NOT measure
 
@@ -262,6 +283,13 @@ do"), the benchmark excludes, permanently:
   fixture pins the shipped OpenObserve driver's declared 5000 ms.
 - **Fixture overfitting.** The fixture set is versioned; a result is only
   comparable at equal `fixture_version`.
+- **Panel generalization.** The 20 repetitions have distinct deterministic
+  identities, but some exercise the same invariant mechanic and all remain one
+  frozen panel. `pass_hat_k` summarizes recorded panel consistency only; it supplies
+  no confidence claim for an unseen workload distribution.
+- **Runtime identity.** Byte-identical replay is claimed only for the frozen
+  Python/PyYAML/platform identity in the measurement lock. The tested Python
+  matrix is compatibility evidence, not a cross-environment bit-reproducibility claim.
 - **Single-author bias.** Scenarios and oracles are defined tool-neutrally
   (verdict lattice + exit semantics), so another tool can run them through an
   adapter mapping its outcome to {⊤, ⊥, ?}. A tool with no third value must
@@ -296,12 +324,21 @@ that could be pinned later:
   `query_visibility_delay_ms`, `samples`), `fetch_all_pages`.
 - `src/ooptdd/mutation.py` — `derive_mutations` (exclusion list),
   `mutation_report` (score, survivors, drop-all canary).
+- `src/ooptdd/benchmark.py` — deterministic scenarios, repeated reliability,
+  raw-sample rollup recomputation, packaged fixture/code-manifest binding, and
+  report projections.
+- `scripts/run_arrival_benchmark.py` — Tier-0 CLI artifact emitter.
+- `scripts/run_efficacy_measurement.py` — prospectively locked
+  positive/negative/restored sequence.
+- `src/ooptdd/benchmark_fixtures/arrival/v0/` — packaged, versioned manifest
+  and trajectory fixtures; explicit filesystem fixture roots remain supported.
 - `src/ooptdd/cli.py` — `_exit` ladder, `_cmd_mutate` exit-2 rungs,
   `--report junit|md`, `--junit-inconclusive`.
 - `src/ooptdd/reports.py` — `to_junit_xml` (INFRA-never-failure, suite
   properties), `to_markdown`.
+- `tests/test_arrival_benchmark.py` — deterministic replay, seeded variants,
+  fault localization, integrity rejection, and outage/JUnit projection guards.
 - `examples/openobserve_demo/` — compose file and the three verdict demos.
-- `examples/gates/order_pipeline.yaml` — first fixture gate.
 - `docs/competitive_feedback.md` — the what-not-to-do perimeter.
 - `docs/research/ooptdd_F_oss_absorption_20260722.md` — malabi/Tracetest
   category-death evidence (packfile-decoded).

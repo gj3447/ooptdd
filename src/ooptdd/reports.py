@@ -102,7 +102,10 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
     for label, chk, detail in _check_rows(result):
         name = quoteattr(_xsafe(label))
         body = ""
-        if infra is not None:
+        if chk.get("inconclusive") and chk.get("passed"):
+            skipped += 1
+            body = "<skipped message=\"INCONCLUSIVE: expected three-valued oracle outcome\"/>"
+        elif infra is not None:
             if inconclusive == "error":
                 errors += 1
                 body = (f"<error type=\"ooptdd.inconclusive\" "
@@ -162,7 +165,7 @@ def to_markdown(result: dict) -> str:
     if suite_red is not None:
         lines.insert(4, f"- **why red**: {suite_red}")
     for label, chk, detail in _check_rows(result):
-        if infra is not None:
+        if (chk.get("inconclusive") and chk.get("passed")) or infra is not None:
             state = "⏭ inconclusive"
         elif chk.get("passed"):
             state = "✅ pass"

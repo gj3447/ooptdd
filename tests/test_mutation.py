@@ -81,13 +81,164 @@ def test_baseline_not_green_is_flagged():
     assert rep["baseline_green"] is False  # inputs don't pass -> score is meaningless
 
 
-def test_trajectory_negative_wings_do_not_get_meaningless_drop_mutants():
+def test_trajectory_negative_wings_get_semantic_injection_not_drop_mutants():
     events = [{"event": "gen_ai.execute_tool", "gen_ai.tool.name": "search"}]
     spec = {"expect": [
         {"forbidden_tools": ["delete_db"]},
         {"forbidden_tool_calls": {"name": "shell", "args": {"command": "rm"}}},
     ]}
-    assert derive_mutations(events, spec) == []
+    labels = [label for label, _ in derive_mutations(events, spec)]
+    assert "inject_forbidden_tool:delete_db" in labels
+    assert "inject_forbidden_call:0:shell" in labels
+    assert "inject_forbidden_call_corrupt_args:shell" in labels
+    assert not any(label.startswith("drop:") for label in labels)
+
+
+def test_tool_call_trajectory_mutations_are_non_vacuous_and_killed():
+    events = [
+        {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "plan",
+         "gen_ai.tool.call.arguments": {"scope": "repo"}},
+        {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "write",
+         "gen_ai.tool.call.arguments": {"path": "README.md"}},
+    ]
+    spec = {"expect": [
+        {"tool_calls": {
+            "expected": [
+                {"name": "plan", "args": {"scope": "repo"}},
+                {"name": "write", "args": {"path": "README.md"}},
+            ],
+            "match": "exact",
+            "compare": ["name", "args"],
+        }},
+        {"forbidden_tool_calls": {"name": "shell", "args": {
+            "command": {"contains_any": ["rm -rf", "git reset --hard"]},
+        }}},
+    ]}
+    rep = mutation_report(events, spec)
+    assert rep["baseline_green"] is True
+    assert rep["n"] >= 6 and rep["eligible"] == rep["n"]
+    assert rep["score_status"] == "measured"
+    assert rep["score"] == 1.0 and rep["survivors"] == []
+    assert rep["status_counts"] == {"killed": rep["n"], "survived": 0}
+    assert all(row["mutation_id"] and row["status"] == "killed"
+               for row in rep["mutations"])
+
+
+def test_trajectory_mutation_honors_custom_event_and_attribute_names():
+    events = [{"event": "mcp.call", "mcp.tool": "search", "mcp.args": {"q": "cats"}}]
+    spec = {"expect": [{"tool_calls": {
+        "expected": [{"name": "search", "args": {"q": "cats"}}],
+        "compare": ["name", "args"],
+        "event": "mcp.call",
+        "name_attr": "mcp.tool",
+        "args_attr": "mcp.args",
+    }}]}
+    rep = mutation_report(events, spec)
+    assert rep["n"] == 2
+    assert rep["score"] == 1.0
+
+
+def test_matcher_aware_argument_mutants_do_not_accidentally_satisfy_the_gate():
+    events = [{
+        "event": "gen_ai.execute_tool",
+        "gen_ai.tool.name": "shell",
+        "gen_ai.tool.call.arguments": {"command": "git status"},
+    }]
+    spec = {"expect": [{"tool_calls": {
+        "expected": [{"name": "shell", "args": {"command": {
+            "non_empty": True,
+            "not_contains": ["rm -rf"],
+        }}}],
+        "compare": ["name", "args"],
+        "match": "exact",
+    }}]}
+    rep = mutation_report(events, spec)
+    caught = {row["mutation"]: row["caught"] for row in rep["mutations"]}
+    assert caught["corrupt_required_args:0:shell.command"] is True
+    assert rep["survivors"] == []
+
+
+def test_forbidden_witness_satisfies_all_composed_matcher_constraints():
+    events = [{"event": "gen_ai.execute_tool", "gen_ai.tool.name": "search"}]
+    spec = {"expect": [{"forbidden_tool_calls": {
+        "name": "shell",
+        "args": {"command": {
+            "contains_any": ["safe", "danger"],
+            "not_contains": ["safe"],
+        }},
+    }}]}
+    mutations = dict(derive_mutations(events, spec))
+    witness = mutations["inject_forbidden_call:0:shell"][-1]
+    assert witness["gen_ai.tool.call.arguments"]["command"] == "danger"
+    rep = mutation_report(events, spec)
+    assert not rep["survivors"]
+
+
+def test_ordered_three_call_gate_mutates_every_adjacent_pair():
+    events = [
+        {"event": "gen_ai.execute_tool", "gen_ai.tool.name": name}
+        for name in ("a", "b", "c")
+    ]
+    spec = {"expect": [{"tool_calls": {
+        "expected": ["a", "b", "c"],
+        "match": "exact",
+    }}]}
+    labels = {label for label, _ in derive_mutations(events, spec)}
+    assert "reorder_required_tools:0:a>b" in labels
+    assert "reorder_required_tools:1:b>c" in labels
+
+
+def test_duplicate_required_calls_keep_distinct_argument_mutation_targets():
+    events = [
+        {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "shell",
+         "gen_ai.tool.call.arguments": {"command": command}}
+        for command in ("git status", "git diff")
+    ]
+    spec = {"expect": [{"tool_calls": {
+        "expected": [
+            {"name": "shell", "args": {"command": "git status"}},
+            {"name": "shell", "args": {"command": "git diff"}},
+        ],
+        "compare": ["name", "args"],
+        "match": "exact",
+    }}]}
+    labels = {label for label, _ in derive_mutations(events, spec)}
+    assert "corrupt_required_args:0:shell.command" in labels
+    assert "corrupt_required_args:1:shell.command" in labels
+
+
+def test_every_forbidden_list_entry_gets_an_eligible_semantic_mutant():
+    events = [{"event": "gen_ai.execute_tool", "gen_ai.tool.name": "search"}]
+    spec = {"expect": [
+        {"forbidden_tools": ["delete_db", "shutdown"]},
+        {"forbidden_tool_calls": [
+            {"name": "shell", "args": {"command": {"contains_any": ["rm -rf"]}}},
+            {"name": "curl", "args": {"url": {"contains_any": ["169.254.169.254"]}}},
+        ]},
+    ]}
+    labels = {label for label, _events in derive_mutations(events, spec)}
+    assert {"inject_forbidden_tool:delete_db", "inject_forbidden_tool:shutdown"} <= labels
+    assert {"inject_forbidden_call:0:shell", "inject_forbidden_call:1:curl"} <= labels
+    assert {
+        "inject_forbidden_call_corrupt_args:shell",
+        "inject_forbidden_call_corrupt_args:curl",
+    } <= labels
+
+
+def test_tolerant_trajectory_threshold_surfaces_a_surviving_required_tool_mutant():
+    events = [
+        {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "a"},
+        {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "b"},
+    ]
+    spec = {"expect": [{"tool_calls": {
+        "expected": ["a", "b"], "match": "subset", "target": 0.5,
+    }}]}
+    rep = mutation_report(events, spec)
+    assert rep["baseline_green"] is True
+    assert rep["score"] == 0.0
+    assert set(rep["survivors"]) == {
+        "rename_required_tool:0:a", "rename_required_tool:1:b",
+    }
 
 
 # ── the drop-all canary: dynamic vacuity cross-check ───────────────────────────

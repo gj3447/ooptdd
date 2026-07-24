@@ -362,11 +362,13 @@ def verify_gate(
     """
     emit_backend = type(backend).__name__
     emit_identity = backend_identity(backend)
+    emit_caps = backend_caps(backend)
 
     def evaluate_prefix(events, *, reachable, complete, queried_ok, attempt, final):
         result = evaluate_events(
             spec, events, reachable=reachable, complete=complete, ontology=ontology, cid=cid,
             probe=probe, emit_backend=emit_backend, emit_identity=emit_identity,
+            emit_independent=emit_caps.independent, emit_sampled=emit_caps.samples,
         )
         if not final:
             # Early settle ONLY on an irrevocable green: every gating check latched LTL₃

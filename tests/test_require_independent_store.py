@@ -8,6 +8,7 @@ promotes that signal to a verdict (see docs/THREAT_MODEL.md).
 from ooptdd.backends.memory import MemoryBackend, reset
 from ooptdd.domain.ports import BackendCaps
 from ooptdd.engine.gate import evaluate, evaluate_events
+from ooptdd.engine.verify import verify_gate
 
 CID = "indep-cid"
 
@@ -39,6 +40,17 @@ def test_non_independent_store_without_corroboration_is_red():
     _ship(b)
     res = evaluate(b, _spec(require_independent_store=True))
     assert not res["ok"] and res["dependent_store"] is True
+    reset()
+
+
+def test_verify_path_also_enforces_non_independent_store():
+    """The polling path must carry the same typed caps as one-shot evaluate()."""
+    reset()
+    b = MemoryBackend()
+    _ship(b)
+    res = verify_gate(b, CID, _spec(require_independent_store=True), retries=1, delay=0)
+    assert res["verdict"] == "absent"
+    assert res["gate"]["dependent_store"] is True
     reset()
 
 

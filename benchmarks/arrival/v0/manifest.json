@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "ooptdd-arrival-v0",
+  "benchmark_version": "0.1.0",
+  "default_repetitions": 20,
+  "default_seed": 20260723,
+  "fixture_version": "arrival-v0-20260723",
+  "mutation": {
+    "canary_survived": false,
+    "eligible": 5,
+    "score": 1.0
+  },
+  "scenarios": [
+    {"expected": "absent", "id": "silent-loss"},
+    {"expected": "present", "id": "lag-within-window"},
+    {"expected": "absent", "id": "truly-absent"},
+    {"expected": "present", "id": "late-offender-control"},
+    {"expected": "absent", "id": "late-offender-confirm"},
+    {"expected": "inconclusive", "id": "backend-outage"},
+    {"expected": "absent", "id": "dependent-store-demotion"},
+    {"expected": "present", "id": "external-corroboration"},
+    {"expected": "measured", "id": "trajectory-mutation"}
+  ]
+}

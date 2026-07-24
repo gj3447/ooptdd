@@ -297,6 +297,8 @@ def test_f6_mutation_excludes_trajectory_predicates_from_count_mutants():
     names = [m[0] if isinstance(m, tuple) else m.get("name", "") for m in muts]
     assert not any(str(n).startswith("drop:") for n in names), \
         f"trajectory rules must not fall through to count-rule drop mutants: {names}"
+    assert any(str(n).startswith("rename_required_tool:") for n in names)
+    assert any(str(n).startswith("inject_forbidden_tool:") for n in names)
 
 
 # ── aggregate: rollup budgets (Phoenix cumulative-rollup absorption) ───────────
