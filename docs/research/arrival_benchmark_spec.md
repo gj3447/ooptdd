@@ -171,7 +171,11 @@ receipt rather than from harness timing.
   `public.ecr.aws/zinclabs/openobserve:v0.14.7`, port 5080, root credentials in
   the compose env). Runs M1, M2a (real ingest), M3 against a real store.
   **Headline numbers must come from Tier 1**; Tier-0-only results must be
-  labeled as such (see §7). Tier 1 is currently **NOT MEASURED**: there is no
+  labeled as such (see §7). Tier 1 is **MEASURED (2026-07-24)**: all five
+  scenarios × 20 repetitions oracle-matched; catch 1.0, lag false-RED 0.0,
+  outage inconclusive 1.0, restore 1.0 (receipts:
+  `gj3447/lakatotree` `ooptdd_receipts/ooptdd_tier1_arrival_20260724/`). Before
+  that date it was **NOT MEASURED**: there was no
   candidate-bound credentialed external-store receipt and no controlled
   ingest-lag receipt.
 

@@ -3,8 +3,12 @@
 > 이 문서는 결과표가 아니라 실행 계약이다. 미실행 칸을 0이나 1로 채우지 않는다.
 >
 > 현재 상태: Tier 0 `CODED` / final artifact pending; DeepEval CI
-> `WIRED/PENDING`; Tier 1 `NOT MEASURED` (credentialed external readback과
-> controlled-lag receipt 없음).
+> `WIRED/PENDING`; Tier 1 **`MEASURED` (2026-07-24)** — 4개 rate 전부 target 달성
+> (catch 1.0 / false-RED 0.0 / inconclusive 1.0 / restore 1.0, 100 reps, seed
+> 20260723, candidate `b8fb4f4`, OO v0.14.7 단일 바이너리). 영수증:
+> `gj3447/lakatotree` `ooptdd_receipts/ooptdd_tier1_arrival_20260724/`
+> (preregistration → lock → evidence_record). 이전 상태: `NOT MEASURED`
+> (credentialed external readback과 controlled-lag receipt 부재, 2026-07-23).
 
 ## 1. 사전등록된 질문
 
@@ -159,9 +163,13 @@ manifest나 expected verdict를 음성대조에 맞춰 바꾸면 invalid negativ
 
 ### 상태
 
-**2026-07-23 PROM 조사 시점: NOT MEASURED.** 현 candidate에 바인딩된
+**2026-07-23 PROM 조사 시점: NOT MEASURED → 2026-07-24 MEASURED.** 5개 시나리오
+× 20 rep 전부 oracle match 1.0; 4개 headline rate 전부 target 달성 (Wilson 95%
+구간 포함, `ooptdd_receipts/ooptdd_tier1_arrival_20260724/` @ `gj3447/lakatotree`,
+candidate `b8fb4f4583f6760439ea65f8c630cb616099aaff`). 아래 계약의 판정
+조건을 충족한 첫 외부 저장소 측정이다. (2026-07-23 원문: 현 candidate에 바인딩된
 credentialed external-store run/readback 영수증과 controlled ingest-lag 주입 영수증이 없다.
-Tier 0 결과나 recording HTTP opener를 이 칸에 복사하지 않는다.
+Tier 0 결과나 recording HTTP opener를 이 칸에 복사하지 않는다.)
 
 ### 최소 환경
 

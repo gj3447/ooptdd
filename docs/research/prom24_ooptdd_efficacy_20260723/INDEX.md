@@ -4,8 +4,8 @@
 > 범위: 유사 OSS 10개 관점 + 논문 14편 = 24개 finding  
 > 소스 정책: 프로젝트 공식 문서·공식 저장소·논문 원문/출판처만 사용  
 > 상태: Tier 0 `CODED` / final artifact pending; DeepEval CI
-> `WIRED/PENDING`; Tier 1 `NOT MEASURED`. **Tier 1 외부 저장소 효능 측정
-> 결과가 아니다.**
+> `WIRED/PENDING`; Tier 1 **`MEASURED` (2026-07-24, 후술)**. Tier 1 측정
+> 자체는 2026-07-24에 수행됐다 (이 문서는 07-23 조사 시점의 기록이다).
 
 이 묶음의 결론은 간단하다. ooptdd가 직접 LLM 품질평가 제품을 다시 만들 이유는
 없다. ooptdd가 독자적으로 강해져야 할 지점은 다음 네 가지다.
@@ -40,8 +40,10 @@
 - `TIER1_MEASURED`만 실제 외부 저장소 도착/지연/장애에 관한 headline claim을 허용한다.
 - 기존 27-case 궤적 배터리와 DeepEval 3-case 결과는 탐색적 근거다. 새 효능 프로그램의
   사전등록 측정으로 소급하지 않는다.
-- Tier 1은 candidate-bound credentialed readback과 controlled-lag receipt가 없어
-  `NOT MEASURED`로 남는다.
+- Tier 1은 조사 시점(07-23)엔 `NOT MEASURED`였으나, **2026-07-24 `MEASURED` 달성**:
+  5개 시나리오×20 rep oracle match 1.0, catch 1.0 / false-RED 0.0 / inconclusive
+  1.0 / restore 1.0 (candidate `b8fb4f4`, OO v0.14.7, seed 20260723, 영수증
+  `gj3447/lakatotree` `ooptdd_receipts/ooptdd_tier1_arrival_20260724/`).
 
 ## 고정 비목표
 
