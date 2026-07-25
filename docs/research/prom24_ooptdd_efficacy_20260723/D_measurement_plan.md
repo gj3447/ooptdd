@@ -5,7 +5,8 @@
 > 현재 상태: Tier 0 `CODED` / final artifact pending; DeepEval CI
 > `WIRED/PENDING`; Tier 1 **`MEASURED` (2026-07-24)** — 4개 rate 전부 target 달성
 > (catch 1.0 / false-RED 0.0 / inconclusive 1.0 / restore 1.0, 100 reps, seed
-> 20260723, candidate `b8fb4f4`, OO v0.14.7 단일 바이너리). 영수증:
+> 20260723, candidate `baf84e1`, OO v0.14.7 @ **Proxmox LXC openobserve-01,
+> 192.168.0.27:5081 — store of record**). 영수증:
 > `gj3447/lakatotree` `ooptdd_receipts/ooptdd_tier1_arrival_20260724/`
 > (preregistration → lock → evidence_record). 이전 상태: `NOT MEASURED`
 > (credentialed external readback과 controlled-lag receipt 부재, 2026-07-23).
