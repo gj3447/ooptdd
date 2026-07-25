@@ -16,13 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install ooptdd
+      - name: Install ooptdd (system python 3.13 on ci-runner-01)
         run: |
-          python -m venv .venv
+          python3 -m venv .venv
           .venv/bin/pip install -q -e .
 
       - name: Run Tier-1 benchmark (100 reps)
