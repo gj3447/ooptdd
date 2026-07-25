@@ -1,0 +1,48 @@
+# Tier-1 external-store arrival benchmark — scheduled regression (D_measurement_plan §9).
+# Runs the full 5-scenario x 20-rep panel against the store of record
+# (Proxmox LXC openobserve-01, 192.168.0.27:5081). A skipped run is never
+# counted as green evidence; the confirmatory locked run lives in
+# gj3447/lakatotree ooptdd_receipts/ooptdd_tier1_arrival_20260724/.
+name: tier1-scheduled
+
+on:
+  schedule:
+    - cron: '43 19 * * *' # daily 19:43 UTC (off the :00/:30 herd marks)
+  workflow_dispatch: {}
+
+jobs:
+  tier1-benchmark:
+    runs-on: [self-hosted, lxc, tier1]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ooptdd
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -e .
+
+      - name: Run Tier-1 benchmark (100 reps)
+        env:
+          OOPTDD_T1_OO_URL: http://192.168.0.27:5081
+          OOPTDD_T1_OO_USER: root@example.com
+          OOPTDD_T1_OO_PASSWORD: ${{ secrets.OOPTDD_T1_OO_PASSWORD }}
+        run: |
+          .venv/bin/python scripts/run_tier1_benchmark.py \
+            --output tier1_result.json \
+            --junit-out tier1_result.xml \
+            --markdown-out tier1_result.md
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tier1-evidence-${{ github.run_id }}
+          path: |
+            tier1_result.json
+            tier1_result.xml
+            tier1_result.md
+          retention-days: 90
