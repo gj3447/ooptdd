@@ -209,3 +209,28 @@ gate would wave through today.
   detectors this measurement cross-checks dynamically.
 - `src/ooptdd/mutation.py` — operator derivation and the canary, with the
   design rationale inline.
+
+## The winner's-curse lock (`--lock`)
+
+A mutation score invites a quiet cheat: run, peek, then pick the threshold (or
+trim the gate) so the number reads as a pass. `--lock` refuses the re-pick:
+
+```bash
+ooptdd mutate gates/deploy.yaml --events baseline.json --lock deploy.lock.json
+```
+
+The lock JSON (`ooptdd-mutation-lock/v1`) pins `gate_spec_sha256` and
+`min_score`, and is committed *before* the first scoring run — git history is
+the prereg receipt. Grading then refuses (exit 2, a setup refusal, never a
+measured verdict) when the spec no longer matches the pinned sha or when a CLI
+`--min-score` differs from the locked threshold. A score below the locked
+threshold stays exit 1: the honest RED, reported exactly.
+
+First locked run on the record (front A3, 2026-07-28): prereg commit `0419996`
+locked `examples/gates/order_pipeline.yaml` at 0.8 a priori; the measured run
+scored **1.0 (n=4, no survivors), exit 0** — a measured pass, not the RED the
+front's unlanded "4/5 negative" premise predicted. Scope honestly: n=4 are all
+drop mutants (the gate is count-constrained with no `where` values, so no
+corrupt mutants are derivable) — the number grades drop-blindness only. Audit
+trail arrived on the Tier-1 store (cid `a3-winner-curse-lock-20260728`,
+independent readback). Result: `benchmarks/mutation/v0/order_pipeline.locked_result.json`.

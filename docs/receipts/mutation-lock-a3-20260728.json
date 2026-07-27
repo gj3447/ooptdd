@@ -1,0 +1,35 @@
+{
+  "receipt": "A3 winner's-curse lock — first prereg'd locked mutation run",
+  "front": "POST_TIER1_ARC_HARNESS A3",
+  "date_utc": "2026-07-27T19:14:00Z",
+  "actor": "claude-fable-5",
+  "evidence_tier": "arrived",
+  "preregistration": {
+    "commit": "0419996 (lock + baseline committed before any mutate run of this gate under this front)",
+    "lock_file": "benchmarks/mutation/v0/order_pipeline.lock.json",
+    "gate": "examples/gates/order_pipeline.yaml",
+    "gate_spec_sha256_prefix": "9afefd4e0ff84922",
+    "locked_min_score": 0.8,
+    "threshold_rationale": "the canonical example threshold in docs/ci_mutation_gate.md, chosen a priori"
+  },
+  "measured_run": {
+    "command": "python -m ooptdd.cli mutate examples/gates/order_pipeline.yaml --events benchmarks/mutation/v0/order_pipeline.baseline_events.json --lock benchmarks/mutation/v0/order_pipeline.lock.json --json",
+    "exit": 0,
+    "score": 1.0,
+    "n": 4,
+    "survivors": [],
+    "baseline_green": true,
+    "result_file": "benchmarks/mutation/v0/order_pipeline.locked_result.json"
+  },
+  "honesty_notes": [
+    "The front predicted an immediate RED from '4/5 negative' prior measurements; those measurements are not on the record anywhere findable (repo, KG, FINDINGS, lakatotree) — the premise itself is shrunk to what exists, and the measured verdict is a pass at the locked threshold.",
+    "Scope: n=4 are all drop mutants. The gate is count-constrained with no where-value pins, so corrupt mutants are not derivable — the 1.0 grades drop-blindness only, not value discrimination.",
+    "The lock mechanism's refusal paths (spec moved / threshold re-picked) are covered by tests/test_mutation_lock.py 9/9."
+  ],
+  "arrival": {
+    "store": "openobserve-01 (192.168.0.27:5081, Tier-1 store of record)",
+    "cid": "a3-winner-curse-lock-20260728",
+    "shipped": {"code": 200, "successful": 1},
+    "independent_readback": {"event": "mutation_lock_audit", "score": 1.0, "locked_min_score": 0.8, "verdict": "measured_pass_at_locked_threshold"}
+  }
+}

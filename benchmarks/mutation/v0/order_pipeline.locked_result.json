@@ -1,0 +1,48 @@
+{
+  "baseline_green": true,
+  "mutations": [
+    {
+      "mutation_id": "761ec92e9974eb1e",
+      "mutation": "drop:order_received",
+      "operator": "drop",
+      "status": "killed",
+      "caught": true
+    },
+    {
+      "mutation_id": "d010b5e4fb680585",
+      "mutation": "drop:payment_authorized",
+      "operator": "drop",
+      "status": "killed",
+      "caught": true
+    },
+    {
+      "mutation_id": "83ceb01081443ffd",
+      "mutation": "drop:line_item_packed",
+      "operator": "drop",
+      "status": "killed",
+      "caught": true
+    },
+    {
+      "mutation_id": "ffd96817576fca72",
+      "mutation": "drop:order_shipped",
+      "operator": "drop",
+      "status": "killed",
+      "caught": true
+    }
+  ],
+  "survivors": [],
+  "score": 1.0,
+  "score_status": "measured",
+  "n": 4,
+  "eligible": 4,
+  "status_counts": {
+    "killed": 4,
+    "survived": 0
+  },
+  "canary_survived": false,
+  "lock": {
+    "path": "benchmarks/mutation/v0/order_pipeline.lock.json",
+    "gate_spec_sha256": "9afefd4e0ff84922deeb2cfe493ca71d6022b7367f9c96b2931db3bc7e7289f3",
+    "min_score": 0.8
+  }
+}
