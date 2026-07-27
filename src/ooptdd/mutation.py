@@ -445,3 +445,37 @@ def mutation_report(events: list[dict], spec: dict) -> dict:
         },
         "canary_survived": canary_survived,
     }
+
+
+LOCK_SCHEMA = "ooptdd-mutation-lock/v1"
+
+
+def verify_mutation_lock(spec_bytes: bytes, lock: dict, cli_min_score: float | None = None):
+    """Winner's-curse lock: bind the mutation threshold to a spec committed BEFORE the run.
+
+    The curse this refuses: run ``mutate``, look at the score, then pick the threshold
+    (or quietly edit the gate) so the number reads as a pass. A lock file carries the
+    gate spec's sha256 and the threshold, is committed before any scoring run, and this
+    verifier makes the grading refuse anything that moved after the peek.
+
+    Returns ``(min_score, None)`` when the lock binds, or ``(None, reason)`` when the
+    run must not be graded — the CLI maps every reason to exit 2 (setup refusal, not a
+    measured verdict). A CLI ``--min-score`` differing from the locked value IS the
+    re-pick, so it is refused rather than tie-broken.
+    """
+    if lock.get("schema") != LOCK_SCHEMA:
+        return None, f"unrecognized lock schema: {lock.get('schema')!r}"
+    try:
+        locked_score = float(lock["min_score"])
+        locked_sha = str(lock["gate_spec_sha256"])
+    except (KeyError, TypeError, ValueError):
+        return None, "lock missing/invalid min_score or gate_spec_sha256"
+    actual = hashlib.sha256(spec_bytes).hexdigest()
+    if actual != locked_sha:
+        return None, (f"gate spec does not match the lock (locked {locked_sha[:12]}..., "
+                      f"actual {actual[:12]}...) — re-lock deliberately, then rerun")
+    if cli_min_score is not None and cli_min_score != locked_score:
+        return None, (f"--min-score {cli_min_score} conflicts with the locked threshold "
+                      f"{locked_score} — the threshold cannot be re-picked after the score "
+                      "is visible")
+    return locked_score, None

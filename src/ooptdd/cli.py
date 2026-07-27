@@ -47,7 +47,7 @@ from .engine.gate import (
     strength_fingerprint,
 )
 from .engine.verify import verify_gate, verify_trace
-from .mutation import mutation_report
+from .mutation import mutation_report, verify_mutation_lock
 
 
 def _settings(args):
@@ -218,7 +218,23 @@ def _cmd_can_i_deploy(args) -> int:
 def _cmd_mutate(args) -> int:
     spec = load_gate(args.spec)
     events = _load_json_file(args.events)
+    min_score = args.min_score
+    lock_info = None
+    if args.lock:
+        # Winner's-curse lock: validate BEFORE scoring, so a refused lock never even
+        # produces a number to be tempted by.
+        with open(args.spec, "rb") as f:
+            spec_bytes = f.read()
+        lock = _load_json_file(args.lock)
+        min_score, reason = verify_mutation_lock(spec_bytes, lock, args.min_score)
+        if reason is not None:
+            print(f"LOCK REFUSED - {reason}", file=sys.stderr)
+            return 2
+        lock_info = {"path": args.lock, "gate_spec_sha256": lock["gate_spec_sha256"],
+                     "min_score": min_score}
     report = mutation_report(events, spec)
+    if lock_info is not None:
+        report["lock"] = lock_info
     _emit(report, args,
           f"mutation score={report['score']} n={report['n']} "
           f"survivors={report['survivors']} (baseline_green={report['baseline_green']})")
@@ -236,13 +252,13 @@ def _cmd_mutate(args) -> int:
         # aggregate are excluded from count mutation). score defaults to 1.0 — a VACUOUS
         # perfect, not a measured one. Never let --min-score read that as "strong" (grill
         # MEDIUM-6): it is inconclusive, exit 2, not a clean pass.
-        if args.min_score is not None:
+        if min_score is not None:
             print("INCONCLUSIVE - no mutants derivable for this gate's predicates; the "
                   "score is vacuous (n=0), not a measured discriminating power",
                   file=sys.stderr)
             return 2
         return 0
-    if args.min_score is not None and report["score"] < args.min_score:
+    if min_score is not None and report["score"] < min_score:
         return 1  # gate too weak: it let mutants through
     return 0
 
@@ -447,6 +463,9 @@ def main(argv=None) -> int:
     m.add_argument("spec")
     m.add_argument("--events", required=True, help="JSON file: the baseline event list")
     m.add_argument("--min-score", type=float, help="fail (exit 1) if the score is below this")
+    m.add_argument("--lock", help="winner's-curse lock JSON (ooptdd-mutation-lock/v1): binds "
+                   "the threshold to a pre-committed gate spec sha; a conflicting --min-score "
+                   "or a moved spec is refused (exit 2) instead of re-picked")
     _add_json(m)
     m.set_defaults(func=_cmd_mutate)
 

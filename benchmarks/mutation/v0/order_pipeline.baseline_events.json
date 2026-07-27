@@ -1,0 +1,48 @@
+[
+ {
+  "correlation_id": "ord-mutlock",
+  "cycle_id": "ord-mutlock",
+  "service": "shop.orders",
+  "event": "order_received",
+  "items": 3,
+  "_emit_seq": 0
+ },
+ {
+  "correlation_id": "ord-mutlock",
+  "cycle_id": "ord-mutlock",
+  "service": "shop.orders",
+  "event": "payment_authorized",
+  "_emit_seq": 1
+ },
+ {
+  "correlation_id": "ord-mutlock",
+  "cycle_id": "ord-mutlock",
+  "service": "shop.orders",
+  "event": "line_item_packed",
+  "index": 0,
+  "_emit_seq": 2
+ },
+ {
+  "correlation_id": "ord-mutlock",
+  "cycle_id": "ord-mutlock",
+  "service": "shop.orders",
+  "event": "line_item_packed",
+  "index": 1,
+  "_emit_seq": 3
+ },
+ {
+  "correlation_id": "ord-mutlock",
+  "cycle_id": "ord-mutlock",
+  "service": "shop.orders",
+  "event": "line_item_packed",
+  "index": 2,
+  "_emit_seq": 4
+ },
+ {
+  "correlation_id": "ord-mutlock",
+  "cycle_id": "ord-mutlock",
+  "service": "shop.orders",
+  "event": "order_shipped",
+  "_emit_seq": 5
+ }
+]
