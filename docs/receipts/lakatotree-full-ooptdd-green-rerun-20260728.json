@@ -1,0 +1,36 @@
+{
+  "receipt": "lakatotree-full-ooptdd-green rerun",
+  "front": "POST_TIER1_ARC_HARNESS A1",
+  "date_utc": "2026-07-27T17:41:08Z",
+  "actor": "Claude Code (Fable 5)",
+  "evidence_tier": "queryable_causal",
+  "original_claim": {
+    "tree": "LakatosTree_OOPTDD_20260616",
+    "tag": "lakatotree-full-ooptdd-green",
+    "metric": "verified_test_traces",
+    "value": 553.0,
+    "note": "2026-06-16 self-report without verdict receipt -> provenance.inconclusive_progress"
+  },
+  "rerun": {
+    "repo": "gj3447/ooptdd",
+    "head": "521dd9a38619f5dc36ff4a6fbef7dd4bc56c72b3",
+    "command": "OOPTDD_ENABLED=1 OOPTDD_BACKEND=openobserve OOPTDD_OO_URL=http://192.168.0.27:5081 OOPTDD_OO_USER=root@example.com OOPTDD_OO_PASSWORD=<redacted> OOPTDD_VERIFY=strict OOPTDD_CID=lakatotree-full-ooptdd-rerun-20260728 .venv/bin/pytest -q",
+    "script_sha256_of_command_at_head": "5397db33a67e0c0ee42f329668aa1b1c3c578f0288fb0cbcf26350b5ea52bf26",
+    "pytest_summary": "778 passed, 2 skipped in 42.96s",
+    "plugin_lines": [
+      "[ooptdd] 2337 test traces shipped (cid=lakatotree-full-ooptdd-rerun-20260728)",
+      "[ooptdd] OK arrival confirmed (session 778/779, outcomes=2337, 1 attempt)"
+    ]
+  },
+  "independent_store_readback": {
+    "store": "openobserve-01 (Proxmox CT302, 192.168.0.27:5081, Tier-1 store of record)",
+    "query": "SELECT event, COUNT(*) FROM tests WHERE cycle_id = 'lakatotree-full-ooptdd-rerun-20260728' GROUP BY event",
+    "result": {"test_outcome": 2337, "test_session": 1, "session_start": 1},
+    "reconciliation": "shipped outcomes 2337 == stored test_outcome 2337 (exact); +2 session events by design"
+  },
+  "notes": [
+    "Preregistration was attempted first and rejected by the server with 409 (node already judged; post-hoc prediction registration forbidden). This rerun is therefore a receipt for the existing claim, not a new prediction.",
+    "Discovery en route: with enabled=auto, a network backend requires OOPTDD_ENABLED truthy (config.is_enabled) — the first rerun attempt without it silently ran with the plugin inactive. The plain no-env run ships to the in-memory backend only, which is NOT external arrival evidence.",
+    "metric verified_test_traces rose 553 -> 2337 because the suite grew (v0.5.0 absorption arc + trajectory + Tier-1 benchmark tests), not because of a semantics change."
+  ]
+}
