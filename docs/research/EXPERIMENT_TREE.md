@@ -51,11 +51,25 @@ attribute (ontology), absent emitter (Longinus), no log (arrival).
 
 ## Frontier (open questions)
 
-- ✅ `OQ-ooptdd-ontology-catches-more` — **CLOSED by V1** (yes, ≥3 classes).
-- `OQ-ooptdd-minimal-eventtype-schema` — minimal schema that earns its keep (current: required + enum/type/min/max).
-- `OQ-ooptdd-closed-vs-open-world` — default is open-world; closed-world is opt-in per check (`closed_world: true`). Revisit if drift detection should be a project default.
-- ✅ `OQ-ooptdd-ontology-location-offline` — **CLOSED by V2**: file-first canonical; KG mirror via pluggable `KgStore` (InMemory offline / Neo4j prod); projection = code→KG on each `write_run`; KG never a hard dep.
-- `OQ-ooptdd-longinus-ontology-compose` — partially answered (chain above); full composition is V2/V4.
+- ✅ `OQ-ooptdd-ontology-catches-more` — **CLOSED by V1** (yes, ≥3 classes; historical close, unreceipted).
+- ✅ `OQ-ooptdd-minimal-eventtype-schema` — **CLOSED 2026-07-28 by `OQC-minimal-eventtype-schema-receipted`**
+  (`partial@L2(replay_verified)`, 8/8 schema constructs pinned: required/enum/type/min/max/
+  additional_properties/closed_world + JSON Schema Draft 2020-12 mapping).
+- ✅ `OQ-ooptdd-closed-vs-open-world` — **CLOSED 2026-07-28 by `OQC-closed-vs-open-world-receipted`**
+  (`partial@L2(replay_verified)`, 5/5 assertions: default open-world, 3-level opt-in,
+  `ooptdd.*` exemption — answer shipped in `src/ooptdd/domain/ontology.py`).
+- ✅ `OQ-ooptdd-ontology-location-offline` — **CLOSED by V2**: file-first canonical; KG mirror via pluggable `KgStore` (InMemory offline / Neo4j prod); projection = code→KG on each `write_run`; KG never a hard dep. (historical close, unreceipted)
+- ✅ `OQ-ooptdd-longinus-ontology-compose` — **CLOSED 2026-07-28 by `OQC-longinus-ontology-compose-receipted`**
+  (`partial@L2(replay_verified)`, 4/4 compose-chain links: conforms-gate + longinus binding,
+  runner DONE iff gate GREEN AND bound).
+- `OQ-ooptdd-v4-inference-entry-gate` — **OPEN (V4 scoped, NOT executed)**: V4 may open only on
+  a real failure fixture where every current layer passes GREEN but V4 reasoning would go RED
+  (prereg: metric=new_hallucination_classes_caught, baseline 0, threshold ≥1, negative-control
+  false positives 0, server-judged receipt only). Scope: `SYMPOSIUM/PI/ooptdd_receipts_a8_20260728/V4_SCOPE.md`.
+
+Receipt packs + judges: `SYMPOSIUM/PI/ooptdd_receipts_a8_20260728/` (server-replayed on the
+LakatoTree judge host). V3's own pre-receipt claim re-measured as `V3b-ai-native-mcp-receipted`
+(`partial@L2`, 19 tools introspected, parity/lookup/offline legs GREEN).
 
 ## Next branches (not yet run)
 
