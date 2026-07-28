@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 
 from .backends.memory import MemoryBackend, reset
@@ -479,3 +480,118 @@ def verify_mutation_lock(spec_bytes: bytes, lock: dict, cli_min_score: float | N
                       f"{locked_score} — the threshold cannot be re-picked after the score "
                       "is visible")
     return locked_score, None
+
+
+# ── audit-ranking gate (POST_TIER1_ARC front A4) ───────────────────────────────────────
+#
+# Premise correction, on the record: the arc harness asked for "nDCG over ranked mutation
+# kills", but a mutation report has never carried a ranking — ``mutations`` is the
+# derivation-order list, unranked and unweighted. The honest reinterpretation fixed here:
+# the *canonical ranking authority* is the derivation order itself (authenticated row by
+# row through ``_mutation_id`` re-derivation), relevance is the MEASURED kill status
+# (caught=1, survived=0 — no invented grades), and the ranked-kill view is the stable
+# (caught desc, canonical position asc) sort. One mathematical fact shapes the whole
+# design: nDCG is invariant under permutations within an equal relevance grade, so on an
+# all-killed report NO permutation moves the number. The id-sequence authentication layer
+# is therefore the actual integrity defence; the nDCG value only grades order among MIXED
+# relevances (``order_sensitive`` says whether it could have failed at all).
+
+
+def ndcg(relevances, k: int | None = None) -> float | None:
+    """Textbook nDCG over an already-ordered relevance list.
+
+    ``DCG = sum(rel_i / log2(i + 2))`` (0-based ``i``); ``IDCG`` is the DCG of the same
+    relevances sorted descending; ``k`` truncates both. ``IDCG == 0`` (nothing relevant
+    anywhere) makes the ratio UNDEFINED and returns ``None`` — the caller must map that
+    to a refusal, never fill in 0.0 or 1.0.
+    """
+    rels = [float(r) for r in relevances]
+    top = rels if k is None else rels[:k]
+    ideal = sorted(rels, reverse=True)[:len(top)]
+    dcg = sum(r / math.log2(i + 2) for i, r in enumerate(top))
+    idcg = sum(r / math.log2(i + 2) for i, r in enumerate(ideal))
+    if idcg == 0:
+        return None
+    return round(dcg / idcg, 6)
+
+
+def ranked_kills(report: dict) -> list[dict]:
+    """The canonical ranked-kill view of a mutation report: kills first, then survivors,
+    ties broken by canonical (derivation) position — a stable sort, so equal-relevance
+    rows keep the order the authority layer can authenticate. ``relevance`` is the
+    measured kill status (1 caught / 0 survived), nothing finer is invented."""
+    rows = report.get("mutations") or []
+    order = sorted(range(len(rows)), key=lambda i: (not rows[i].get("caught"), i))
+    return [{
+        "rank": rank,
+        "position": i,
+        "relevance": 1 if rows[i].get("caught") else 0,
+        **{key: rows[i].get(key)
+           for key in ("mutation_id", "mutation", "operator", "status", "caught")},
+    } for rank, i in enumerate(order, start=1)]
+
+
+def _ranking_refusal(reason: str, n: int) -> dict:
+    # A refused ranking never even produces a number to be tempted by (the A3 pattern).
+    return {"ok": False, "reason": reason, "ndcg": None, "order_sensitive": None, "n": n}
+
+
+def verify_audit_ranking(report: dict, spec: dict, events: list[dict],
+                         published_ids: list[str] | None = None) -> dict:
+    """Authenticate a mutation report's ranking against its own (spec, events) origin,
+    then score the published order with nDCG.
+
+    Authentication is positional: ``derive_mutations(events, spec)`` is re-derived and
+    every report row's ``mutation_id`` must equal the re-computed id at that position.
+    A permuted, truncated, padded, hand-written report — or one produced from a
+    different (spec, events) pair — fails HERE, before any number exists. This layer is
+    what actually catches reordering: nDCG cannot (see the section comment above).
+
+    ``published_ids`` is the ranking under audit (default: the report's own row order).
+    It must be an exact multiset permutation of the authenticated rows — a ranking that
+    drops audited rows or smuggles in foreign ids is refused, not scored. Relevance per
+    id is the report's measured ``caught``. Returns ``{ok, reason, ndcg,
+    order_sensitive, n}``; ``order_sensitive`` is True only when relevances are mixed —
+    on a homogeneous (all-killed / all-survived) list the nDCG value carries no order
+    information and says so.
+    """
+    rows = report.get("mutations")
+    if not isinstance(rows, list) or not rows:
+        return _ranking_refusal("report carries no mutations rows — nothing to rank", 0)
+    derived = derive_mutations(events, spec)
+    if len(rows) != len(derived):
+        return _ranking_refusal(
+            f"report carries {len(rows)} rows but (spec, events) derives {len(derived)} "
+            "mutants — not this audit's output", len(rows))
+    for pos, (row, (label, mevents)) in enumerate(zip(rows, derived, strict=True)):
+        row_id = row.get("mutation_id") if isinstance(row, dict) else None
+        if not row_id:
+            return _ranking_refusal(
+                f"row {pos} has no mutation_id — provenance missing, unaudited", len(rows))
+        expected = _mutation_id(label, mevents)
+        if row_id != expected:
+            return _ranking_refusal(
+                f"row {pos} mutation_id {row_id} != re-derived {expected} — permuted, "
+                "forged, or from another (spec, events)", len(rows))
+        if not isinstance(row.get("caught"), bool):
+            return _ranking_refusal(
+                f"row {pos} has no boolean caught status — relevance unmeasurable",
+                len(rows))
+    ids = [row["mutation_id"] for row in rows]
+    if published_ids is None:
+        published = ids
+    else:
+        published = [str(x) for x in published_ids]
+        if sorted(published) != sorted(ids):
+            return _ranking_refusal(
+                "published ranking is not a permutation of the audited rows (missing, "
+                "duplicated, or foreign mutation_ids) — refused, not scored", len(rows))
+    caught_by_id = {row["mutation_id"]: bool(row["caught"]) for row in rows}
+    relevances = [1 if caught_by_id[i] else 0 for i in published]
+    value = ndcg(relevances)
+    if value is None:
+        return _ranking_refusal(
+            "IDCG is zero (the audit killed nothing) — nDCG undefined; no ranking of "
+            "kills exists to grade", len(rows))
+    return {"ok": True, "reason": None, "ndcg": value,
+            "order_sensitive": 0 in relevances and 1 in relevances, "n": len(rows)}

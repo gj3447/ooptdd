@@ -234,3 +234,83 @@ drop mutants (the gate is count-constrained with no `where` values, so no
 corrupt mutants are derivable) — the number grades drop-blindness only. Audit
 trail arrived on the Tier-1 store (cid `a3-winner-curse-lock-20260728`,
 independent readback). Result: `benchmarks/mutation/v0/order_pipeline.locked_result.json`.
+
+## The nDCG ranking gate (`audit-rank`)
+
+```bash
+ooptdd audit-rank gates/deploy.yaml --events baseline.json --report mutation-report.json \
+  [--ranking ranking.json] [--min-ndcg 1.0] [--lock deploy.lock.json]
+```
+
+The arc harness (front A4) asked for "nDCG over ranked mutation kills". Premise
+correction, stated before the design: **a mutation report has never carried a
+ranking** — `mutations` is the derivation-order list, unranked and unweighted.
+`audit-rank` therefore fixes the honest reinterpretation explicitly:
+
+- **canonical ranking authority** = the derivation order itself, authenticated
+  row by row: `derive_mutations(events, spec)` is re-derived and every report
+  row's `mutation_id` must equal the id recomputed at that position.
+- **relevance** = the *measured* kill status only (`caught` → 1, survived → 0).
+  No graded relevance is invented.
+- **ranked-kill view** = the stable `(caught desc, canonical position asc)`
+  sort (`ranked_kills`), emitted in the JSON payload as `ranked`.
+
+`--ranking` is the published ranking under audit (a JSON list of
+`mutation_id`s); without it the report's own row order is audited. The nDCG is
+textbook (`DCG = Σ rel_i / log2(i+2)`, IDCG = the descending sort), and
+`--min-ndcg` defaults to **1.0**: kills may never rank below survivors.
+
+### Exit ladder
+
+| condition | exit | meaning |
+|---|---|---|
+| lock schema/sha mismatch (`--lock`) | 2 | `LOCK REFUSED` — the A3 spec pin, reused |
+| report not a `mutate --json` object / `baseline_green: false` / `canary_survived: true` / `n == 0` / `score_status != measured` | 2 | `RANKING REFUSED` — the underlying audit graded nothing |
+| `mutation_id` sequence does not re-derive from (spec, events) — permuted, truncated, padded, hand-written, or foreign-origin report | 2 | `RANKING REFUSED` — **unaudited ranking**; never scored |
+| published ranking not a permutation of the audited rows | 2 | `RANKING REFUSED` — drops audited rows or smuggles foreign ids |
+| IDCG = 0 (the audit killed nothing) | 2 | `RANKING REFUSED` — nDCG is *undefined*, and is reported as undefined, never as 0.0 or 1.0 |
+| authenticated ranking with `ndcg < min_ndcg` | 1 | measured RED: a survivor was promoted above a kill |
+| otherwise | 0 | measured GREEN |
+
+Every refusal exits before an nDCG value exists — the A3 rule again: a refused
+run never even produces a number to be tempted by.
+
+### The honest limit: nDCG cannot police equal-relevance order
+
+nDCG is invariant under permutations *within* an equal relevance grade.
+Measured, not asserted: over **all 24 permutations** of the all-killed
+relevance list `[1,1,1,1]` (the shape of the committed
+`order_pipeline.locked_result.json`, 4/4 killed), `ndcg` returns exactly
+`{1.0}`. So on an all-killed report the acceptance "permuting the kill ranking
+goes RED" is *unsatisfiable by nDCG alone* — which is why the id-sequence
+authentication layer exists and runs first. The `order_sensitive` field says,
+per run, whether the nDCG value carried any order information at all
+(`true` only when relevances are mixed); the integrity claim always rests on
+the authentication layer, the nDCG number grades mixed-order quality only.
+
+First measured runs (2026-07-28, local, prereg sha `a967da70…`, fixed before
+any positive run):
+
+- mixed fixture (1 kill + 2 survivors): canonical ranking `ndcg=1.0` exit 0;
+  survivor promoted above the kill `ndcg=0.63093` (= 1/log2(3), the exact
+  one-slot demotion value) **exit 1**; restored → exit 0.
+- permuted report rows (same fixture): `RANKING REFUSED`, **exit 2**.
+- committed all-killed benchmark artifact: intact → `ndcg=1.0
+  order_sensitive=False` exit 0; rows permuted → `RANKING REFUSED` **exit 2** —
+  the id layer catching precisely the tamper the metric provably cannot see.
+
+### Scope, honestly
+
+- The gate authenticates *origin and order*, not truth: it re-derives the
+  mutant id sequence, but it does **not** re-run the kills — `caught` flags are
+  trusted from the report being audited. A report whose ids are authentic but
+  whose `caught` booleans were hand-edited passes this gate and is `mutate`'s
+  (and the lock's) problem, not this layer's.
+- `--lock` reuses the A3 lock file solely as the gate-spec sha pin. Its
+  `min_score` field governs `mutate`; the ranking threshold here is
+  `--min-ndcg`, whose default (1.0) is maximal, so there is no headroom to
+  quietly re-pick it downward — any weaker threshold is visible on the command
+  line.
+- With homogeneous relevances (all killed or all survived) the nDCG value is
+  either constant (1.0) or undefined (refused). The number only ever
+  discriminates on mixed reports; read `order_sensitive` before quoting it.

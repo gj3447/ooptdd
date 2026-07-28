@@ -82,6 +82,24 @@ possible), closing receipt's evidence_tier, KG anchor, decision owner.
 - **Receipt tier:** `local_pass` + negative-oracle pair.
 - **KG anchor:** `prom-next-move-2026-07-24` front C(a).
 - **Owner:** agent.
+- **CLOSED 2026-07-28 (premise corrected):** "ranked mutation kills" had no referent —
+  `mutation_report` returns an unranked derivation-order list (this arc's 4th stale
+  premise; the source line, `prom-next-move` C(a), was six words with no ranking
+  definition, and nDCG's actual corpus referent is the HSWM retrieval metric). Second
+  correction, mathematical: nDCG is invariant under equal-relevance permutations —
+  measured over all 24 permutations of the all-killed `[1,1,1,1]` list: `{1.0}` — so
+  on the committed all-killed benchmark artifact the "permuting goes RED" acceptance is
+  unsatisfiable by nDCG alone. Honest reinterpretation implemented as `ooptdd
+  audit-rank` (`ndcg`/`ranked_kills`/`verify_audit_ranking` in `src/ooptdd/mutation.py`):
+  ranking authority = derivation order authenticated by per-row `mutation_id`
+  re-derivation (this layer, not nDCG, is the integrity defence and satisfies
+  "refuses unaudited rankings" — exit 2 before any number); relevance = measured kill
+  status only; `--min-ndcg` defaults to 1.0. Prereg fixed before any positive run
+  (sha `a967da70…`, 2026-07-28T01:10:32Z). Measured: canonical ranking ndcg=1.0 exit 0;
+  survivor-above-kill permutation ndcg=0.63093 (=1/log2(3)) **exit 1**, restored to
+  exit 0; permuted report rows **exit 2** `RANKING REFUSED` (both the mixed fixture and
+  the committed A3 artifact). A3's lock is reused as the spec sha pin, per the
+  fresh-state note below. Docs: `docs/ci_mutation_gate.md` §"The nDCG ranking gate".
 
 ## A5. HSWM v21 residuals (cross-rail: `/Users/lagyeongjun/CD/HSWM`)
 

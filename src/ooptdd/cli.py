@@ -4,6 +4,8 @@
     ooptdd gate <spec.yaml> [--backend memory] [--report junit|md] [--report-out path]
     ooptdd can-i-deploy <spec.yaml> [<spec.yaml> ...] [--backend memory]
     ooptdd mutate <spec.yaml> --events events.json [--min-score X]
+    ooptdd audit-rank <spec.yaml> --events events.json --report report.json
+                      [--ranking ranking.json] [--min-ndcg X] [--lock lock.json]
     ooptdd ontology check <onto.yaml> --events events.json [--event-type T] [--closed-world]
     ooptdd ontology compat <old.yaml> <new.yaml> [--mode backward|forward|full]
     ooptdd backends list
@@ -47,7 +49,12 @@ from .engine.gate import (
     strength_fingerprint,
 )
 from .engine.verify import verify_gate, verify_trace
-from .mutation import mutation_report, verify_mutation_lock
+from .mutation import (
+    mutation_report,
+    ranked_kills,
+    verify_audit_ranking,
+    verify_mutation_lock,
+)
 
 
 def _settings(args):
@@ -263,6 +270,78 @@ def _cmd_mutate(args) -> int:
     return 0
 
 
+def _cmd_audit_rank(args) -> int:
+    """nDCG gate over an audited kill ranking (front A4). The pipeline stance: refuse
+    unaudited rankings (exit 2, no number) BEFORE grading; grade only what the
+    id-sequence layer authenticated. nDCG itself cannot see equal-relevance permutations
+    — the authentication layer is the integrity defence, the number grades mixed-order
+    quality only."""
+    spec = load_gate(args.spec)
+    events = _load_json_file(args.events)
+    lock_info = None
+    if args.lock:
+        # A3's winner's-curse lock, reused as the spec pin: schema + gate sha must bind.
+        # The lock's min_score governs `mutate`; the nDCG threshold here is --min-ndcg
+        # (default 1.0 — maximal, so there is no headroom to re-pick it downward
+        # invisibly).
+        with open(args.spec, "rb") as f:
+            spec_bytes = f.read()
+        lock = _load_json_file(args.lock)
+        _, reason = verify_mutation_lock(spec_bytes, lock)
+        if reason is not None:
+            print(f"LOCK REFUSED - {reason}", file=sys.stderr)
+            return 2
+        lock_info = {"path": args.lock, "gate_spec_sha256": lock["gate_spec_sha256"]}
+    report = _load_json_file(args.report)
+    if not isinstance(report, dict):
+        print("RANKING REFUSED - report file is not a mutation report object", file=sys.stderr)
+        return 2
+    if args.min_ndcg is not None and args.min_ndcg != args.min_ndcg:  # NaN
+        # `x < nan` is always False, which would silently disable the RED rung.
+        print("RANKING REFUSED - --min-ndcg is NaN: the threshold grades nothing",
+              file=sys.stderr)
+        return 2
+    # Report-level rungs mirror `mutate`: a ranking over an audit that graded nothing is
+    # itself nothing. Every refusal exits 2 before an nDCG value exists.
+    if not report.get("baseline_green"):
+        print("RANKING REFUSED - baseline_green is false: the underlying audit had no valid "
+              "baseline, so its rows rank nothing", file=sys.stderr)
+        return 2
+    if report.get("canary_survived"):
+        print("RANKING REFUSED - the drop-all canary survived: the audited gate is vacuous "
+              "by measurement; its kill list is not evidence", file=sys.stderr)
+        return 2
+    if report.get("score_status") != "measured" or not report.get("mutations"):
+        print("RANKING REFUSED - the audit measured nothing (n=0 or score_status != "
+              "'measured'); there is no ranking to certify", file=sys.stderr)
+        return 2
+    published_ids = None
+    if args.ranking:
+        raw = _load_json_file(args.ranking)
+        if not isinstance(raw, list):
+            print("RANKING REFUSED - ranking file must be a JSON list of mutation_ids "
+                  "(or objects carrying mutation_id)", file=sys.stderr)
+            return 2
+        published_ids = [item.get("mutation_id") if isinstance(item, dict) else item
+                         for item in raw]
+    res = verify_audit_ranking(report, spec, events, published_ids)
+    if not res["ok"]:
+        print(f"RANKING REFUSED - {res['reason']}", file=sys.stderr)
+        return 2
+    payload = {"ndcg": res["ndcg"], "min_ndcg": args.min_ndcg, "n": res["n"],
+               "order_sensitive": res["order_sensitive"],
+               "ranking_source": "file" if args.ranking else "report-order",
+               "ranked": ranked_kills(report)}
+    if lock_info is not None:
+        payload["lock"] = lock_info
+    _emit(payload, args,
+          f"audit-rank ndcg={res['ndcg']} n={res['n']} "
+          f"order_sensitive={res['order_sensitive']} (min_ndcg={args.min_ndcg})")
+    if res["ndcg"] < args.min_ndcg:
+        return 1  # measured RED: an authenticated ranking demoted kills below survivors
+    return 0
+
+
 def _cmd_ontology(args) -> int:
     if args.onto_cmd == "check":
         onto = Ontology.from_file(args.ontology)
@@ -468,6 +547,22 @@ def main(argv=None) -> int:
                    "or a moved spec is refused (exit 2) instead of re-picked")
     _add_json(m)
     m.set_defaults(func=_cmd_mutate)
+
+    ar = sub.add_parser("audit-rank", help="authenticate + nDCG-grade a mutation-kill ranking "
+                        "(refuses unaudited rankings)")
+    ar.add_argument("spec")
+    ar.add_argument("--events", required=True, help="JSON file: the audit's baseline event list")
+    ar.add_argument("--report", required=True, help="JSON file: the `mutate --json` report "
+                    "whose ranking is under audit")
+    ar.add_argument("--ranking", help="JSON file: the published ranking (list of mutation_ids "
+                    "or {mutation_id: ...} objects); default = the report's own row order")
+    ar.add_argument("--min-ndcg", type=float, default=1.0,
+                    help="fail (exit 1) below this nDCG (default 1.0: kills may never rank "
+                         "below survivors)")
+    ar.add_argument("--lock", help="A3 lock JSON reused as the gate-spec sha pin (its "
+                    "min_score field governs `mutate`, not this gate)")
+    _add_json(ar)
+    ar.set_defaults(func=_cmd_audit_rank)
 
     o = sub.add_parser("ontology", help="event-ontology conformance / compatibility")
     osub = o.add_subparsers(dest="onto_cmd", required=True)
