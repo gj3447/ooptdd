@@ -189,6 +189,10 @@ def efficacy_bundle(tmp_path_factory: pytest.TempPathFactory) -> EfficacyBundle:
     _git(governance_root, "config", "user.name", "ooptdd-test")
     _git(governance_root, "config", "user.email", "ooptdd-test@example.invalid")
     _git(governance_root, "remote", "add", "origin", str(governance_origin))
+    # Committed into the fixture repo so it rides into every later clone: a Windows
+    # runner's autocrlf=true would otherwise smudge the fresh checkout to CRLF and the
+    # byte-exact prospective-input compare would (rightly) refuse.
+    (governance_root / ".gitattributes").write_bytes(b"* -text\n")
     preregistration = governance_root / "efficacy" / "preregistration.json"
     _write(
         preregistration,

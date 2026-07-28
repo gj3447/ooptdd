@@ -56,11 +56,14 @@ def test_unknown_schema_and_missing_fields_are_refused():
 
 def _materialize(tmp_path, spec_text=SPEC_TEXT, min_score=0.8):
     spec = tmp_path / "gate.yaml"
-    spec.write_text(spec_text, encoding="utf-8")
+    # bytes, not text mode: the lock sha is computed over spec_text's UTF-8 bytes, and
+    # Windows text mode would CRLF the file on disk past that pin (the exact drift the
+    # lock exists to catch — but here it would be the fixture lying, not the spec moving)
+    spec.write_bytes(spec_text.encode())
     ev = tmp_path / "events.json"
-    ev.write_text(json.dumps(EVENTS), encoding="utf-8")
+    ev.write_bytes(json.dumps(EVENTS).encode())
     lock = tmp_path / "lock.json"
-    lock.write_text(json.dumps(_lock_for(spec_text, min_score)), encoding="utf-8")
+    lock.write_bytes(json.dumps(_lock_for(spec_text, min_score)).encode())
     return spec, ev, lock
 
 
@@ -83,7 +86,7 @@ def test_cli_refuses_threshold_repick_after_lock(tmp_path, capsys):
 
 def test_cli_refuses_spec_that_moved_after_lock(tmp_path, capsys):
     spec, ev, lock = _materialize(tmp_path)
-    spec.write_text(SPEC_TEXT + "  - present: {where: {event: extra}}\n", encoding="utf-8")
+    spec.write_bytes((SPEC_TEXT + "  - present: [{event: extra}]\n").encode())
     rc = main(["mutate", str(spec), "--events", str(ev), "--lock", str(lock)])
     err = capsys.readouterr().err
     assert rc == 2 and "does not match the lock" in err
@@ -97,10 +100,10 @@ def test_cli_score_below_locked_threshold_is_the_honest_red(tmp_path, capsys):
                  "expect:\n"
                  "  - tool_calls: {expected: [a, b], match: subset, target: 0.5}\n")
     spec, ev, lock = _materialize(tmp_path, spec_text=spec_text, min_score=1.0)
-    ev.write_text(json.dumps([
+    ev.write_bytes(json.dumps([
         {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "a"},
         {"event": "gen_ai.execute_tool", "gen_ai.tool.name": "b"},
-    ]), encoding="utf-8")
+    ]).encode())
     rc = main(["mutate", str(spec), "--events", str(ev), "--lock", str(lock), "--json"])
     out = json.loads(capsys.readouterr().out)
     assert out["score"] == 0.0 and out["lock"]["min_score"] == 1.0
