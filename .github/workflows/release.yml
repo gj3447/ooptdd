@@ -1,0 +1,36 @@
+# Tag-driven PyPI release via Trusted Publishing (OIDC) — no tokens anywhere.
+# Cut a release entirely from the CLI:
+#   git tag -a ooptdd-X.Y.Z -m "..." && git push origin ooptdd-X.Y.Z
+# The 'pypi' environment on this repo is the publisher PyPI trusts
+# (configured at pypi.org/manage/project/ooptdd/settings/publishing/).
+name: release
+
+on:
+  push:
+    tags: ["ooptdd-*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build sdist + wheel from the tag
+        run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # OIDC — this IS the credential
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
