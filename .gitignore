@@ -13,3 +13,7 @@ venv/
 *.egg
 .coverage
 htmlcov/
+
+# CI pins the independent LakatoTree judge checkout here (ci.yml lakatotree-qualification);
+# ignored so the byte-exact evidence gate does not read the judge as a dirty source worktree.
+_lakatotree/
