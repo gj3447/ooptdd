@@ -157,6 +157,15 @@ possible), closing receipt's evidence_tier, KG anchor, decision owner.
 - **Receipt tier:** `external_verdict` (that is the point of the policy).
 - **KG anchor:** OpenQuestion `ooptdd-v2-auditor-budget`.
 - **Owner:** **user verdict on the policy; agent implements.**
+- **CLOSED 2026-07-28 (premise corrected):** the asked-for policy already existed
+  when this front was drafted — v2.6 `audit_policy` (GIT/HSWM `ooptdd/audit_policy.py`,
+  `OOPTDD_AUDIT_POLICY_2026-07-24.md`, 17/17 tests) closed KG `ooptdd-v2-auditor-budget`
+  on 2026-07-24, two days before this doc. R1 no-self-audit (hard) / R2 rotation
+  (advisory, deterministic) / R3 budget calibration (hard for structured budgets)
+  are live. User ratified the draft default 2026-07-28; deltas between this draft
+  and the implemented v2.6 stay as named residuals for an HSWM-rail session:
+  (a) 7-day unaudited auto-demotion window, (b) 1-in-10 auditor-verdict spot-check,
+  (c) cross-machine chain-head anchoring into LakatoTree verdict receipts.
 
 ---
 
