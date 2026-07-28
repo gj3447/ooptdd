@@ -60,10 +60,13 @@ def _read(path: Path) -> dict:
 
 def _write(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    # Bytes, not text mode: on Windows, text mode writes os.linesep, and the runner's
+    # autocrlf-normalized blob then differs from the worktree bytes — the byte-exact
+    # evidence gate rightly refuses. The production writer (build_ooptdd_efficacy_evidence
+    # _write_json) is already binary for the same reason.
+    path.write_bytes(
+        (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        .encode("utf-8"))
 
 
 def _git(root: Path, *args: str) -> str:
@@ -157,18 +160,18 @@ def efficacy_bundle(tmp_path_factory: pytest.TempPathFactory) -> EfficacyBundle:
         / "qualification-spec-v2.json"
     )
     deepeval_spec.parent.mkdir(parents=True)
-    deepeval_spec.write_text('{"fixture": "deepeval"}\n', encoding="utf-8")
+    # write_bytes throughout: these files are committed and then byte-compared as
+    # prospective inputs — Windows text mode would CRLF them past the committed blob.
+    deepeval_spec.write_bytes(b'{"fixture": "deepeval"}\n')
     workflow = source_root / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
-    workflow.write_text(
-        "name: CI\n"
-        "# Recompute and assert the DeepEval artifact\n"
-        "- run: python scripts/validate_trajectory_evidence.py deepeval\n",
-        encoding="utf-8",
-    )
+    workflow.write_bytes(
+        b"name: CI\n"
+        b"# Recompute and assert the DeepEval artifact\n"
+        b"- run: python scripts/validate_trajectory_evidence.py deepeval\n")
     validator = source_root / "scripts" / "validate_trajectory_evidence.py"
     validator.parent.mkdir(parents=True)
-    validator.write_text("# frozen test validator\n", encoding="utf-8")
+    validator.write_bytes(b"# frozen test validator\n")
     _git(source_root, "init", "-q")
     _git(source_root, "config", "user.name", "ooptdd-test")
     _git(source_root, "config", "user.email", "ooptdd-test@example.invalid")
