@@ -13,8 +13,8 @@ and catches it.
 import os
 
 import pytest
-from app import process_order  # examples/ is on sys.path under pytest's prepend mode
 
+from examples.app import process_order  # examples/ became a package in 287297e
 from ooptdd.backends import MemoryBackend, memory_reset
 from ooptdd.gate import evaluate, load_gate
 from ooptdd.verify import verify_trace

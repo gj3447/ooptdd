@@ -38,6 +38,7 @@ jobs:
         # exact README commands runnable on every supported Python/OS combination.
         run: >-
           pytest -q
+          examples/test_order_pipeline.py
           examples/test_agent_trajectory.py
           examples/integrations/test_otel_verdict_export.py
       - name: Locked trajectory receipt (GREEN / injected RED / restored GREEN)
