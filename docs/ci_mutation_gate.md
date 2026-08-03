@@ -314,3 +314,12 @@ any positive run):
 - With homogeneous relevances (all killed or all survived) the nDCG value is
   either constant (1.0) or undefined (refused). The number only ever
   discriminates on mixed reports; read `order_sensitive` before quoting it.
+
+## Who audits the auditor
+
+`ooptdd mutate` prices the gate's credibility against the *product*. The
+symmetric question — would anything notice a broken *test system* (a gate that
+never runs, an import that resolves to stale code, a control suite gone
+vacuous)? — is answered by the [Ouroboros pattern](ouroboros.md), which closes
+the "who watches the watchers" regress at finite height with a measured,
+explicitly-stated residual.
