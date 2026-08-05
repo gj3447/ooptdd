@@ -198,10 +198,26 @@ def sign_chain(records: list[dict], key: str, *, evolve: bool = False) -> list[d
     return out
 
 
-def verify_chain(records: list[dict], key: str, *, evolve: bool = False) -> dict:
+def verify_chain(records: list[dict], key: str, *, evolve: bool = False,
+                 expect_len: int | None = None, expect_head: str | None = None) -> dict:
     """Verify a hash chain. Returns ``{ok, broken_index, reason}`` — ``broken_index`` is the
     first record whose previous-link or MAC fails (``None`` if intact). A mismatch means an
-    edit, a deletion, or a reorder somewhere at or before that index."""
+    edit, an *interior* deletion, or a reorder somewhere at or before that index.
+
+    **Interior is not a hedge — it is the whole boundary.** Truncating the chain leaves a
+    prefix that verifies perfectly, because a chain cannot testify to its own length: run a
+    session, dislike the result, drop the trailing records, and every link still checks out
+    (measured both with and without ``evolve``). The same holds for a wholesale re-signing
+    by a key holder. These are not defects in the MAC; the information needed to refuse them
+    is not in the records.
+
+    ``expect_len`` / ``expect_head`` are how that information gets in, and they must come
+    from **outside** — the anchor the caller kept elsewhere (a receipt filed with a tree, a
+    commit, a peer's copy of the last MAC). This is the ``docs/ouroboros.md`` termination
+    result at the evidence layer: meta-layers relocate the trusted base, external anchors
+    are what retire it. An anchor the caller can decline to pass is not an anchor, so a
+    gate that means it should always pass these.
+    """
     prev, k = "", key
     for i, rec in enumerate(records):
         if rec.get("prev_sig") != prev:
@@ -215,6 +231,12 @@ def verify_chain(records: list[dict], key: str, *, evolve: bool = False) -> dict
         prev = str(rec.get("sig_chain", ""))
         if evolve:
             k = _evolve(k)
+    if expect_len is not None and len(records) < expect_len:
+        return {"ok": False, "broken_index": len(records),
+                "reason": "truncated_shorter_than_external_expectation"}
+    if expect_head is not None and not hmac.compare_digest(prev, expect_head):
+        return {"ok": False, "broken_index": max(len(records) - 1, 0),
+                "reason": "head_mismatch_vs_external_anchor"}
     return {"ok": True, "broken_index": None, "reason": None}
 
 

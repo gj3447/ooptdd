@@ -66,6 +66,51 @@ What retires the residual is not another layer but **external anchors**:
 commit hashes, signed receipts, review — exactly the things a repository keeps
 outside its own test process.
 
+## The anchor layer, measured
+
+That sentence is where the regress argument stops, so it is worth asking what
+the anchors are actually worth once you have them. Probing the evidence side
+the way L4 probes the gate side (2026-08-05) turned up two things.
+
+**An anchor nobody is required to consult retires nothing.** Anchoring tends to
+arrive as an available command: a `--anchor` flag, a separate `anchor-check`
+CLI, a reviewer who *may* look. Each is individually defensible and together
+they mean a green can be produced having touched nothing outside the process
+that authored it. The residual has not moved; it has been given a door it can
+walk through. A gate that means it treats *unverifiable* — "I could not reach
+the anchor" — as a failure, because "I could not check" and "it checked out"
+must not share an exit code.
+
+**A chain cannot testify to its own length.** `verify_chain` catches edits,
+interior deletions and reorders. It does not catch truncation, in either
+`evolve` mode: drop the trailing records and every surviving link is genuinely
+valid, because the length was never in the records. Wholesale re-signing by a
+key holder is the same class. Both are invisible to any amount of self-
+verification and visible to a one-line external expectation, which is why
+`verify_chain` now takes `expect_len` / `expect_head` — and why they only help
+if the value comes from somewhere the writer does not control.
+
+| attack | bare `verify_chain` | with an external expectation |
+|---|---|---|
+| edit / interior delete / reorder / strip record `sig` | detected | detected |
+| tail truncation (any depth) | **invisible** | detected |
+| wholesale re-sign by the key holder | **invisible** | detected (`expect_head`) |
+
+`tests/test_chain_truncation.py` pins both halves, and the boundary half is
+written to fail if a bare call ever starts detecting truncation — at which
+point this section is what should be revised, not the test. Asserting a hole
+as a hole is the same discipline as the sentinel pair above: the temptation to
+write the test one wishes were true is exactly the vacuity being priced.
+
+This is the same shape as the L4 termination result, one level out. Layers
+relocate the trusted base; anchors retire it — but only the anchors that are
+*mandatory*, *externally sourced*, and *counted when absent*. The prior art
+worth reading here is transparency-log witness cosigning (a witness verifies a
+consistency proof before co-signing, and a quorum of independent witnesses is
+what defeats a split view) and Wheeler's diverse double-compiling, which is
+Thompson's exit in the bullet above made constructive: the second checker has
+to be a *different implementation*, not the same one run twice.
+
 ## Boundaries (what this does not prove)
 
 - **No absolute termination** (Gödel-II analogue): "the stack is sound" in

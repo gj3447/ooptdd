@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Chain truncation is detectable — with an external anchor.** `verify_chain`
+  accepts optional `expect_len` / `expect_head`. Without them a truncated chain
+  verifies, in both `evolve` modes: every surviving link is genuinely valid
+  because the length was never in the records, and wholesale re-signing by a
+  key holder is the same class. Both were invisible before and are caught now
+  when the caller supplies an expectation from outside. Existing callers pass
+  neither argument and are unaffected. `docs/ouroboros.md` gains an "anchor
+  layer, measured" section extending the termination result one level out, and
+  `verify_chain`'s docstring no longer promises to catch "a deletion" without
+  qualifying it as an interior one. Covered by `tests/test_chain_truncation.py`,
+  whose boundary cases assert the hole as a hole so that closing it silently
+  fails the suite.
 - **LakatoTree-qualified trajectory programme.** A preregistered, frozen
   baseline/candidate/negative-control programme now exercises the DeepEval and
   Phoenix trajectory surface through 27 cases.  The canonical LakatoTree judge
