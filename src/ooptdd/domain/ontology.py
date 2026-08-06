@@ -145,7 +145,14 @@ class Ontology:
     def from_file(cls, path: str) -> Ontology:
         import yaml
 
-        with open(path) as fh:
+        # YAML is UTF-8 by specification (YAML 1.2 §5.2) — the file's encoding is
+        # not a local question, so it must not be read through the locale codec.
+        # On a Korean Windows box that locale is cp949 and an ontology carrying
+        # Hangul dies with `'cp949' codec can't decode byte 0x80` (measured
+        # 2026-08-07, beadscan_tester). The loop then reports it as a config
+        # error two layers up, which reads like a broken spec rather than a
+        # broken reader.
+        with open(path, encoding="utf-8") as fh:
             return cls.from_dict(yaml.safe_load(fh) or {})
 
     @classmethod

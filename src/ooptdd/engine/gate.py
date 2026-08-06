@@ -170,7 +170,10 @@ def duration_s(v) -> int | None:
 def load_gate(path: str, *, cid: str | None = None) -> dict:
     import yaml  # PyYAML (declared dependency)
 
-    with open(path) as fh:
+    # UTF-8 explicitly — a gate spec is YAML, and YAML is UTF-8 by specification.
+    # Reading it through the locale codec breaks every non-ASCII spec on a
+    # non-UTF-8 machine (cp949 on Korean Windows, measured 2026-08-07).
+    with open(path, encoding="utf-8") as fh:
         try:
             spec = yaml.safe_load(fh) or {}
         except yaml.YAMLError as exc:
