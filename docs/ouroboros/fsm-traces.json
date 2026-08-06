@@ -1,0 +1,103 @@
+{
+  "cases": [
+    {
+      "id": "generation-completes",
+      "machine": "generation",
+      "steps": [
+        {"event": "SIZE", "guard_results": {}, "expected_state": "sized", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "LOCK", "guard_results": {}, "expected_state": "locked", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "INITIAL_RED", "guard_results": {}, "expected_state": "initial_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "GREEN", "guard_results": {}, "expected_state": "green_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "QUARANTINE", "guard_results": {}, "expected_state": "quarantined", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "mutation_active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "NEGATIVE_RED", "guard_results": {}, "expected_state": "negative_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "restored", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "REGREEN", "guard_results": {}, "expected_state": "regreen_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "ENUMERATE_FINDINGS", "guard_results": {}, "expected_state": "bite_pending", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "DISPOSE_FINDING", "guard_results": {"finding_is_eligible": true}, "expected_state": "bite_pending", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "SEAL", "guard_results": {"seal_without_bound_change": true, "seal_with_successor": false}, "expected_state": "complete", "expected_effects": ["RECORD_TRANSITION"]}
+      ]
+    },
+    {
+      "id": "generation-is-superseded-without-launching-successor",
+      "machine": "generation",
+      "steps": [
+        {"event": "SIZE", "guard_results": {}, "expected_state": "sized", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "LOCK", "guard_results": {}, "expected_state": "locked", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "INITIAL_RED", "guard_results": {}, "expected_state": "initial_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "GREEN", "guard_results": {}, "expected_state": "green_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "QUARANTINE", "guard_results": {}, "expected_state": "quarantined", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "mutation_active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "NEGATIVE_RED", "guard_results": {}, "expected_state": "negative_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "restored", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "REGREEN", "guard_results": {}, "expected_state": "regreen_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "ENUMERATE_FINDINGS", "guard_results": {}, "expected_state": "bite_pending", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "SEAL", "guard_results": {"seal_without_bound_change": false, "seal_with_successor": true}, "expected_state": "superseded_by_successor", "expected_effects": ["RECORD_TRANSITION"]}
+      ]
+    },
+    {
+      "id": "finding-guard-false",
+      "machine": "generation",
+      "steps": [
+        {"event": "SIZE", "guard_results": {}, "expected_state": "sized", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "LOCK", "guard_results": {}, "expected_state": "locked", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "INITIAL_RED", "guard_results": {}, "expected_state": "initial_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "GREEN", "guard_results": {}, "expected_state": "green_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "QUARANTINE", "guard_results": {}, "expected_state": "quarantined", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "mutation_active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "NEGATIVE_RED", "guard_results": {}, "expected_state": "negative_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "restored", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "REGREEN", "guard_results": {}, "expected_state": "regreen_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "ENUMERATE_FINDINGS", "guard_results": {}, "expected_state": "bite_pending", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "DISPOSE_FINDING", "guard_results": {"finding_is_eligible": false}, "expected_state": "bite_pending", "expected_effects": ["AUDIT_REJECTION"]}
+      ]
+    },
+    {
+      "id": "seal-guards-false",
+      "machine": "generation",
+      "steps": [
+        {"event": "SIZE", "guard_results": {}, "expected_state": "sized", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "LOCK", "guard_results": {}, "expected_state": "locked", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "INITIAL_RED", "guard_results": {}, "expected_state": "initial_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "GREEN", "guard_results": {}, "expected_state": "green_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "QUARANTINE", "guard_results": {}, "expected_state": "quarantined", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "mutation_active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "NEGATIVE_RED", "guard_results": {}, "expected_state": "negative_red_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "restored", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "REGREEN", "guard_results": {}, "expected_state": "regreen_confirmed", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "ENUMERATE_FINDINGS", "guard_results": {}, "expected_state": "bite_pending", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "SEAL", "guard_results": {"seal_without_bound_change": false, "seal_with_successor": false}, "expected_state": "bite_pending", "expected_effects": ["AUDIT_REJECTION"]}
+      ]
+    },
+    {"id": "invalid-green-from-init", "machine": "generation", "steps": [{"event": "GREEN", "guard_results": {}, "expected_state": "init", "expected_effects": ["AUDIT_REJECTION"]}]},
+    {
+      "id": "mutation-restores-after-challenge",
+      "machine": "mutation-safety",
+      "steps": [
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "NEGATIVE_RED", "guard_results": {}, "expected_state": "challenged", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "restored", "expected_effects": ["RECORD_TRANSITION"]}
+      ]
+    },
+    {
+      "id": "interrupt-active-restores-first",
+      "machine": "mutation-safety",
+      "steps": [
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "INTERRUPT", "guard_results": {}, "expected_state": "recovery_required", "expected_effects": ["RECORD_TRANSITION", "RESTORE_REQUIRED"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "interrupted", "expected_effects": ["RECORD_TRANSITION"]}
+      ]
+    },
+    {
+      "id": "interrupt-challenged-restores-first",
+      "machine": "mutation-safety",
+      "steps": [
+        {"event": "MUTATION_APPLIED", "guard_results": {}, "expected_state": "active", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "NEGATIVE_RED", "guard_results": {}, "expected_state": "challenged", "expected_effects": ["RECORD_TRANSITION"]},
+        {"event": "INTERRUPT", "guard_results": {}, "expected_state": "recovery_required", "expected_effects": ["RECORD_TRANSITION", "RESTORE_REQUIRED"]},
+        {"event": "RESTORE", "guard_results": {}, "expected_state": "interrupted", "expected_effects": ["RECORD_TRANSITION"]}
+      ]
+    },
+    {"id": "invalid-restore-from-clean", "machine": "mutation-safety", "steps": [{"event": "RESTORE", "guard_results": {}, "expected_state": "clean", "expected_effects": ["AUDIT_REJECTION"]}]}
+  ]
+}

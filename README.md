@@ -71,6 +71,21 @@ three-valued on purpose (LTL3):
 That last distinction is why ooptdd doesn't turn a network blip into a flaky
 test.
 
+## Ouroboros protocol (experimental)
+
+`ooptdd.ouroboros` is a pure protocol kernel for cycling through an initial RED,
+caller-declared readback-tier GREEN, isolated negative challenge, restoration,
+re-GREEN, and total finding disposition. It adds strict material/run identity,
+mutation-safe interruption, bounded ordinary progress and generation depth,
+generational lineage, and a replay-validated receipt v2 with an unkeyed
+change-detection hash.
+It does not add a daemon or persistence layer, and caller-provided evidence tiers
+are not authenticated by the kernel. Historical receipt v1 documents upcast only
+to an explicit `incomplete` draft; missing proof is never inferred.
+
+See the [theory and contract](docs/ouroboros.md). The API is experimental while
+the first real adapter is being integrated.
+
 ## Where it sits
 
 |  | self-report trusted | outcome verified |

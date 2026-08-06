@@ -1,0 +1,43 @@
+{
+  "schema_version": "ooptdd-ouroboros-bounded-policy/v1",
+  "owner": "caller",
+  "module_runtime": "none",
+  "bounds": {
+    "max_steps": "required positive interoperable integer bounding ordinary progress transitions, with two values reserved for the safety tail",
+    "max_generations": "required positive interoperable integer"
+  },
+  "progress": {
+    "measure": "ordinary progress transitions recorded in steps_used, separately from snapshot revision and the event trace",
+    "safety_tail_max_records": 2,
+    "safety_tail": "one non-counted fault handoff plus at most one non-counted restoration; recovery_required rejects every other fresh event",
+    "no_progress": "rejected malformed or out-of-order events and exact replay do not consume max_steps, so the kernel alone does not bound caller invocations or guarantee termination",
+    "generation_rule": "a bound-material change requires generation + 1 and a generated, validated predecessor receipt hash",
+    "caller_owned_bounds": [
+      "retry limit",
+      "timeout or deadline",
+      "no-progress limit",
+      "total invocation limit"
+    ]
+  },
+  "effects": {
+    "delivery": "caller-owned",
+    "deduplication_key": "effect_id",
+    "ordering": "commit snapshot/event record before executing returned effects",
+    "classes": [
+      "read",
+      "idempotent_write",
+      "guarded_non_idempotent"
+    ]
+  },
+  "interrupts": {
+    "clean_state": "terminate with the explicit reason",
+    "active_mutation": "enter recovery_required and emit restore_required",
+    "restoration": "permitted even when the ordinary step budget is exhausted",
+    "post_restore": "terminate with the pending reason"
+  },
+  "durability": {
+    "provided": false,
+    "reason": "The engine promotion gates in module-decision.json have not been met.",
+    "future_minimum": "compare-and-swap snapshot plus transactional outbox and replay receipt"
+  }
+}

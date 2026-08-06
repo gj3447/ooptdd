@@ -1,0 +1,42 @@
+stateDiagram-v2
+    [*] --> init
+
+    note left of init
+      Compact normal-flow projection.
+      Replay, budget, collision, and inconclusive
+      overlays are enforced by the reducer.
+    end note
+
+    init --> sized: SIZE
+    sized --> locked: LOCK
+    locked --> initial_red_confirmed: INITIAL_RED
+    initial_red_confirmed --> green_confirmed: GREEN
+    green_confirmed --> quarantined: QUARANTINE
+    quarantined --> mutation_active: MUTATION_APPLIED
+    mutation_active --> negative_red_confirmed: NEGATIVE_RED
+    negative_red_confirmed --> restored: RESTORE
+    restored --> regreen_confirmed: REGREEN
+    regreen_confirmed --> bite_pending: ENUMERATE_FINDINGS
+    bite_pending --> bite_pending: DISPOSE_FINDING
+    bite_pending --> complete: SEAL / unchanged
+    bite_pending --> superseded_by_successor: SEAL / record bound change only
+    complete --> [*]
+    superseded_by_successor --> [*]
+
+    note right of superseded_by_successor
+      SEAL does not launch a successor.
+      Generate and validate predecessor receipt,
+      then construct the receipt-bound successor.
+    end note
+
+    state mutation_safety {
+        [*] --> clean
+        clean --> active: MUTATION_APPLIED
+        active --> challenged: NEGATIVE_RED
+        challenged --> restored_safety: RESTORE
+        active --> recovery_required: INTERRUPT
+        challenged --> recovery_required: INTERRUPT
+        recovery_required --> interrupted: RESTORE
+        restored_safety --> [*]
+        interrupted --> [*]
+    }

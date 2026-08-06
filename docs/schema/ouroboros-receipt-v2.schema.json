@@ -1,0 +1,748 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gj3447/ooptdd/schema/ouroboros-receipt-v2.schema.json",
+  "title": "OOPTDD Ouroboros generation receipt",
+  "$comment": "Structural schema; validate_receipt performs cross-field and reducer-replay validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "receipt_id",
+    "cycle",
+    "missing_obligations",
+    "integrity"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ooptdd-ouroboros-receipt/v2"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "superseded",
+        "incomplete"
+      ]
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?=.*\\S)[^\\u0000]+$"
+    },
+    "cycle": {
+      "$ref": "#/$defs/cycle"
+    },
+    "material_lock": {
+      "$ref": "#/$defs/material_lock"
+    },
+    "oracle_boundary": {
+      "$ref": "#/$defs/oracle_boundary"
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "mutation": {
+      "$ref": "#/$defs/mutation"
+    },
+    "findings": {
+      "$ref": "#/$defs/findings"
+    },
+    "lineage": {
+      "$ref": "#/$defs/lineage"
+    },
+    "budget": {
+      "$ref": "#/$defs/budget"
+    },
+    "trace": {
+      "$ref": "#/$defs/trace"
+    },
+    "legacy": {
+      "$ref": "#/$defs/legacy"
+    },
+    "missing_obligations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?=.*\\S)[^\\u0000]+$"
+      }
+    },
+    "integrity": {
+      "$ref": "#/$defs/integrity"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "canonicalization",
+        "schema_version",
+        "scope",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "canonicalization": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "schema_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "cycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cycle_id",
+        "generation",
+        "previous_receipt_sha256"
+      ],
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740990
+        },
+        "previous_receipt_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "generation": {
+                "const": 0
+              }
+            },
+            "required": [
+              "generation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "previous_receipt_sha256": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "previous_receipt_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "material_lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "source",
+        "source_commit",
+        "spec",
+        "verifier"
+      ],
+      "properties": {
+        "spec": {
+          "$ref": "#/$defs/digest"
+        },
+        "verifier": {
+          "$ref": "#/$defs/digest"
+        },
+        "source": {
+          "$ref": "#/$defs/digest"
+        },
+        "environment": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_commit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      }
+    },
+    "oracle_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "corroborated",
+        "emit_identity",
+        "read_identity",
+        "separate_source"
+      ],
+      "properties": {
+        "emit_identity": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "read_identity": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "separate_source": {
+          "type": "boolean"
+        },
+        "corroborated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact",
+        "artifact_namespace",
+        "evidence_tier",
+        "executed_source",
+        "material_lock_sha256",
+        "monitor",
+        "observation",
+        "outcome",
+        "role",
+        "run_id"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "initial_red",
+            "positive",
+            "negative",
+            "regreen"
+          ]
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "artifact_namespace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "outcome": {
+          "enum": [
+            "red",
+            "green",
+            "inconclusive"
+          ]
+        },
+        "observation": {
+          "enum": [
+            "present",
+            "absent",
+            "inconclusive"
+          ]
+        },
+        "monitor": {
+          "enum": [
+            "sat",
+            "viol",
+            "pend"
+          ],
+          "description": "Caller-selected diagnostic monitor value; not lifecycle-authoritative."
+        },
+        "evidence_tier": {
+          "enum": [
+            "local_pass",
+            "emitted",
+            "arrived",
+            "queryable_causal",
+            "external_verdict"
+          ]
+        },
+        "artifact": {
+          "$ref": "#/$defs/digest"
+        },
+        "material_lock_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "executed_source": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "delta",
+        "quarantine",
+        "quarantine_namespace",
+        "restored",
+        "restored_source",
+        "source_after",
+        "source_before"
+      ],
+      "properties": {
+        "quarantine_namespace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "quarantine": {
+          "$ref": "#/$defs/digest"
+        },
+        "delta": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_before": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_after": {
+          "$ref": "#/$defs/digest"
+        },
+        "restored": {
+          "const": true
+        },
+        "restored_source": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bound_material_changed",
+        "change_evidence",
+        "disposition",
+        "finding_id"
+      ],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "disposition": {
+          "enum": [
+            "fixed",
+            "deferred",
+            "refuted",
+            "accepted_risk"
+          ]
+        },
+        "bound_material_changed": {
+          "type": "boolean"
+        },
+        "change_evidence": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "dispositions",
+        "enumerated"
+      ],
+      "properties": {
+        "enumerated": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000]+$"
+          }
+        },
+        "dispositions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disposition"
+          }
+        },
+        "complete": {
+          "const": true
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predecessor_receipt_sha256",
+        "successor_cycle_id"
+      ],
+      "properties": {
+        "predecessor_receipt_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "successor_cycle_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?=.*\\S)[^\\u0000]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_generations",
+        "max_steps",
+        "steps_used"
+      ],
+      "properties": {
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740989
+        },
+        "max_generations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "steps_used": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740989
+        }
+      }
+    },
+    "event_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "from_phase",
+        "intent_hash",
+        "kind",
+        "payload_json",
+        "to_phase"
+      ],
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "kind": {
+          "enum": [
+            "size",
+            "lock",
+            "initial_red",
+            "green",
+            "quarantine",
+            "mutation_applied",
+            "negative_red",
+            "restore",
+            "regreen",
+            "enumerate_findings",
+            "dispose_finding",
+            "seal",
+            "interrupt"
+          ]
+        },
+        "payload_json": {
+          "type": "string",
+          "minLength": 2
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "from_phase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to_phase": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_events",
+        "revision"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "accepted_events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/event_record"
+          }
+        }
+      }
+    },
+    "legacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalization",
+        "schema_version",
+        "source",
+        "source_object_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "symposium-ooptdd-receipt/v1"
+        },
+        "canonicalization": {
+          "const": "legacy-parsed-json-object/v1"
+        },
+        "source_object_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source": {
+          "type": "object"
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "canonicalization",
+        "schema_version",
+        "scope",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "scope": {
+          "const": "ouroboros-receipt-content"
+        },
+        "canonicalization": {
+          "const": "ooptdd-canonical-json/v1"
+        },
+        "schema_version": {
+          "const": "ooptdd-ouroboros-receipt/v2"
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "complete",
+              "superseded"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "budget",
+          "cycle",
+          "findings",
+          "integrity",
+          "lineage",
+          "material_lock",
+          "missing_obligations",
+          "mutation",
+          "oracle_boundary",
+          "receipt_id",
+          "runs",
+          "schema_version",
+          "status",
+          "trace"
+        ],
+        "not": {
+          "required": [
+            "legacy"
+          ]
+        },
+        "properties": {
+          "missing_obligations": {
+            "maxItems": 0
+          },
+          "integrity": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "incomplete"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "cycle",
+          "integrity",
+          "legacy",
+          "missing_obligations",
+          "receipt_id",
+          "schema_version",
+          "status"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "budget"
+              ]
+            },
+            {
+              "required": [
+                "findings"
+              ]
+            },
+            {
+              "required": [
+                "lineage"
+              ]
+            },
+            {
+              "required": [
+                "material_lock"
+              ]
+            },
+            {
+              "required": [
+                "mutation"
+              ]
+            },
+            {
+              "required": [
+                "oracle_boundary"
+              ]
+            },
+            {
+              "required": [
+                "runs"
+              ]
+            },
+            {
+              "required": [
+                "trace"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "missing_obligations": {
+            "minItems": 1
+          },
+          "integrity": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -157,7 +157,7 @@ def test_ooptdd_has_no_import_cycles():
 # An edge that points UP the stack (domain→engine, engine→backends, …) fails the build. This
 # is what keeps the engine runnable against any store and the domain free of IO — enforced as
 # a fact about the imports, not a convention.
-_LAYER = {"domain": 0, "engine": 1}  # everything else under ooptdd.* is an adapter (2)
+_LAYER = {"domain": 0, "ouroboros": 0, "engine": 1}  # pure protocol is domain-level
 _API = "ooptdd"  # the package __init__ — composition root
 
 

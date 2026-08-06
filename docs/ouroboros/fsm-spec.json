@@ -1,0 +1,1191 @@
+{
+  "schema_version": "fsm-spec/v1",
+  "name": "ooptdd-ouroboros-generation",
+  "scope": "Normative normal-flow and mutation-safety projection. Reducer guards and tests are authoritative for replay, terminal, recovery exclusivity, identity-conflict, budget-exhaustion, and inconclusive fault overlays that are deliberately not expanded into this compact machine.",
+  "execution": {
+    "step_interface": "step(CycleSnapshot, ProtocolEvent) -> TransitionResult",
+    "event_queue": "The caller presents one immutable, cycle-scoped event at a time.",
+    "run_to_completion": "One event is fully selected and reduced before another event observes the snapshot.",
+    "action_order": "Validate full cycle identity; resolve replay, terminal, recovery, collision, and budget guards; then parse the payload, select a phase transition, build the next immutable value, and return stable effect intents.",
+    "persistence": "Caller-owned; this projection does not imply a journal, scheduler, or effect executor."
+  },
+  "context_schema": {
+    "remaining_findings": {
+      "type": "non-negative integer"
+    },
+    "bound_material_changed": {
+      "type": "boolean"
+    },
+    "successor_cycle_id": {
+      "type": "string"
+    },
+    "mutation_active": {
+      "type": "boolean"
+    },
+    "pending_interrupt": {
+      "type": "string"
+    }
+  },
+  "event_schemas": {
+    "SIZE": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "size"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "LOCK": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "lock"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "INITIAL_RED": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "initial_red"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "GREEN": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "green"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "QUARANTINE": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "quarantine"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "MUTATION_APPLIED": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "mutation_applied"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "NEGATIVE_RED": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "negative_red"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "RESTORE": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "restore"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "REGREEN": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "regreen"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ENUMERATE_FINDINGS": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "enumerate_findings"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "DISPOSE_FINDING": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "dispose_finding"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "SEAL": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "seal"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "INTERRUPT": {
+      "type": "object",
+      "required": [
+        "cycle_id",
+        "cycle_identity_sha256",
+        "event_id",
+        "kind",
+        "payload_json",
+        "intent_hash"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cycle_identity_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "interrupt"
+        },
+        "payload_json": {
+          "type": "string",
+          "contentMediaType": "application/json"
+        },
+        "intent_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "guards": {
+    "finding_is_eligible": {
+      "reads": [
+        "remaining_findings"
+      ],
+      "event_reads": [],
+      "pure": true,
+      "synchronous": true
+    },
+    "seal_without_bound_change": {
+      "reads": [
+        "remaining_findings",
+        "bound_material_changed"
+      ],
+      "event_reads": [],
+      "pure": true,
+      "synchronous": true
+    },
+    "seal_with_successor": {
+      "reads": [
+        "remaining_findings",
+        "bound_material_changed",
+        "successor_cycle_id"
+      ],
+      "event_reads": [],
+      "pure": true,
+      "synchronous": true
+    }
+  },
+  "effects": {
+    "RECORD_TRANSITION": {
+      "kind": "command",
+      "payload_schema": {
+        "type": "object",
+        "required": [
+          "cycle_id",
+          "event_intent_hash",
+          "from_phase",
+          "to_phase"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cycle_id": {
+            "type": "string"
+          },
+          "event_intent_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "from_phase": {
+            "type": "string"
+          },
+          "to_phase": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "RESTORE_REQUIRED": {
+      "kind": "command",
+      "payload_schema": {
+        "type": "object",
+        "required": [
+          "cycle_id",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cycle_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AUDIT_REJECTION": {
+      "kind": "audit",
+      "payload_schema": {
+        "type": "object",
+        "required": [
+          "code",
+          "cycle_id",
+          "event",
+          "phase"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "cycle_id": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "machines": [
+    {
+      "id": "generation",
+      "initial": "init",
+      "states": [
+        {
+          "id": "init",
+          "kind": "atomic"
+        },
+        {
+          "id": "sized",
+          "kind": "atomic"
+        },
+        {
+          "id": "locked",
+          "kind": "atomic"
+        },
+        {
+          "id": "initial_red_confirmed",
+          "kind": "atomic"
+        },
+        {
+          "id": "green_confirmed",
+          "kind": "atomic"
+        },
+        {
+          "id": "quarantined",
+          "kind": "atomic"
+        },
+        {
+          "id": "mutation_active",
+          "kind": "atomic"
+        },
+        {
+          "id": "negative_red_confirmed",
+          "kind": "atomic"
+        },
+        {
+          "id": "restored",
+          "kind": "atomic"
+        },
+        {
+          "id": "regreen_confirmed",
+          "kind": "atomic"
+        },
+        {
+          "id": "bite_pending",
+          "kind": "atomic"
+        },
+        {
+          "id": "complete",
+          "kind": "final"
+        },
+        {
+          "id": "superseded_by_successor",
+          "kind": "final"
+        }
+      ],
+      "events": [
+        "SIZE",
+        "LOCK",
+        "INITIAL_RED",
+        "GREEN",
+        "QUARANTINE",
+        "MUTATION_APPLIED",
+        "NEGATIVE_RED",
+        "RESTORE",
+        "REGREEN",
+        "ENUMERATE_FINDINGS",
+        "DISPOSE_FINDING",
+        "SEAL"
+      ],
+      "invalid_event_policy": {
+        "mode": "reject-and-audit",
+        "guard_false": "reject-and-audit",
+        "state_change": "none",
+        "effect": "AUDIT_REJECTION",
+        "effect_binding": {
+          "code": "rejection.reason",
+          "cycle_id": "event.cycle_id",
+          "event": "event.kind",
+          "phase": "configuration.state"
+        }
+      },
+      "transitions": [
+        {
+          "id": "size",
+          "from": "init",
+          "event": "SIZE",
+          "to": "sized",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:init",
+              "to_phase": "literal:sized"
+            }
+          }
+        },
+        {
+          "id": "lock",
+          "from": "sized",
+          "event": "LOCK",
+          "to": "locked",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:sized",
+              "to_phase": "literal:locked"
+            }
+          }
+        },
+        {
+          "id": "initial-red",
+          "from": "locked",
+          "event": "INITIAL_RED",
+          "to": "initial_red_confirmed",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:locked",
+              "to_phase": "literal:initial_red_confirmed"
+            }
+          }
+        },
+        {
+          "id": "green",
+          "from": "initial_red_confirmed",
+          "event": "GREEN",
+          "to": "green_confirmed",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:initial_red_confirmed",
+              "to_phase": "literal:green_confirmed"
+            }
+          }
+        },
+        {
+          "id": "quarantine",
+          "from": "green_confirmed",
+          "event": "QUARANTINE",
+          "to": "quarantined",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:green_confirmed",
+              "to_phase": "literal:quarantined"
+            }
+          }
+        },
+        {
+          "id": "mutate",
+          "from": "quarantined",
+          "event": "MUTATION_APPLIED",
+          "to": "mutation_active",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:quarantined",
+              "to_phase": "literal:mutation_active"
+            }
+          }
+        },
+        {
+          "id": "negative-red",
+          "from": "mutation_active",
+          "event": "NEGATIVE_RED",
+          "to": "negative_red_confirmed",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:mutation_active",
+              "to_phase": "literal:negative_red_confirmed"
+            }
+          }
+        },
+        {
+          "id": "restore",
+          "from": "negative_red_confirmed",
+          "event": "RESTORE",
+          "to": "restored",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:negative_red_confirmed",
+              "to_phase": "literal:restored"
+            }
+          }
+        },
+        {
+          "id": "regreen",
+          "from": "restored",
+          "event": "REGREEN",
+          "to": "regreen_confirmed",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:restored",
+              "to_phase": "literal:regreen_confirmed"
+            }
+          }
+        },
+        {
+          "id": "enumerate",
+          "from": "regreen_confirmed",
+          "event": "ENUMERATE_FINDINGS",
+          "to": "bite_pending",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:regreen_confirmed",
+              "to_phase": "literal:bite_pending"
+            }
+          }
+        },
+        {
+          "id": "dispose",
+          "from": "bite_pending",
+          "event": "DISPOSE_FINDING",
+          "to": "bite_pending",
+          "guard": "finding_is_eligible",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:bite_pending",
+              "to_phase": "literal:bite_pending"
+            }
+          }
+        },
+        {
+          "id": "seal-complete",
+          "from": "bite_pending",
+          "event": "SEAL",
+          "to": "complete",
+          "guard": "seal_without_bound_change",
+          "priority": 0,
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:bite_pending",
+              "to_phase": "literal:complete"
+            }
+          }
+        },
+        {
+          "id": "seal-superseded",
+          "from": "bite_pending",
+          "event": "SEAL",
+          "to": "superseded_by_successor",
+          "guard": "seal_with_successor",
+          "priority": 1,
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:bite_pending",
+              "to_phase": "literal:superseded_by_successor"
+            }
+          }
+        },
+        {
+          "id": "seal-rejected",
+          "from": "bite_pending",
+          "event": "SEAL",
+          "to": "bite_pending",
+          "priority": 2,
+          "effects": [
+            "AUDIT_REJECTION"
+          ],
+          "effect_bindings": {
+            "AUDIT_REJECTION": {
+              "code": "literal:seal-guards-false",
+              "cycle_id": "event.cycle_id",
+              "event": "event.kind",
+              "phase": "literal:bite_pending"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "mutation-safety",
+      "initial": "clean",
+      "states": [
+        {
+          "id": "clean",
+          "kind": "atomic"
+        },
+        {
+          "id": "active",
+          "kind": "atomic"
+        },
+        {
+          "id": "challenged",
+          "kind": "atomic"
+        },
+        {
+          "id": "recovery_required",
+          "kind": "atomic"
+        },
+        {
+          "id": "restored",
+          "kind": "final"
+        },
+        {
+          "id": "interrupted",
+          "kind": "final"
+        }
+      ],
+      "events": [
+        "MUTATION_APPLIED",
+        "NEGATIVE_RED",
+        "RESTORE",
+        "INTERRUPT"
+      ],
+      "invalid_event_policy": {
+        "mode": "reject-and-audit",
+        "guard_false": "reject-and-audit",
+        "state_change": "none",
+        "effect": "AUDIT_REJECTION",
+        "effect_binding": {
+          "code": "rejection.reason",
+          "cycle_id": "event.cycle_id",
+          "event": "event.kind",
+          "phase": "configuration.state"
+        }
+      },
+      "transitions": [
+        {
+          "id": "activate",
+          "from": "clean",
+          "event": "MUTATION_APPLIED",
+          "to": "active",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:quarantined",
+              "to_phase": "literal:mutation_active"
+            }
+          }
+        },
+        {
+          "id": "challenge",
+          "from": "active",
+          "event": "NEGATIVE_RED",
+          "to": "challenged",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:mutation_active",
+              "to_phase": "literal:negative_red_confirmed"
+            }
+          }
+        },
+        {
+          "id": "restore-after-challenge",
+          "from": "challenged",
+          "event": "RESTORE",
+          "to": "restored",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:negative_red_confirmed",
+              "to_phase": "literal:restored"
+            }
+          }
+        },
+        {
+          "id": "interrupt-active",
+          "from": "active",
+          "event": "INTERRUPT",
+          "to": "recovery_required",
+          "effects": [
+            "RECORD_TRANSITION",
+            "RESTORE_REQUIRED"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:mutation_active",
+              "to_phase": "literal:recovery_required"
+            },
+            "RESTORE_REQUIRED": {
+              "cycle_id": "event.cycle_id",
+              "reason": "context.pending_interrupt"
+            }
+          }
+        },
+        {
+          "id": "interrupt-challenged",
+          "from": "challenged",
+          "event": "INTERRUPT",
+          "to": "recovery_required",
+          "effects": [
+            "RECORD_TRANSITION",
+            "RESTORE_REQUIRED"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:negative_red_confirmed",
+              "to_phase": "literal:recovery_required"
+            },
+            "RESTORE_REQUIRED": {
+              "cycle_id": "event.cycle_id",
+              "reason": "context.pending_interrupt"
+            }
+          }
+        },
+        {
+          "id": "restore-after-interrupt",
+          "from": "recovery_required",
+          "event": "RESTORE",
+          "to": "interrupted",
+          "effects": [
+            "RECORD_TRANSITION"
+          ],
+          "effect_bindings": {
+            "RECORD_TRANSITION": {
+              "cycle_id": "event.cycle_id",
+              "event_intent_hash": "event.intent_hash",
+              "from_phase": "literal:recovery_required",
+              "to_phase": "literal:interrupted"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "effect_bindings": {
+    "RECORD_TRANSITION": {
+      "cycle_id": "event.cycle_id",
+      "event_intent_hash": "event.intent_hash",
+      "from_phase": "transition.from",
+      "to_phase": "transition.to"
+    },
+    "AUDIT_REJECTION": {
+      "code": "rejection.reason",
+      "cycle_id": "event.cycle_id",
+      "event": "event.kind",
+      "phase": "configuration.state"
+    },
+    "RESTORE_REQUIRED": {
+      "cycle_id": "event.cycle_id",
+      "reason": "context.pending_interrupt"
+    }
+  },
+  "coordination": {
+    "event_protocol": "The generation machine owns normal phase order; mutation-safety projects its active-mutation interval and constrains interruption. The scope field names the reducer-owned fault overlay omitted from these compact projections.",
+    "successor_protocol": "SEAL only records supersession. The safe constructor freezes and validates an immediate predecessor receipt before constructing its successor; authoritative chain existence remains store-owned.",
+    "global_invariants": [
+      "A generation terminal and an active mutation are mutually exclusive.",
+      "Recovery-required accepts restoration before the pending terminal reason."
+    ]
+  },
+  "safety_properties": [
+    {
+      "id": "no-terminal-mutation",
+      "statement": "No terminal generation retains an active mutation.",
+      "verification": "Reducer invariant plus interruption and budget-exhaustion tests."
+    },
+    {
+      "id": "bite-totality",
+      "statement": "Sealing requires exactly one disposition for every enumerated finding.",
+      "verification": "Guard-false abstract trace and receipt semantic validation."
+    },
+    {
+      "id": "identity-conflict-fails-closed",
+      "statement": "Within a cycle, one event ID cannot denote two different intent hashes.",
+      "verification": "Reducer collision tests outside and during mutation."
+    },
+    {
+      "id": "successor-after-receipt",
+      "statement": "SEAL emits no successor-launch effect; successor construction requires the validated predecessor receipt hash.",
+      "verification": "Effect-vocabulary contract and lineage tests."
+    }
+  ],
+  "liveness_properties": [
+    {
+      "id": "ordinary-progress-and-safety-tail-are-bounded",
+      "statement": "The kernel bounds ordinary progress, a two-record safety tail, and generation depth; it does not guarantee caller termination.",
+      "assumptions": [
+        "The caller eventually supplies admissible progress or interruption events.",
+        "Caller-owned retry, deadline, no-progress, and invocation bounds stop repeated invalid or replayed calls."
+      ],
+      "verification": "Ordinary progress consumes max_steps; a reducer fault can add one recovery handoff and one restoration while recovery rejects other fresh events; successor identities are constrained by max_generations; invalid and replayed calls do not consume steps."
+    }
+  ],
+  "trace_fixtures": [
+    "docs/ouroboros/fsm-traces.json"
+  ],
+  "conformance": {
+    "implementation_step": "src/ooptdd/ouroboros/reducer.py:step implements these projections plus the explicitly scoped fault overlay.",
+    "model_trace_runner": "The fsm-design abstract trace runner selects every declared transition and guard-false outcome.",
+    "contract_tests": "tests/test_ouroboros_protocol.py and tests/test_ouroboros_contracts.py bind event/effect envelopes and abstract names to production values."
+  }
+}

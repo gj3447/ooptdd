@@ -19,6 +19,15 @@ All notable changes to this project are documented here. The format follows
   qualifying it as an interior one. Covered by `tests/test_chain_truncation.py`,
   whose boundary cases assert the hole as a hole so that closing it silently
   fails the suite.
+- **Experimental Ouroboros protocol kernel.** A pure reducer now pins initial RED
+  → caller-declared readback-tier GREEN → isolated negative challenge → restore → re-GREEN →
+  total Bite disposition as immutable states and idempotent effect intents.
+  Full-width, domain-separated identities, mutation-safe interruption, bounded
+  ordinary progress and generation depth, replay-validated receipt v2 with an
+  unkeyed change-detection hash, machine-readable FSM traces, and a conservative
+  v1 upcaster make missing proof explicit instead of inferred. Caller invocation
+  bounds, evidence authentication, durability, and effect delivery remain outside
+  this module.
 - **LakatoTree-qualified trajectory programme.** A preregistered, frozen
   baseline/candidate/negative-control programme now exercises the DeepEval and
   Phoenix trajectory surface through 27 cases.  The canonical LakatoTree judge

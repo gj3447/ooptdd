@@ -31,6 +31,8 @@ Public API:
     assert_gate, assert_present   DeepEval-style in-test trace assertions
     Backend, QueryResult, MemoryBackend
 """
+
+from . import ouroboros
 from .assertions import (
     TraceAssertionError,
     assert_gate,
@@ -140,6 +142,7 @@ __all__ = [
     "CallableProbe",
     "ProbeRegistry",
     "get_probe",
+    "ouroboros",
 ]
 
 __version__ = "0.5.0"

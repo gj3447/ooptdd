@@ -186,3 +186,184 @@ assert run_controls(benign.audit, benign.parse) == []       # must survive
 A full executable model of the termination result (monotonicity, residual
 invariance, minimal height, Volkswagen and collusion witnesses as machine-
 checked negative controls) lives in the host repo as an ordinary gated test.
+
+## Executable generation protocol kernel
+
+The meta-audit above explains why another self-checking layer cannot erase the trusted
+base.  The protocol below addresses a separate engineering question: how to make one
+declared OOPTDD generation bounded, replayable, mutation-safe, and explicit about the
+evidence it does not possess.  Its receipt self-hash is change detection, not one of the
+external anchors described above.
+
+Ouroboros v2 turns the informal “test the test, then bite the result” cycle into a
+bounded protocol.  It is intentionally a **pure module**, not a daemon or workflow
+engine.  The current implementation answers one narrow question:
+
+> Given an immutable cycle snapshot and one typed event, what state and effect intents
+> follow without inventing evidence?
+
+The executable API is namespaced under `ooptdd.ouroboros`.
+
+### The three layers of the theory
+
+#### Philosophical: claims are not observations
+
+OOPTDD begins from an epistemic asymmetry.  A producer can claim that it emitted an
+event; only a read from the relevant territory can establish arrival.  Even that is not
+automatically an independent verdict.  The protocol therefore keeps three vocabularies
+disjoint:
+
+- caller-selected monitor diagnostics: `sat | viol | pend`;
+- observation semantics: `present | absent | inconclusive`;
+- lifecycle policy: protocol phases and terminal reasons.
+
+There is no generic truth-value conversion between them.  In particular, unreachable
+territory is `inconclusive`, not `absent`, and a self-controlled reader cannot promote a
+result to `external_verdict`.  Phase-specific predicates still apply: positive GREEN and
+re-GREEN require both `outcome=green` and `observation=present`.  A run carrying
+`outcome=inconclusive` or `observation=inconclusive` closes the generation as
+`INCONCLUSIVE` (after restoration when a mutation is active).
+
+The scalar `monitor` field is preserved only as caller-selected diagnostics.  Without a
+check identity, gating/optional policy, aggregation threshold, and bounded-final marker,
+one monitor value cannot determine the lifecycle.  An aggregate run may be GREEN while
+one optional monitor is `viol`, or a bounded passing absence check remains `pend`.  A
+future adapter may add typed per-check evidence; v2 does not infer it.
+
+The protocol records a replayable closed-world claim: all declared obligations in one
+locked generation satisfy its structural and semantic checks.  It does not establish
+external truth, reducer authenticity, or that the declaration captured every fact about
+the world.  It also does not establish scientific progress.
+
+#### Mathematical: a bounded transition system with lineage
+
+For snapshot set `S`, event set `E`, effect-intent sequence `I*`, and rejection set `R`,
+the kernel is a total deterministic function:
+
+```text
+step : S × E → (S × I* × {accepted,replayed}) + (S × I* × R)
+```
+
+Its useful algebraic laws are:
+
+1. **Determinism** — equal values produce equal results.
+2. **Replay idempotence** — applying the same full cycle identity, `event_id`, and
+   `intent_hash` again does not advance recorded history and returns the same effect IDs.
+3. **Generation-scoped identity injectivity requirement** — within one generation, the same
+   `event_id` with another intent is a conflict, never “last writer wins”.
+4. **Material-lock conservation** — every phase run names one lock fingerprint.
+5. **Restoration invariant** — terminal snapshots cannot retain an active mutation.
+6. **Bite totality** — enumerated finding IDs and disposed finding IDs are equal sets,
+   with exactly one disposition per ID.
+7. **Generational monotonicity** — if a fix changes a bound material, generation `g`
+   cannot complete as itself; it is superseded by `g+1`.  The successor can be
+   constructed only after generation `g` has produced a validated receipt hash, which
+   the successor identity binds.
+
+The completion criterion is thus a local fixed point under the locked verifier and
+scope, not a universal fixed point.  Changing the spec, verifier, source, or environment
+creates a new problem and therefore a new generation.
+
+#### Engineering: pure decision, caller-owned effects
+
+The module contains no I/O.  A transition returns stable `EffectIntent` values.  A future
+runner must commit its snapshot/event record before delivering effects and deduplicate by
+`effect_id`.  Persistence, retries, timeouts, no-progress and total-invocation limits,
+scheduling, and artifact reads remain ports owned by the caller.
+
+Protocol identities use full SHA-256 values with algorithm, scope,
+canonicalization, and schema version attached.  Raw file bytes and canonical JSON
+objects have different functions and cannot be substituted.  Canonical protocol JSON:
+
+- sorts object keys and removes insignificant whitespace;
+- uses exact UTF-8 without Unicode normalization;
+- accepts only string-keyed JSON values and interoperable integers;
+- rejects floats, NaN/Infinity, `default=str`, and implicit object coercion.
+
+Each event also carries `cycle_identity_sha256`, a domain-separated digest over cycle ID,
+generation, and predecessor hash.  This prevents a valid trace from being relabelled as a
+different generation after the fact.
+
+### One generation
+
+```text
+INIT → SIZED → LOCKED → INITIAL_RED_CONFIRMED → GREEN_CONFIRMED
+     → QUARANTINED → MUTATION_ACTIVE → NEGATIVE_RED_CONFIRMED
+     → RESTORED → REGREEN_CONFIRMED → BITE_PENDING
+     → COMPLETE | SUPERSEDED_BY_SUCCESSOR
+```
+
+The four run roles—initial RED, positive GREEN, negative RED, and restored
+re-GREEN—must have distinct run IDs and artifact namespaces.  Each also names its exact
+executed source: the negative run uses the mutated source, while the initial, positive,
+and restored-positive runs use the locked baseline source.  The protocol does not require
+artifact digests themselves to be pairwise unique: an adapter may legitimately encode
+identical output bytes for different runs.  Positive runs must report a `present`
+observation and carry a readback tier (`arrived` or stronger).  Those tiers and the oracle boundary are typed caller claims
+until a store-specific adapter authenticates them; `external_verdict` additionally
+requires the caller to declare a distinct, corroborated read authority.
+
+During an active mutation, cancellation, timeout, exhausted ordinary-progress budget,
+infrastructure uncertainty, or event-identity conflict first enters `RECOVERY_REQUIRED`. Restoration is
+a safety action and remains allowed after the ordinary step budget is exhausted.  Only
+then may the pending terminal reason take effect.
+
+`max_steps` bounds ordinary progress transitions recorded in `steps_used`, while snapshot
+`revision` tracks every journalled state mutation.  A reducer-detected fault may add one
+non-counted handoff to `RECOVERY_REQUIRED`, followed by at most one non-counted safety
+restoration; recovery rejects every other fresh event.  Thus a run started with
+`CycleSnapshot.start` has at most `max_steps + 2` event records.  `max_generations` bounds
+lineage depth.  Neither bound limits repeated rejected malformed/out-of-order calls or
+exact replays, because those calls do not change history; therefore the pure kernel does
+not itself guarantee caller termination.  Protocol faults that deliberately enter a
+recovery or terminal state are journalled state transitions, not ordinary invalid-order
+rejections.
+
+### Receipt v2 and legacy input
+
+`receipt_from_snapshot` accepts only `COMPLETE` or `SUPERSEDED_BY_SUCCESSOR`.  The receipt
+covers the material lock, four phase-separated runs, mutation/restoration, complete Bite
+dispositions, lineage, bounds, and replayable accepted event envelopes with phase edges.
+Its self-hash is computed over the entire receipt except that single value; the exclusion
+rule is narrow and deterministic.  This provides deterministic identity and change
+detection, not signer authenticity or protection from an attacker who can rewrite both
+content and hash.  Receipt validation establishes replayable structural and semantic
+conformance, not external truth or reducer authenticity.
+
+The event trace binds the declared generation metadata, and `successor_from_receipt`
+freezes and validates its immediate predecessor before constructing the named successor.
+The receipt alone still cannot prove that an arbitrary predecessor hash exists in an
+authoritative store; a chain validator or authenticated receipt store must resolve that
+external adjacency claim.
+
+The historical `symposium-ooptdd-receipt/v1` lacks enough information to prove these
+obligations.  `upcast_v1_receipt` therefore preserves the parsed source object without
+inventing fields, but it is not a raw-byte-lossless container.  It always
+returns `status: incomplete`, a null authoritative self-hash, and an explicit list of
+missing proof.  It never guesses run identities, verifier/environment locks, a re-GREEN,
+or Bite lineage.
+
+### Artifacts
+
+- `docs/ouroboros/module-decision.json` — module-vs-engine ADR and promotion falsifiers.
+- `docs/ouroboros/fsm-spec.json` — machine-readable normal-flow and mutation-safety
+  projection; reducer tests cover the explicitly scoped fault overlay.
+- `docs/ouroboros/fsm-traces.json` — transition, guard-false, and invalid-event traces.
+- `docs/ouroboros/fsm.mmd` — generated-view diagram; the JSON remains authoritative.
+- `docs/ouroboros/bounded-execution-policy.json` — budgets, effects, and recovery boundary.
+- `docs/ouroboros/verification.md` — claim/evidence matrix and remaining gaps.
+- `docs/schema/ouroboros-receipt-v2.schema.json` — package-schema mirror.
+
+The JSON Schema validates the portable closed shape and local field constraints.
+`validate_receipt` remains mandatory for cross-field relations, integrity recomputation,
+and reducer replay; JSON Schema alone is not a completion verifier.
+
+### Deliberately deferred
+
+There is no durable runner, snapshot journal, transactional outbox, mutation executor, or
+store-specific adapter in this slice.  SEAL records completion or supersession but never
+starts a successor; construction and launch are caller actions performed only after the
+predecessor receipt is generated and validated.  These runtime capabilities become
+justified only when the promotion gates in `module-decision.json` are met.  Until then,
+claiming crash recovery, exactly-once external effects, authenticated evidence, or total
+loop termination would exceed the implemented evidence.
