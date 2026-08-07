@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import PurePath
+from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
 from types import MappingProxyType
 from typing import Any
 from uuid import UUID
@@ -22,6 +22,7 @@ _EXACT_IMMUTABLE_LEAF_TYPES = (
     UUID,
     type(None),
 )
+_EXACT_PATH_TYPES = Path, PosixPath, WindowsPath, PurePath, PurePosixPath, PureWindowsPath
 
 
 class _FrozenList(tuple[Any, ...]):
@@ -42,9 +43,7 @@ class _FrozenSet(frozenset[Any]):
 
 
 def _is_immutable_leaf(value: object) -> bool:
-    return type(value) in _EXACT_IMMUTABLE_LEAF_TYPES or (
-        isinstance(value, PurePath) and type(value).__module__ == "pathlib"
-    )
+    return type(value) in _EXACT_IMMUTABLE_LEAF_TYPES or type(value) in _EXACT_PATH_TYPES
 
 
 def _enter(value: object, active: set[int], label: str) -> int:

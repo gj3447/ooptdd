@@ -276,7 +276,12 @@
     "allowed_imports_by_module": {
       "ooptdd.engine.gate_freeze": [
         "datetime.date",
+        "pathlib.Path",
+        "pathlib.PosixPath",
         "pathlib.PurePath",
+        "pathlib.PurePosixPath",
+        "pathlib.PureWindowsPath",
+        "pathlib.WindowsPath",
         "uuid.UUID"
       ]
     },

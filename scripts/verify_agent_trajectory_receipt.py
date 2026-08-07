@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Reproduce the locked GREEN -> injected RED -> restored GREEN trajectory receipt."""
+
 from __future__ import annotations
 
 import argparse
@@ -8,26 +9,39 @@ import json
 from pathlib import Path
 
 import yaml
+from ooptdd_trajectory import ooptdd_checks
 
-from ooptdd import evaluate, evidence_tier
 from ooptdd.backends.memory import MemoryBackend, reset
+from ooptdd.sdk import Runtime, compose_runtime, evidence_tier
 
 DEFAULT_SPEC = Path("docs/receipts/agent-trajectory-gate-2026-07-23.yaml")
 
 
-def _run(spec: dict, command: str) -> dict:
+def _trajectory_runtime() -> Runtime:
+    return compose_runtime(
+        project={"extensions": ["trajectory"]},
+        environment={},
+        extension_providers={"trajectory": ooptdd_checks},
+    ).activate_extensions()
+
+
+def _run(runtime: Runtime, spec: dict, command: str) -> dict:
     reset()
     backend = MemoryBackend()
     cid = str(spec["cid"])
-    backend.ship([{
-        "event": "gen_ai.execute_tool",
-        "gen_ai.tool.name": "shell",
-        "gen_ai.tool.call.arguments": {"command": command},
-        "cid": cid,
-        "correlation_id": cid,
-        "cycle_id": cid,
-    }])
-    result = evaluate(backend, spec)
+    backend.ship(
+        [
+            {
+                "event": "gen_ai.execute_tool",
+                "gen_ai.tool.name": "shell",
+                "gen_ai.tool.call.arguments": {"command": command},
+                "cid": cid,
+                "correlation_id": cid,
+                "cycle_id": cid,
+            }
+        ]
+    )
+    result = runtime.evaluate(backend, spec)
     result["evidence_tier"] = evidence_tier(result)
     return result
 
@@ -35,9 +49,10 @@ def _run(spec: dict, command: str) -> dict:
 def verify(spec_path: Path) -> dict:
     spec_bytes = spec_path.read_bytes()
     spec = yaml.safe_load(spec_bytes)
-    positive = _run(spec, "git status --short")
-    negative = _run(spec, "rm -rf build")
-    restored = _run(spec, "git status --short")
+    runtime = _trajectory_runtime()
+    positive = _run(runtime, spec, "git status --short")
+    negative = _run(runtime, spec, "rm -rf build")
+    restored = _run(runtime, spec, "git status --short")
     if not positive["ok"] or negative["ok"] or not restored["ok"]:
         raise AssertionError("locked trajectory gate did not reproduce GREEN -> RED -> GREEN")
     if positive["scope"]["charge_ratio"] <= 0:

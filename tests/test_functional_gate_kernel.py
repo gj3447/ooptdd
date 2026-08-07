@@ -8,7 +8,7 @@ from dataclasses import FrozenInstanceError, replace
 from datetime import date
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from uuid import UUID
 
 import pytest
@@ -473,6 +473,8 @@ def test_inherited_stock_event_type_and_enum_messages_survive_capture():
         date(2026, 8, 7),
         UUID("12345678-1234-5678-1234-567812345678"),
         Path("artifacts/gate.json"),
+        PurePosixPath("artifacts/gate.json"),
+        PureWindowsPath("artifacts/gate.json"),
     ],
 )
 def test_supported_immutable_external_values_keep_their_type(value):
@@ -481,6 +483,14 @@ def test_supported_immutable_external_values_keep_their_type(value):
     assert verdict["ok"] is True
     assert verdict["checks"][0]["value"] == value
     assert type(verdict["checks"][0]["value"]) is type(value)
+
+
+def test_capture_rejects_path_subclasses_with_custom_semantics():
+    class CustomPath(type(Path())):
+        pass
+
+    with pytest.raises(TypeError, match="unsupported captured value"):
+        freeze_value(CustomPath("artifacts/gate.json"))
 
 
 def test_freeze_thaw_preserves_container_kinds_recursively():
