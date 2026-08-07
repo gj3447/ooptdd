@@ -16,13 +16,14 @@ The matrix distinguishes an implemented fact from a future operational claim.
 | Receipt trace can drive semantic replay | accepted-event envelope and phase-edge tests | trace omits canonical payload or cannot reconstruct an event | implemented |
 | v1 migration does not invent proof | upcast tests | v1 becomes complete without new evidence | implemented |
 | Abstract FSM is internally covered | FSM validator and trace runner | transition/guard/invalid policy lacks a trace | implemented |
+| Bounded-final gate output becomes typed receipt evidence | gate-adapter projection, reducer-compatibility, numeric-domain, and mutation tests | optional/pending/custom context is lost, a negative/zero-total weight forges quorum, or scalar monitor controls lifecycle | implemented by the versioned gate-evidence artifact; receipt v2 wire shape unchanged |
+| Evidence tier is derived rather than caller-selected on the gate-adapter path | tier recomputation, non-gating causal-check, sampled-cap, and external-identity tests | an optional/pending check promotes weak evidence, or a caller promotes arrived evidence to causal/external without the required gating check | implemented structurally on the adapter path |
 | Crash recovery and effect delivery | none in this module | process dies between state and external effect | deferred |
-| Evidence-tier and oracle claims are authenticated | none in this module | caller labels its own output `external_verdict` | adapter evidence required |
+| Evidence producer and oracle authority are authenticated | no detached attestation or externally owned anchor in this module | a colluding producer fabricates a self-consistent verifier result and boundary | authenticated store adapter and external anchor required |
 | Independent-store arrival in production | existing backend integrations, not this protocol slice | store/SUT share authority | adapter evidence required |
 | Caller loop terminates | none in this module; invalid/replayed calls do not consume `max_steps` | caller invokes forever without admissible progress | caller-owned retry, timeout, no-progress, and invocation bounds required |
 | Reducer/receipt producer is authentic | none in this module | attacker rewrites receipt and recomputes its unkeyed hash | out of scope |
 | A claimed predecessor hash exists in an authoritative chain | none in this module | self-consistent successor names an unavailable predecessor | chain validator or authenticated store required |
-| Per-check monitor aggregation is lifecycle-authoritative | scalar diagnostic only | optional/gating/threshold context is lost | typed adapter evidence required |
 | Scientific or Lakatosian progress | no judge in this module | internally consistent but degenerating cycle | out of scope |
 
 ## Verification commands

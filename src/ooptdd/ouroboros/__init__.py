@@ -4,6 +4,13 @@ The public surface is deliberately namespaced as ``ooptdd.ouroboros`` so generic
 such as ``step`` and ``Phase`` do not collide with the mature gate API.
 """
 
+from .gate_adapter import (
+    GATE_EVIDENCE_VERSION,
+    OUROBOROS_GATE_EVIDENCE_SCHEMA,
+    GateEvidenceBundle,
+    adapt_gate_verification,
+    validate_gate_evidence,
+)
 from .identity import (
     CANONICALIZATION,
     MAX_INTEROPERABLE_INTEGER,
@@ -53,9 +60,11 @@ from .schema import (
 
 __all__ = [
     "CANONICALIZATION",
+    "GATE_EVIDENCE_VERSION",
     "LEGACY_RECEIPT_VERSION",
     "MAX_INTEROPERABLE_INTEGER",
     "OUROBOROS_RECEIPT_SCHEMA",
+    "OUROBOROS_GATE_EVIDENCE_SCHEMA",
     "PROTOCOL_VERSION",
     "RECEIPT_VERSION",
     "CycleIdentity",
@@ -71,6 +80,7 @@ __all__ = [
     "EventRecord",
     "EvidenceTier",
     "FindingDisposition",
+    "GateEvidenceBundle",
     "InterruptReason",
     "MaterialLock",
     "MonitorVerdict",
@@ -85,6 +95,7 @@ __all__ = [
     "RunRole",
     "SnapshotStore",
     "TransitionResult",
+    "adapt_gate_verification",
     "canonical_json_bytes",
     "digest_json",
     "digest_raw",
@@ -95,4 +106,5 @@ __all__ = [
     "step",
     "upcast_v1_receipt",
     "validate_receipt",
+    "validate_gate_evidence",
 ]

@@ -109,6 +109,56 @@ def test_weight_dominates_score():
     assert res["ok"] is True and res["score"] == 0.9
 
 
+@pytest.mark.parametrize("weight", [-1, float("nan"), float("inf"), True])
+def test_gate_rejects_unsafe_check_weights(weight):
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "a"})
+    with pytest.raises(ValueError, match="gate check weight"):
+        evaluate(b, {"cid": "c1", "expect": [{"event": "a", "weight": weight}]})
+
+
+def test_weighted_gate_rejects_zero_total_weight():
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "a"})
+    with pytest.raises(ValueError, match="positive total gating weight"):
+        evaluate(
+            b,
+            {
+                "cid": "c1",
+                "threshold": 0.5,
+                "expect": [
+                    {"event": "a", "weight": 0},
+                    {"event": "b", "weight": 0},
+                ],
+            },
+        )
+
+
+@pytest.mark.parametrize("threshold", [0, -0.01, 1.01, float("nan"), float("inf"), True])
+def test_weighted_gate_rejects_threshold_outside_positive_unit_interval(threshold):
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "a"})
+    with pytest.raises(ValueError, match="gate threshold"):
+        evaluate(
+            b,
+            {"cid": "c1", "threshold": threshold, "expect": [{"event": "a"}]},
+        )
+
+
+def test_all_failed_weighted_checks_cannot_become_green_at_zero_threshold():
+    b = MemoryBackend()
+    _ship(b, "c1", {"event": "a"}, {"event": "a"})
+    with pytest.raises(ValueError, match="threshold must be > 0"):
+        evaluate(
+            b,
+            {
+                "cid": "c1",
+                "threshold": 0,
+                "expect": [{"event": "a", "op": "==", "count": 1}],
+            },
+        )
+
+
 # ── #9 trajectory alias (ordered tool/event sequence) ─────────────────────────
 class _Fixed:
     default_lookback_s = 3600

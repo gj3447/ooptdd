@@ -342,6 +342,7 @@ def verify_gate(
     future_buffer_s: int | None = None,
     confirm_rounds: int = 0,
     confirm_delay_s: float = 1.0,
+    settle_early: bool = True,
     ontology=None,
     clock: Clock | None = None,
     sleeper: Sleeper | None = None,
@@ -355,11 +356,15 @@ def verify_gate(
     a gate evaluation can never diverge. A non-final poll settles GREEN only when the green is
     *irrevocable* (every gating check latched LTL₃ SAT — see :func:`_settled_green`); a gate
     carrying any anti-monotone check (forbid/absent, exact counts, ...) waits for the final
-    poll so a late-arriving violation still flips the verdict. Returns
-    ``{ok, verdict, gate, reasons, attempts}`` where ``verdict`` is present (gate GREEN),
-    absent (reachable+complete but RED), or inconclusive (never reachable, or every read
-    truncated).
+    poll so a late-arriving violation still flips the verdict. Set ``settle_early=False``
+    when a receipt adapter requires every outcome to come from the bounded-final poll rather
+    than an irrevocable positive prefix. Returns ``{ok, verdict, settlement, gate, reasons,
+    attempts}`` where ``verdict`` is present (gate GREEN), absent (reachable+complete but RED),
+    or inconclusive (never reachable, or every read truncated); ``settlement`` is
+    ``irrevocable_prefix`` or ``bounded_final``.
     """
+    if not isinstance(settle_early, bool):
+        raise TypeError("settle_early must be a boolean")
     emit_backend = type(backend).__name__
     emit_identity = backend_identity(backend)
     emit_caps = backend_caps(backend)
@@ -375,8 +380,13 @@ def verify_gate(
             # SAT (monotone-positive — no later event can falsify). A green that merely
             # has no violation YET (an anti-monotone check passing on the prefix) keeps
             # polling to the final attempt, so a late-arriving offender still flips it.
-            return {"ok": True, "verdict": "present", "gate": result, "reasons": []} \
-                if _settled_green(result) else None
+            return {
+                "ok": True,
+                "verdict": "present",
+                "settlement": "irrevocable_prefix",
+                "gate": result,
+                "reasons": [],
+            } if settle_early and _settled_green(result) else None
         if result["ok"]:
             verdict = "present"
         elif (not result["reachable"] or not result.get("complete", True)
@@ -389,8 +399,13 @@ def verify_gate(
              or c.get("absent") or c.get("conforms") or "check")
             for c in result["checks"] if not c["passed"]
         ]
-        return {"ok": result["ok"], "verdict": verdict, "gate": result,
-                "reasons": [str(r) for r in reasons]}
+        return {
+            "ok": result["ok"],
+            "verdict": verdict,
+            "settlement": "bounded_final",
+            "gate": result,
+            "reasons": [str(r) for r in reasons],
+        }
 
     return poll_until_present(
         backend, cid, evaluate_prefix, retries=retries, delay=delay, backoff=backoff,

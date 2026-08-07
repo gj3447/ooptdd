@@ -1,0 +1,588 @@
+{
+  "$comment": "Structural schema; validate_gate_evidence performs binding and aggregate checks.",
+  "$defs": {
+    "aggregation": {
+      "additionalProperties": false,
+      "properties": {
+        "gating_check_ids": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "mode": {
+          "enum": [
+            "all",
+            "weighted_threshold"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "score": {
+          "oneOf": [
+            {
+              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threshold": {
+          "oneOf": [
+            {
+              "pattern": "^(?:(?:0\\.[0-9]*[1-9][0-9]*)|(?:[1-9][0-9]*(?:\\.[0-9]+)?))(?:e[+-]?[0-9]+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "gating_check_ids",
+        "mode",
+        "ok",
+        "score",
+        "threshold"
+      ],
+      "type": "object"
+    },
+    "arrival": {
+      "additionalProperties": false,
+      "properties": {
+        "confirm_rounds_run": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "extended_for_visibility": {
+          "type": "boolean"
+        },
+        "flushed": {
+          "type": "boolean"
+        },
+        "visibility_delay_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "waited_ms": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "confirm_rounds_run",
+        "extended_for_visibility",
+        "flushed",
+        "visibility_delay_ms",
+        "waited_ms"
+      ],
+      "type": "object"
+    },
+    "binding": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_namespace": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "cycle": {
+          "$ref": "#/$defs/cycle"
+        },
+        "cycle_identity_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "executed_source": {
+          "$ref": "#/$defs/digest"
+        },
+        "lifecycle_outcome": {
+          "enum": [
+            "red",
+            "green",
+            "inconclusive"
+          ]
+        },
+        "material_lock": {
+          "$ref": "#/$defs/material_lock"
+        },
+        "material_lock_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "oracle_boundary": {
+          "$ref": "#/$defs/oracle_boundary"
+        },
+        "role": {
+          "enum": [
+            "initial_red",
+            "positive",
+            "negative",
+            "regreen"
+          ]
+        },
+        "run_id": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "subject_outcome": {
+          "enum": [
+            "red",
+            "green"
+          ]
+        },
+        "verification_value": {
+          "$ref": "#/$defs/verification_digest"
+        }
+      },
+      "required": [
+        "artifact_namespace",
+        "cycle",
+        "cycle_identity_sha256",
+        "executed_source",
+        "lifecycle_outcome",
+        "material_lock",
+        "material_lock_sha256",
+        "oracle_boundary",
+        "role",
+        "run_id",
+        "subject_outcome",
+        "verification_value"
+      ],
+      "type": "object"
+    },
+    "check": {
+      "additionalProperties": false,
+      "properties": {
+        "charged": {
+          "type": "boolean"
+        },
+        "check_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "gating": {
+          "type": "boolean"
+        },
+        "grounding": {
+          "enum": [
+            "derived-self",
+            "corroborated"
+          ]
+        },
+        "kind": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "monitor": {
+          "oneOf": [
+            {
+              "enum": [
+                "sat",
+                "viol",
+                "pend"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "pending": {
+          "type": "boolean"
+        },
+        "settled_at": {
+          "oneOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "strength": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "tautological": {
+          "type": "boolean"
+        },
+        "weight": {
+          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "charged",
+        "check_id",
+        "gating",
+        "grounding",
+        "kind",
+        "label",
+        "monitor",
+        "optional",
+        "ordinal",
+        "passed",
+        "pending",
+        "settled_at",
+        "strength",
+        "tautological",
+        "weight"
+      ],
+      "type": "object"
+    },
+    "cycle": {
+      "additionalProperties": false,
+      "properties": {
+        "cycle_id": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "previous_receipt_sha256": {
+          "oneOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "cycle_id",
+        "generation",
+        "previous_receipt_sha256"
+      ],
+      "type": "object"
+    },
+    "digest": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "canonicalization": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "schema_version": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "scope": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "canonicalization",
+        "schema_version",
+        "scope",
+        "value"
+      ],
+      "type": "object"
+    },
+    "material_lock": {
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/digest"
+        },
+        "source": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_commit": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/digest"
+        },
+        "verifier": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "environment",
+        "source",
+        "source_commit",
+        "spec",
+        "verifier"
+      ],
+      "type": "object"
+    },
+    "oracle": {
+      "additionalProperties": false,
+      "properties": {
+        "authenticated": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "corroborated": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "corroboration_enforced": {
+          "type": "boolean"
+        },
+        "derived_self": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "emit_backend": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "emit_identity": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "emit_independent": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_tier": {
+          "enum": [
+            "local_pass",
+            "emitted",
+            "arrived",
+            "queryable_causal",
+            "external_verdict"
+          ]
+        },
+        "independent_store_enforced": {
+          "type": "boolean"
+        },
+        "read_identities": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000]+$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "sampled": {
+          "type": "boolean"
+        },
+        "signature_enforced": {
+          "type": "boolean"
+        },
+        "single_authority": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "authenticated",
+        "corroborated",
+        "corroboration_enforced",
+        "derived_self",
+        "emit_backend",
+        "emit_identity",
+        "emit_independent",
+        "evidence_tier",
+        "independent_store_enforced",
+        "read_identities",
+        "sampled",
+        "signature_enforced",
+        "single_authority"
+      ],
+      "type": "object"
+    },
+    "oracle_boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "corroborated": {
+          "type": "boolean"
+        },
+        "emit_identity": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "read_identity": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "separate_source": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "corroborated",
+        "emit_identity",
+        "read_identity",
+        "separate_source"
+      ],
+      "type": "object"
+    },
+    "readback": {
+      "additionalProperties": false,
+      "properties": {
+        "arrival": {
+          "$ref": "#/$defs/arrival"
+        },
+        "attempts": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cid": {
+          "minLength": 1,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$",
+          "type": "string"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "probe_reachable": {
+          "type": "boolean"
+        },
+        "reachable": {
+          "type": "boolean"
+        },
+        "settlement": {
+          "const": "bounded_final"
+        },
+        "verdict": {
+          "enum": [
+            "present",
+            "absent",
+            "inconclusive"
+          ]
+        }
+      },
+      "required": [
+        "arrival",
+        "attempts",
+        "cid",
+        "complete",
+        "probe_reachable",
+        "reachable",
+        "settlement",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "verification_digest": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "canonicalization": {
+          "const": "ooptdd-canonical-json/v1"
+        },
+        "schema_version": {
+          "const": "ooptdd-ouroboros-gate-evidence/v1"
+        },
+        "scope": {
+          "const": "ouroboros-gate-verification-value"
+        },
+        "value": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "canonicalization",
+        "schema_version",
+        "scope",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/gj3447/ooptdd/schema/ouroboros-gate-evidence-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "aggregation": {
+      "$ref": "#/$defs/aggregation"
+    },
+    "binding": {
+      "$ref": "#/$defs/binding"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/check"
+      },
+      "type": "array"
+    },
+    "oracle": {
+      "$ref": "#/$defs/oracle"
+    },
+    "readback": {
+      "$ref": "#/$defs/readback"
+    },
+    "schema_version": {
+      "const": "ooptdd-ouroboros-gate-evidence/v1"
+    }
+  },
+  "required": [
+    "aggregation",
+    "binding",
+    "checks",
+    "oracle",
+    "readback",
+    "schema_version"
+  ],
+  "title": "OOPTDD Ouroboros typed gate evidence",
+  "type": "object"
+}

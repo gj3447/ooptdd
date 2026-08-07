@@ -46,6 +46,30 @@ def test_tier_queryable_causal_on_invariant():
     assert _tier([inv], [_ev("pay", 1, amount=42), _ev("ship", 2, amount=42)]) == "queryable_causal"
 
 
+def test_non_gating_invariant_cannot_promote_an_absence_only_tier():
+    invariant = {
+        "invariant": {
+            "left": {"reduce": "sum", "field": "amount", "event": "pay"},
+            "right": {"reduce": "sum", "field": "amount", "event": "ship"},
+            "op": "==",
+            "tol": 0.0,
+        }
+    }
+    events = [_ev("pay", 1, amount=42), _ev("ship", 2, amount=42)]
+    absence = {"absent": [{"event": "boom"}]}
+
+    for policy in ("optional", "pending"):
+        result = evaluate_events(
+            {"expect": [absence, {**invariant, policy: True}]},
+            events,
+            reachable=True,
+            complete=True,
+            cid="c",
+        )
+        assert result["ok"] is True
+        assert evidence_tier(result) == "emitted"
+
+
 def test_tier_external_verdict_on_separate_source_corroboration():
     class _Probe:
         def probe(self, kind, selector, cid):

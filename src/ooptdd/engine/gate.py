@@ -78,6 +78,7 @@ gains is a real incremental monitor with anticipatory verdicts, surfaced per che
 """
 from __future__ import annotations
 
+import math
 import os
 from collections import Counter
 from collections.abc import Callable
@@ -226,6 +227,42 @@ def _label(chk: dict) -> str:
 
 def _truthy(v) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"} if v is not None else False
+
+
+def _finite_gate_number(
+    value,
+    label: str,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    """Parse a gate scalar without accepting booleans, infinities, or unsafe ranges."""
+
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{label} must be a finite number") from error
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be a finite number")
+    if minimum is not None and number < minimum:
+        raise ValueError(f"{label} must be >= {minimum:g}")
+    if maximum is not None and number > maximum:
+        raise ValueError(f"{label} must be <= {maximum:g}")
+    return number
+
+
+def _gate_threshold(value) -> float:
+    threshold = _finite_gate_number(
+        value,
+        "gate threshold",
+        minimum=0.0,
+        maximum=1.0,
+    )
+    if threshold <= 0.0:
+        raise ValueError("gate threshold must be > 0")
+    return threshold
 
 
 # ---- registered check handlers (thin adapters over the kernel's compile_check) ---- #
@@ -631,11 +668,22 @@ def evaluate_events(
         # NOT gate the build — for an event whose emitter isn't wired yet. Once it passes,
         # drop the flag to promote it to a hard gate (see `pending_satisfied`).
         chk["pending"] = bool(rule.get("pending", False))
-        chk["weight"] = float(rule.get("weight", 1.0))  # promptfoo per-assertion weight
+        # A signed or non-finite weight can make a failed check *increase* the weighted
+        # pass ratio (or turn it into NaN).  Weight is therefore specification data with a
+        # fail-closed numeric domain, not an arbitrary float coercion.
+        chk["weight"] = _finite_gate_number(
+            rule.get("weight", 1.0),
+            "gate check weight",
+            minimum=0.0,
+        )  # promptfoo per-assertion weight
         chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
         chk["kind"] = key or "count"  # stable identity for programmatic RED diagnosis
         if "label" in rule and "label" not in chk:
             chk["label"] = rule["label"]  # a rule-declared label follows into the result
+        # Seal the same canonical human handle every consumer already derives through
+        # `_label`.  Downstream typed projections can now consume the result value without
+        # importing this engine module's private formatting helper across the layer boundary.
+        chk["label"] = _label(chk)
         # A declared `separate_source=True` is DEMOTED to derived-self when the probe's own
         # derived_identity equals the emit endpoint: it provably re-read the system's own store, so
         # the independence claim is false (relocation, not corroboration). Asymmetric on purpose — a
@@ -678,9 +726,17 @@ def evaluate_events(
     else:
         # promptfoo test-level threshold: pass iff the *weighted* pass-ratio meets it
         # (a quorum of expected events, not strict unanimity).
+        threshold_value = _gate_threshold(threshold)
         wtot = sum(c["weight"] for c in gating)
-        score = (sum(c["weight"] for c in gating if c["passed"]) / wtot) if wtot else 1.0
-        required_ok = score >= float(threshold)
+        if not math.isfinite(wtot) or wtot <= 0.0:
+            raise ValueError(
+                "weighted gate requires a finite positive total gating weight"
+            )
+        passed_weight = sum(c["weight"] for c in gating if c["passed"])
+        if not math.isfinite(passed_weight):
+            raise ValueError("weighted gate passed-weight total must be finite")
+        score = passed_weight / wtot
+        required_ok = score >= threshold_value
     # A store we never reached (reachable=False) is INFRA and a truncated read
     # (complete=False) is incomplete evidence — neither is ever a clean pass (CLI exit 2). And a
     # gate that asserts nothing GATING (empty expect, or every check optional/pending) is never a
@@ -787,6 +843,8 @@ def evaluate_events(
             # relocated counts gating `external:` checks whose separate_source claim was demoted.
             "emit_backend": emit_backend,
             "emit_identity": emit_identity,
+            "emit_independent": emit_independent,
+            "independent_store_enforced": ri,
             "relocated": sum(1 for c in gating if c.get("demoted_same_endpoint")),
             "signature_enforced": rs,
             # verdict provenance: was the negative wing (forbid ERROR/CRITICAL) enforced for this
@@ -815,7 +873,7 @@ def evaluate_events(
     }
     if score is not None:
         result["score"] = score
-        result["threshold"] = float(threshold)
+        result["threshold"] = threshold_value
     if emit_sampled:
         # honest flag: this verdict was read from a SAMPLED store (see BackendCaps.samples);
         # evidence_tier caps store-derived rungs at `arrived` on it.
@@ -922,7 +980,12 @@ def strength_fingerprint(spec: dict) -> dict:
     rules = list(spec.get("expect", []))
     gating = [r for r in rules if not r.get("optional") and not r.get("pending")]
     strengths = [_strength(r) for r in gating]
-    threshold = float(spec.get("threshold", 1.0))
+    raw_threshold = spec.get("threshold")
+    threshold = (
+        1.0
+        if raw_threshold is None
+        else _gate_threshold(raw_threshold)
+    )
     raw = sum(_STRENGTH_RANK.get(s, 1) for s in strengths)
     return {
         "gating": len(gating),
@@ -1007,7 +1070,17 @@ def evidence_tier(result: dict) -> str:
         return "local_pass"
     if (oracle.get("corroborated") or 0) > 0:
         return "external_verdict"
-    passing = {c.get("strength") for c in result.get("checks", []) if c.get("passed")}
+    # Optional, pending, and tautological checks are observations, not gate authority.
+    # Letting one of them promote the tier would allow an unrelated optional invariant to
+    # turn an absence-only GREEN into completion-grade causal evidence.
+    passing = {
+        c.get("strength")
+        for c in result.get("checks", [])
+        if c.get("passed")
+        and not c.get("optional")
+        and not c.get("pending")
+        and not c.get("tautological")
+    }
     if passing & {"invariant", "metamorphic"}:
         # a sampled store (BackendCaps.samples) cannot prove cross-event causal claims —
         # the causal rung caps at `arrived`. external_verdict (above) is untouched: a

@@ -4,7 +4,8 @@
   "verdict": "module",
   "purpose": "Deterministically reduce one OOPTDD evidence generation and seal structurally and semantically conformant receipts within configured ordinary-progress and lineage bounds.",
   "current_consumers": [
-    "ooptdd-python-api"
+    "ooptdd-python-api",
+    "ooptdd-gate-evidence-adapter"
   ],
   "planned_consumers": [
     "symposium-ooptdd-receipt-adapter",
@@ -13,10 +14,11 @@
   "rationale": [
     "The stable need is a pure protocol kernel and receipt contract, not an independently operated service.",
     "No durable single-writer, scheduler, daemon, or recovery owner exists in this repository today.",
+    "The first typed gate adapter reuses protocol values but does not supply the two independent adapters, durable writer, or process-boundary operations required for promotion.",
     "Caller-owned ports preserve a promotion path without fabricating runtime guarantees."
   ],
   "boundary": {
-    "owns": "Immutable protocol values, deterministic transition selection, identity rules, receipt validation, and conservative legacy upcasting",
+    "owns": "Immutable protocol values, deterministic transition selection, identity rules, typed bounded-final gate-evidence projection, receipt and gate-evidence validation, and conservative legacy upcasting",
     "mechanism": "step(snapshot, typed_event) returns a new snapshot plus stable effect intents or an observable rejection",
     "policy_outside": [
       "How tests and mutations are executed",
@@ -33,7 +35,7 @@
     ],
     "state_authority": "The caller owns persistence and concurrency; the module owns only an immutable value transition"
   },
-  "contract": "step(CycleSnapshot, ProtocolEvent) -> TransitionResult; receipt_from_snapshot(terminal_snapshot) -> receipt/v2; successor_from_receipt(validated_superseded_receipt) -> CycleSnapshot",
+  "contract": "step(CycleSnapshot, ProtocolEvent) -> TransitionResult; adapt_gate_verification(bounded_final_result, locked_context) -> GateEvidenceBundle; receipt_from_snapshot(terminal_snapshot) -> receipt/v2; successor_from_receipt(validated_superseded_receipt) -> CycleSnapshot",
   "invariants": [
     "Identical snapshot and event values produce an identical transition result.",
     "An exact cycle-scoped event replay cannot advance accepted history and re-emits only stable effect IDs.",
@@ -56,6 +58,7 @@
     "Transition tests cover the complete cycle, forbidden ordering, replay, conflict, interruption, restoration, and Bite succession.",
     "Identity tests pin exact-byte hashing, canonical-object hashing, Unicode behavior, and domain separation.",
     "Receipt tests tamper with authoritative fields and show v1 upcasts remain incomplete.",
+    "Gate-adapter tests recompute check IDs, aggregation, gating-only evidence tiers, source/oracle bindings, and reject unsafe numeric domains plus semantic or type tampering.",
     "Machine-readable FSM traces cover every declared transition, guard-false branch, and invalid-event policy."
   ],
   "promotion_gates": [

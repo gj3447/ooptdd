@@ -224,11 +224,24 @@ re-GREEN require both `outcome=green` and `observation=present`.  A run carrying
 `outcome=inconclusive` or `observation=inconclusive` closes the generation as
 `INCONCLUSIVE` (after restoration when a mutation is active).
 
-The scalar `monitor` field is preserved only as caller-selected diagnostics.  Without a
+The scalar `monitor` field is preserved only as non-authoritative diagnostics.  Without a
 check identity, gating/optional policy, aggregation threshold, and bounded-final marker,
 one monitor value cannot determine the lifecycle.  An aggregate run may be GREEN while
-one optional monitor is `viol`, or a bounded passing absence check remains `pend`.  A
-future adapter may add typed per-check evidence; v2 does not infer it.
+one optional monitor is `viol`, or a bounded passing absence check remains `pend`.
+
+`adapt_gate_verification` closes that representation gap without changing receipt v2.  It
+accepts only `verify_gate(..., settle_early=False)` output, projects every check into a
+separately versioned canonical artifact, recomputes gating membership, weighted
+aggregation, infrastructure uncertainty, and the evidence tier, and binds the result to
+the cycle, material lock, executed source, run role, and declared oracle boundary.  The
+evidence ladder can be promoted only by a non-optional, non-pending, non-tautological
+gating check.  Weighted aggregation rejects negative or non-finite weights, rejects a
+zero total gating weight, and confines its threshold to `(0, 1]`.  The artifact also
+commits to the exact verifier value with lossless scalar type tags.  Its
+`RunEvidence.monitor` is deliberately `pend`: the separately validated check array is the
+authority for aggregation.  `validate_gate_evidence` can additionally compare the
+artifact with the receipt run, cycle, oracle, artifact digest, and original verifier
+value.  This is structural and semantic binding, not producer authentication.
 
 The protocol records a replayable closed-world claim: all declared obligations in one
 locked generation satisfy its structural and semantic checks.  It does not establish
@@ -299,9 +312,12 @@ executed source: the negative run uses the mutated source, while the initial, po
 and restored-positive runs use the locked baseline source.  The protocol does not require
 artifact digests themselves to be pairwise unique: an adapter may legitimately encode
 identical output bytes for different runs.  Positive runs must report a `present`
-observation and carry a readback tier (`arrived` or stronger).  Those tiers and the oracle boundary are typed caller claims
-until a store-specific adapter authenticates them; `external_verdict` additionally
-requires the caller to declare a distinct, corroborated read authority.
+observation and carry a readback tier (`arrived` or stronger).  The reducer alone treats
+those fields as typed caller claims.  The shipped gate adapter instead derives them from
+bounded-final per-check evidence and refuses an `external_verdict` unless a passing
+corroborated check names the exact distinct read identity locked in `OracleBoundary`.
+The boundary and verifier result are still claims until a store-specific authority
+authenticates them.
 
 During an active mutation, cancellation, timeout, exhausted ordinary-progress budget,
 infrastructure uncertainty, or event-identity conflict first enters `RECOVERY_REQUIRED`. Restoration is
@@ -353,17 +369,22 @@ or Bite lineage.
 - `docs/ouroboros/bounded-execution-policy.json` — budgets, effects, and recovery boundary.
 - `docs/ouroboros/verification.md` — claim/evidence matrix and remaining gaps.
 - `docs/schema/ouroboros-receipt-v2.schema.json` — package-schema mirror.
+- `docs/schema/ouroboros-gate-evidence-v1.schema.json` — typed per-check gate evidence
+  mirror; receipt v2 binds its digest without changing wire shape.
 
-The JSON Schema validates the portable closed shape and local field constraints.
-`validate_receipt` remains mandatory for cross-field relations, integrity recomputation,
-and reducer replay; JSON Schema alone is not a completion verifier.
+The JSON Schemas validate portable closed shapes and local field constraints.
+`validate_receipt` and `validate_gate_evidence` remain mandatory for cross-field
+relations, identity recomputation, and reducer or aggregation semantics; JSON Schema
+alone is not a completion verifier.
 
 ### Deliberately deferred
 
-There is no durable runner, snapshot journal, transactional outbox, mutation executor, or
-store-specific adapter in this slice.  SEAL records completion or supersession but never
+There is no durable runner, authoritative snapshot journal, transactional outbox,
+mutation executor, store-authenticating adapter, detached attestation, or externally
+owned chain anchor in this slice.  SEAL records completion or supersession but never
 starts a successor; construction and launch are caller actions performed only after the
 predecessor receipt is generated and validated.  These runtime capabilities become
 justified only when the promotion gates in `module-decision.json` are met.  Until then,
-claiming crash recovery, exactly-once external effects, authenticated evidence, or total
-loop termination would exceed the implemented evidence.
+claiming crash recovery, exactly-once external effects, authenticated evidence,
+authoritative lineage, total loop termination, or scientific progress would exceed the
+implemented evidence.
