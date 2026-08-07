@@ -1,0 +1,749 @@
+{
+  "schema_version": "ooptdd-ouroboros-readiness/v1",
+  "harness_tier": "L_IDE",
+  "target_tier": "L_RT",
+  "claim": "This contract proves the named local kernel and architecture checks only. It records, but does not fabricate, the durable runtime, authoritative lineage, and maintenance guarantees still required for promotion.",
+  "catalog_document": "docs/architecture/ooptdd-ouroboros-readiness-harness.md",
+  "status_vocabulary": [
+    "PASS",
+    "UNMET",
+    "BLOCKED"
+  ],
+  "evidence_classes": {
+    "ci_now": "Executable source or test evidence available in this repository now.",
+    "runtime_required": "Evidence that requires a concrete durable adapter, concurrency, restart, or crash injection.",
+    "external_required": "Evidence that requires an independently administered trust root or deployment boundary.",
+    "declaration_only": "A checked declaration of an absent guarantee; it can never establish PASS."
+  },
+  "profiles": [
+    {
+      "id": "core",
+      "target": "Generic local Ouroboros kernel",
+      "declared_status": "READY",
+      "required_capabilities": [
+        "KERNEL-REDUCER-001",
+        "KERNEL-RECEIPT-002",
+        "KERNEL-FSM-003",
+        "KERNEL-SUCCESSOR-004",
+        "KERNEL-ARCH-005",
+        "KERNEL-CLAIMS-006"
+      ]
+    },
+    {
+      "id": "maintainability",
+      "target": "Converged extension and kernel maintenance surface",
+      "declared_status": "NOT_READY",
+      "required_capabilities": [
+        "KERNEL-REDUCER-001",
+        "KERNEL-RECEIPT-002",
+        "KERNEL-FSM-003",
+        "KERNEL-SUCCESSOR-004",
+        "KERNEL-ARCH-005",
+        "KERNEL-CLAIMS-006",
+        "FRAMEWORK-EXTENSIONS-010",
+        "FRAMEWORK-KERNEL-CONVERGENCE-011"
+      ]
+    },
+    {
+      "id": "runtime",
+      "target": "Durable application runtime L_RT",
+      "declared_status": "NOT_READY",
+      "required_capabilities": [
+        "KERNEL-REDUCER-001",
+        "KERNEL-RECEIPT-002",
+        "KERNEL-FSM-003",
+        "KERNEL-SUCCESSOR-004",
+        "KERNEL-ARCH-005",
+        "KERNEL-CLAIMS-006",
+        "RUNTIME-LINEAGE-020",
+        "RUNTIME-EVALUATOR-025",
+        "RUNTIME-REPLAY-EVIDENCE-030",
+        "RUNTIME-BOUNDS-040",
+        "RUNTIME-OUTCOMES-050",
+        "RUNTIME-JOURNAL-060",
+        "RUNTIME-CAS-070",
+        "RUNTIME-INBOX-OUTBOX-080",
+        "RUNTIME-IDEMPOTENCY-090",
+        "RUNTIME-CHECKPOINT-100",
+        "RUNTIME-LEASE-110",
+        "RUNTIME-MIGRATION-120",
+        "RUNTIME-RECONCILIATION-130",
+        "RUNTIME-FAULT-MATRIX-140",
+        "RUNTIME-OPERATIONS-150"
+      ]
+    },
+    {
+      "id": "authority",
+      "target": "Authenticated receipt and producer authority",
+      "declared_status": "NOT_READY",
+      "required_capabilities": [
+        "KERNEL-REDUCER-001",
+        "KERNEL-RECEIPT-002",
+        "AUTH-ENVELOPE-200"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "KERNEL-REDUCER-001",
+      "title": "Immutable deterministic transition reducer",
+      "area": "functional kernel",
+      "severity": "critical",
+      "status": "PASS",
+      "enforcement": "ci_now",
+      "depends_on": [],
+      "evidence": [
+        {
+          "id": "EV-KERNEL-MULTI-WORKFLOW",
+          "kind": "test",
+          "path": "tests/test_ouroboros_generic_kernel.py",
+          "symbol": "test_same_kernel_runs_two_workflows_with_vcs_agnostic_revision",
+          "claim": "One generic reducer handles unrelated caller vocabularies without profile data."
+        },
+        {
+          "id": "EV-KERNEL-REPLAY",
+          "kind": "test",
+          "path": "tests/test_ouroboros_generic_kernel.py",
+          "symbol": "test_replay_and_evaluator_are_digest_bound",
+          "claim": "Exact replay is idempotent and evaluator or policy drift fails closed."
+        }
+      ],
+      "falsifier": "Identical value inputs produce different transition results, or a conflicting event identity overwrites accepted history.",
+      "solution": "Keep step as a pure value reducer and extend behavior through versioned values and injected ports.",
+      "acceptance": [
+        "Repeated identical inputs are value-identical.",
+        "Replay never advances accepted history.",
+        "Policy mismatch returns an unchanged snapshot."
+      ]
+    },
+    {
+      "id": "KERNEL-RECEIPT-002",
+      "title": "Exact-version canonical receipt integrity",
+      "area": "receipt",
+      "severity": "critical",
+      "status": "PASS",
+      "enforcement": "ci_now",
+      "depends_on": [
+        "KERNEL-REDUCER-001"
+      ],
+      "evidence": [
+        {
+          "id": "EV-RECEIPT-ROUNDTRIP",
+          "kind": "test",
+          "path": "tests/test_ouroboros_generic_kernel.py",
+          "symbol": "test_generic_receipt_is_terminal_policy_bound_and_tamper_evident",
+          "claim": "Canonical v1 receipts round-trip and bind their terminal definition path."
+        },
+        {
+          "id": "EV-RECEIPT-VERSION",
+          "kind": "test",
+          "path": "tests/test_ouroboros_generic_kernel.py",
+          "symbol": "test_receipt_parser_rejects_a_self_consistent_unknown_schema_version",
+          "claim": "A self-consistent unknown receipt schema is rejected instead of interpreted as v1."
+        }
+      ],
+      "falsifier": "An unsupported schema version parses, or an edited v1 receipt retains valid local integrity.",
+      "solution": "Keep v1 exact and introduce future wire formats through explicit parsers and migration policy.",
+      "acceptance": [
+        "Only the exact canonical v1 shape parses through the v1 parser.",
+        "Unknown schema versions fail with a stable error.",
+        "The content digest and declared path are recomputed during validation."
+      ]
+    },
+    {
+      "id": "KERNEL-FSM-003",
+      "title": "Reducer-aligned structural FSM analysis",
+      "area": "state machine",
+      "severity": "high",
+      "status": "PASS",
+      "enforcement": "ci_now",
+      "depends_on": [
+        "KERNEL-REDUCER-001"
+      ],
+      "evidence": [
+        {
+          "id": "EV-FSM-REACHABILITY",
+          "kind": "test",
+          "path": "tests/test_ouroboros_conformance.py",
+          "symbol": "test_unreachable_states_and_transition_are_reported_in_declaration_order",
+          "claim": "Executable reachability and dead declared transitions are reported deterministically."
+        },
+        {
+          "id": "EV-FSM-TERMINAL",
+          "kind": "test",
+          "path": "tests/test_ouroboros_conformance.py",
+          "symbol": "test_terminal_outgoing_transition_is_dead_under_reducer_semantics",
+          "claim": "Terminal outgoing rules are not mistaken for executable edges."
+        },
+        {
+          "id": "EV-FSM-INVALID-EVENT",
+          "kind": "test",
+          "path": "tests/test_ouroboros_conformance.py",
+          "symbol": "test_fresh_event_rejection_precedence_matches_the_reducer",
+          "claim": "The published invalid-event metadata matches actual reducer ordering."
+        }
+      ],
+      "falsifier": "A declared terminal, recovery, or unreachable edge is analyzed differently from step admission semantics.",
+      "solution": "Keep analysis opt-in and structural; never infer validator satisfiability or impose domain liveness rules.",
+      "acceptance": [
+        "Unreachable states and executable dead transitions are identified.",
+        "Terminal outgoing and denied recovery rules are identified.",
+        "Partial transition functions and legitimate cycles remain allowed."
+      ]
+    },
+    {
+      "id": "KERNEL-SUCCESSOR-004",
+      "title": "Structurally validated local successor",
+      "area": "generation boundary",
+      "severity": "high",
+      "status": "PASS",
+      "enforcement": "ci_now",
+      "depends_on": [
+        "KERNEL-RECEIPT-002"
+      ],
+      "evidence": [
+        {
+          "id": "EV-SUCCESSOR-STRUCTURAL",
+          "kind": "test",
+          "path": "tests/test_ouroboros_generic_kernel.py",
+          "symbol": "test_empty_history_receipt_only_allows_an_initial_terminal_state",
+          "claim": "A fabricated terminal snapshot with an impossible empty path cannot start a successor."
+        },
+        {
+          "id": "EV-SUCCESSOR-GENERATION",
+          "kind": "test",
+          "path": "tests/test_ouroboros_generic_kernel.py",
+          "symbol": "test_generic_receipt_is_terminal_policy_bound_and_tamper_evident",
+          "claim": "A valid local successor advances exactly one bounded generation."
+        }
+      ],
+      "falsifier": "A structurally invalid or nonterminal snapshot starts another generation.",
+      "solution": "Retain this helper for local integrity only; authoritative succession belongs to the versioned lineage and authenticated-envelope capabilities.",
+      "acceptance": [
+        "The predecessor can emit a structurally valid terminal receipt.",
+        "Generation advances exactly once within the configured bound.",
+        "Documentation does not call this durable or authenticated lineage."
+      ]
+    },
+    {
+      "id": "KERNEL-ARCH-005",
+      "title": "Functional core and extension boundary",
+      "area": "architecture",
+      "severity": "high",
+      "status": "PASS",
+      "enforcement": "ci_now",
+      "depends_on": [],
+      "evidence": [
+        {
+          "id": "EV-ARCH-CONTRACT",
+          "kind": "test",
+          "path": "tests/test_functional_architecture_harness.py",
+          "symbol": "test_repository_satisfies_declared_functional_solid_contract",
+          "claim": "Every shipped module is classified and exact pure modules remain behind the declared dependency boundary."
+        }
+      ],
+      "falsifier": "A new module is silently unclassified, a pure module gains ambient effects, or domain vocabulary enters the generic core.",
+      "solution": "Keep configuration at composition boundaries and add generic pure modules to the exact architecture contract before merge.",
+      "acceptance": [
+        "Every shipped module has one reviewed layer.",
+        "Pure modules pass direct syntax and responsibility ratchets.",
+        "Optional domain extensions remain outside the base wheel."
+      ]
+    },
+    {
+      "id": "KERNEL-CLAIMS-006",
+      "title": "Machine-checked honest claim boundary",
+      "area": "harness",
+      "severity": "critical",
+      "status": "PASS",
+      "enforcement": "ci_now",
+      "depends_on": [
+        "KERNEL-REDUCER-001",
+        "KERNEL-RECEIPT-002",
+        "KERNEL-FSM-003",
+        "KERNEL-SUCCESSOR-004",
+        "KERNEL-ARCH-005"
+      ],
+      "evidence": [
+        {
+          "id": "EV-READINESS-DERIVATION",
+          "kind": "test",
+          "path": "tests/test_ooptdd_ouroboros_readiness_harness.py",
+          "symbol": "test_core_profile_is_ready_and_other_profiles_are_honestly_not_ready",
+          "claim": "Profile readiness is derived from capability evidence and unresolved work stays visible."
+        }
+      ],
+      "falsifier": "The contract declares a profile ready while a required capability is not PASS, or a PASS claim lacks executable evidence.",
+      "solution": "Derive profile status, fail on unknown fields, and require each PASS to retain an executable evidence symbol.",
+      "acceptance": [
+        "Core readiness is derived as READY.",
+        "Maintainability, runtime, and authority remain NOT_READY until their blockers pass.",
+        "Unsupported contract drift fails closed."
+      ]
+    },
+    {
+      "id": "FRAMEWORK-EXTENSIONS-010",
+      "title": "Version-negotiated CLI extension activation",
+      "area": "framework composition",
+      "severity": "high",
+      "status": "UNMET",
+      "enforcement": "ci_now",
+      "depends_on": [
+        "KERNEL-ARCH-005"
+      ],
+      "evidence": [],
+      "falsifier": "The CLI advertises an extension name but cannot resolve an explicitly installed provider, or loads unrequested providers.",
+      "solution": "Add a frozen extension descriptor with API version and an explicit lazy entry-point resolver; activate only requested names and keep direct injected legacy providers compatible.",
+      "acceptance": [
+        "Requested installed providers activate through the CLI.",
+        "Unrequested providers are never imported.",
+        "Unsupported API versions fail before provider invocation.",
+        "Entry-point order cannot change composed check order."
+      ]
+    },
+    {
+      "id": "FRAMEWORK-KERNEL-CONVERGENCE-011",
+      "title": "Generic and mutation-kernel conformance surface",
+      "area": "maintainability",
+      "severity": "medium",
+      "status": "UNMET",
+      "enforcement": "ci_now",
+      "depends_on": [
+        "KERNEL-REDUCER-001",
+        "KERNEL-FSM-003"
+      ],
+      "evidence": [],
+      "falsifier": "Two similarly named kernels silently diverge on shared replay, identity-conflict, terminal, or budget semantics.",
+      "solution": "Define a small generic reducer conformance protocol and parameterized invariant suite; keep mutation-specific effects and vocabulary in its extension.",
+      "acceptance": [
+        "Both kernels publish supported conformance capabilities.",
+        "Shared invariants run through adapter fixtures.",
+        "The distinct public event types fail substitution explicitly.",
+        "No mutation vocabulary moves into the generic kernel."
+      ]
+    },
+    {
+      "id": "RUNTIME-LINEAGE-020",
+      "title": "Workflow-scoped event and predecessor lineage",
+      "area": "identity",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "KERNEL-RECEIPT-002",
+        "KERNEL-SUCCESSOR-004"
+      ],
+      "evidence": [],
+      "falsifier": "An event created for one workflow, generation, or material revision is accepted by another, or a successor cannot name its exact predecessor.",
+      "solution": "Introduce versioned event and successor envelopes binding workflow ID, generation, material revision, expected revision, policy digest, and predecessor receipt digest without changing v1 hashes.",
+      "acceptance": [
+        "Every lineage field participates in the v2 intent digest.",
+        "Cross-workflow, cross-generation, and stale-revision events fail closed.",
+        "A successor names one validated predecessor digest.",
+        "V1 remains explicitly local and unscoped."
+      ]
+    },
+    {
+      "id": "RUNTIME-EVALUATOR-025",
+      "title": "Replayable evaluator decision records",
+      "area": "determinism",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-LINEAGE-020"
+      ],
+      "evidence": [],
+      "falsifier": "The same accepted event replays differently because evaluator inputs, outputs, versions, or external facts were not retained.",
+      "solution": "Record canonical validator and completion inputs, typed outputs, evaluator digest, and external fact references as accepted decision evidence; replay consumes records rather than ambient state.",
+      "acceptance": [
+        "Evaluator behavior is version and digest bound.",
+        "All nondeterministic inputs are captured or explicitly marked live-only.",
+        "Offline replay reconstructs the accepted decision without network, clock, or randomness."
+      ]
+    },
+    {
+      "id": "RUNTIME-REPLAY-EVIDENCE-030",
+      "title": "Receipt-complete semantic replay",
+      "area": "receipt",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "KERNEL-RECEIPT-002",
+        "RUNTIME-LINEAGE-020",
+        "RUNTIME-EVALUATOR-025"
+      ],
+      "evidence": [],
+      "falsifier": "A receipt declares an admissible path but lacks the canonical event payload or completion decision needed to reproduce it.",
+      "solution": "Define receipt v2 with accepted event envelopes, decision records, completion evidence, predecessor identity, and a replay validator; preserve the v1 integrity-only parser.",
+      "acceptance": [
+        "Every accepted transition can reconstruct its event.",
+        "Completion evidence is independently rechecked during replay.",
+        "Tampering with payload, decision, or lineage changes receipt identity.",
+        "Historical v1 receipts have an explicit compatibility outcome."
+      ]
+    },
+    {
+      "id": "RUNTIME-BOUNDS-040",
+      "title": "Total loop and no-progress bounds",
+      "area": "loop control",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "KERNEL-REDUCER-001"
+      ],
+      "evidence": [],
+      "falsifier": "Rejected or replayed invocations continue forever without consuming any total, retry, deadline, cost, or no-progress budget.",
+      "solution": "Add an immutable runtime LoopPolicy covering total invocations, retries, corrections, no-progress streak, deadline, cost, tool calls, and cancellation with one boundary check per iteration.",
+      "acceptance": [
+        "Every invocation consumes a total bound.",
+        "No-progress and retry exhaustion terminate explicitly.",
+        "Deadline and cancellation are checked before effects and after waits.",
+        "Configured bounds are stored in checkpoints and receipts."
+      ]
+    },
+    {
+      "id": "RUNTIME-OUTCOMES-050",
+      "title": "Typed terminal outcomes and recovery policy",
+      "area": "loop control",
+      "severity": "high",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-BOUNDS-040"
+      ],
+      "evidence": [],
+      "falsifier": "Budget exhaustion or cancellation is only an exception or transient rejection and cannot be durably distinguished from success or failure.",
+      "solution": "Define completed, rejected, cancelled, exhausted, failed, and quarantined terminal outcomes with retryability, reason, last checkpoint, and pending-effect state.",
+      "acceptance": [
+        "Every run ends in one typed terminal outcome or a durable runnable state.",
+        "Retryable and permanent failures are distinct.",
+        "Cancellation and exhaustion produce receipts without claiming completion."
+      ]
+    },
+    {
+      "id": "RUNTIME-JOURNAL-060",
+      "title": "Durable append-only command and event journal",
+      "area": "persistence",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-REPLAY-EVIDENCE-030",
+        "RUNTIME-OUTCOMES-050"
+      ],
+      "evidence": [],
+      "falsifier": "An acknowledged append disappears after process death, a torn record replays, or two events occupy one workflow revision.",
+      "solution": "Implement a real append-only adapter with checksummed canonical records, unique workflow sequence, durable acknowledgement, and replay from revision zero.",
+      "acceptance": [
+        "Acknowledged records survive immediate process termination.",
+        "Torn or checksum-invalid tails are quarantined.",
+        "Full replay reconstructs the exact snapshot and receipt identity.",
+        "In-memory mocks do not count as durability evidence."
+      ]
+    },
+    {
+      "id": "RUNTIME-CAS-070",
+      "title": "Generation-aware compare-and-swap authority",
+      "area": "concurrency",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-JOURNAL-060"
+      ],
+      "evidence": [],
+      "falsifier": "Two writers commit the same next revision, or revision reset across generations creates an ABA acceptance.",
+      "solution": "CAS on workflow ID, generation, expected revision, policy/schema version, and fencing epoch in the same transaction as journal state.",
+      "acceptance": [
+        "Concurrent writers produce at most one winner.",
+        "Stale generation and stale revision conflicts are typed.",
+        "Journal head and materialized revision remain equal after restart."
+      ]
+    },
+    {
+      "id": "RUNTIME-INBOX-OUTBOX-080",
+      "title": "Atomic inbox, state commit, and effect outbox",
+      "area": "effects",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-JOURNAL-060",
+        "RUNTIME-CAS-070",
+        "RUNTIME-OUTCOMES-050"
+      ],
+      "evidence": [],
+      "falsifier": "State commits without its effect intent, an effect exists without an accepted transition, or a duplicate command adds another journal row.",
+      "solution": "Transactionally deduplicate command identity and commit the accepted event, new snapshot, terminal outcome, and outbox intents together.",
+      "acceptance": [
+        "Crash injection observes either none or all transactional records.",
+        "Identical duplicate commands return the prior result.",
+        "Conflicting duplicate identities fail permanently.",
+        "Committed undelivered effects are discoverable after restart."
+      ]
+    },
+    {
+      "id": "RUNTIME-IDEMPOTENCY-090",
+      "title": "Durable effect idempotency and delivery accounting",
+      "area": "effects",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-INBOX-OUTBOX-080"
+      ],
+      "evidence": [],
+      "falsifier": "One committed effect is logically applied twice, silently lost, or retried forever after an ambiguous acknowledgement.",
+      "solution": "Bind each effect key to canonical intent, causation, and ordinal; use idempotent or explicitly guarded adapters and persist delivery attempts and outcomes.",
+      "acceptance": [
+        "Same key and intent is one logical application.",
+        "Same key with different intent is a permanent conflict.",
+        "Only classified transient failures retry.",
+        "Guarded non-idempotent effects expose reconciliation state."
+      ]
+    },
+    {
+      "id": "RUNTIME-CHECKPOINT-100",
+      "title": "Versioned checkpoints and deterministic resume",
+      "area": "persistence",
+      "severity": "high",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-JOURNAL-060",
+        "RUNTIME-CAS-070",
+        "RUNTIME-REPLAY-EVIDENCE-030"
+      ],
+      "evidence": [],
+      "falsifier": "Resume skips or repeats an accepted transition, or a corrupt newest checkpoint becomes authoritative.",
+      "solution": "Store checksummed versioned checkpoints bound to workflow, generation, revision, policy, schema, and journal position; replay the suffix after validation.",
+      "acceptance": [
+        "Checkpoint plus suffix equals full replay.",
+        "Corrupt newest checkpoints fall back safely.",
+        "Restart from every state preserves the next admissible behavior."
+      ]
+    },
+    {
+      "id": "RUNTIME-LEASE-110",
+      "title": "Single-writer lease with fencing",
+      "area": "concurrency",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-CAS-070"
+      ],
+      "evidence": [],
+      "falsifier": "A stale owner commits after takeover or two workers concurrently mutate one workflow.",
+      "solution": "Lease workflow ownership through a durable authority and attach a monotonically increasing fencing epoch to every state and outbox write.",
+      "acceptance": [
+        "Only one unexpired owner writes a workflow.",
+        "Stale fencing epochs are rejected after takeover.",
+        "Correctness does not rely only on a client wall clock."
+      ]
+    },
+    {
+      "id": "RUNTIME-MIGRATION-120",
+      "title": "Explicit schema evolution and compatibility",
+      "area": "schema",
+      "severity": "high",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-JOURNAL-060",
+        "RUNTIME-CHECKPOINT-100"
+      ],
+      "evidence": [],
+      "falsifier": "Historical durable bytes cannot be classified, an upcast changes across runs, or migration leaves mixed authoritative versions.",
+      "solution": "Create a compatibility registry for event, decision, snapshot, checkpoint, and receipt versions with deterministic upcasters and golden historical fixtures.",
+      "acceptance": [
+        "Every durable version is current, upcastable, read-only, or rejected.",
+        "Upcasters use no ambient clock, network, randomness, or mutable configuration.",
+        "Interrupted migrations resume idempotently or roll back."
+      ]
+    },
+    {
+      "id": "RUNTIME-RECONCILIATION-130",
+      "title": "Startup and continuous reconciliation",
+      "area": "recovery",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-INBOX-OUTBOX-080",
+        "RUNTIME-IDEMPOTENCY-090",
+        "RUNTIME-CHECKPOINT-100",
+        "RUNTIME-LEASE-110",
+        "RUNTIME-MIGRATION-120",
+        "RUNTIME-OPERATIONS-150"
+      ],
+      "evidence": [],
+      "falsifier": "Repeated reconciliation mutates healthy state, loses committed work, or resurrects stale ownership.",
+      "solution": "Implement an idempotent reconciler for journal/checkpoint drift, abandoned leases, pending effects, terminal receipts, schema state, and quarantined ambiguity.",
+      "acceptance": [
+        "Healthy repeated reconciliation is a no-op.",
+        "Pending committed effects are resumed without logical duplication.",
+        "Irreparable ambiguity is quarantined with an observable reason.",
+        "Terminal state and receipt publication converge."
+      ]
+    },
+    {
+      "id": "RUNTIME-FAULT-MATRIX-140",
+      "title": "End-to-end crash and concurrency fault matrix",
+      "area": "verification",
+      "severity": "critical",
+      "status": "BLOCKED",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-JOURNAL-060",
+        "RUNTIME-CAS-070",
+        "RUNTIME-INBOX-OUTBOX-080",
+        "RUNTIME-IDEMPOTENCY-090",
+        "RUNTIME-CHECKPOINT-100",
+        "RUNTIME-LEASE-110",
+        "RUNTIME-MIGRATION-120",
+        "RUNTIME-RECONCILIATION-130",
+        "RUNTIME-OPERATIONS-150"
+      ],
+      "evidence": [],
+      "falsifier": "Any durable boundary permits silent loss, split-brain ownership, duplicate logical effects, or unbounded recovery.",
+      "solution": "After the real runtime exists, inject process death before and after every durable write, effect call, acknowledgement, lease renewal, checkpoint, migration, and receipt publication boundary.",
+      "acceptance": [
+        "Every fault point preserves contiguous accepted history.",
+        "Every committed effect is pending or delivered with one intent.",
+        "Stale owners cannot write after takeover.",
+        "Recovery reaches runnable, terminal, durably failed, or quarantined within a bound."
+      ]
+    },
+    {
+      "id": "RUNTIME-OPERATIONS-150",
+      "title": "Backpressure, cancellation, and observability",
+      "area": "operations",
+      "severity": "high",
+      "status": "UNMET",
+      "enforcement": "runtime_required",
+      "depends_on": [
+        "RUNTIME-OUTCOMES-050",
+        "RUNTIME-INBOX-OUTBOX-080"
+      ],
+      "evidence": [],
+      "falsifier": "Overload grows queues without bound, cancellation races effects invisibly, or operators cannot identify a stuck workflow and pending effects.",
+      "solution": "Add bounded queues and admission policy, durable cancellation commands, structured metrics and traces, and an operator query surface keyed by workflow and causation identity.",
+      "acceptance": [
+        "Queue and concurrency limits reject or defer overload explicitly.",
+        "Cancellation is idempotent and observed at safe boundaries.",
+        "Metrics expose age, no-progress, retries, lease epoch, and pending effects.",
+        "Logs and traces carry workflow, generation, command, event, and effect identities."
+      ]
+    },
+    {
+      "id": "AUTH-ENVELOPE-200",
+      "title": "Authenticated producer and receipt envelope",
+      "area": "trust",
+      "severity": "critical",
+      "status": "UNMET",
+      "enforcement": "external_required",
+      "depends_on": [
+        "KERNEL-RECEIPT-002"
+      ],
+      "evidence": [],
+      "falsifier": "A producer rewrites a receipt and recomputes its unkeyed hash, or the verifier and evidence store share an unacknowledged authority.",
+      "solution": "Wrap exact canonical receipt bytes in a detached attestation verified by an injected trust-root port; record authority identity, algorithm, key version, and external anchor without embedding deployment secrets.",
+      "acceptance": [
+        "Receipt integrity and producer authenticity are reported separately.",
+        "Unknown, revoked, or wrong-context authorities fail closed.",
+        "Trust-root selection remains deployment-owned.",
+        "No secret or domain authority is hard-coded in the generic package."
+      ]
+    }
+  ],
+  "remediation_sequence": [
+    {
+      "order": 1,
+      "capabilities": [
+        "FRAMEWORK-EXTENSIONS-010",
+        "FRAMEWORK-KERNEL-CONVERGENCE-011"
+      ],
+      "exit": "The base framework has explicit extension negotiation and both kernels share a domain-neutral conformance suite."
+    },
+    {
+      "order": 2,
+      "capabilities": [
+        "RUNTIME-LINEAGE-020",
+        "RUNTIME-EVALUATOR-025",
+        "RUNTIME-BOUNDS-040",
+        "RUNTIME-OUTCOMES-050",
+        "AUTH-ENVELOPE-200"
+      ],
+      "exit": "Versioned identities, decisions, loop limits, outcomes, and the optional trust envelope are frozen before durable storage."
+    },
+    {
+      "order": 3,
+      "capabilities": [
+        "RUNTIME-REPLAY-EVIDENCE-030"
+      ],
+      "exit": "Receipt v2 can reconstruct and revalidate every accepted decision while v1 compatibility stays explicit."
+    },
+    {
+      "order": 4,
+      "capabilities": [
+        "RUNTIME-JOURNAL-060"
+      ],
+      "exit": "One concrete adapter durably stores canonical ordered commands, events, decisions, and outcomes."
+    },
+    {
+      "order": 5,
+      "capabilities": [
+        "RUNTIME-CAS-070"
+      ],
+      "exit": "Concurrent commands have one generation-aware authoritative commit winner."
+    },
+    {
+      "order": 6,
+      "capabilities": [
+        "RUNTIME-INBOX-OUTBOX-080",
+        "RUNTIME-OPERATIONS-150"
+      ],
+      "exit": "Commands, state, outcomes, and effects commit atomically under bounded observable operation."
+    },
+    {
+      "order": 7,
+      "capabilities": [
+        "RUNTIME-IDEMPOTENCY-090"
+      ],
+      "exit": "Effect retries are durable, classified, bounded, and logically idempotent."
+    },
+    {
+      "order": 8,
+      "capabilities": [
+        "RUNTIME-CHECKPOINT-100",
+        "RUNTIME-LEASE-110"
+      ],
+      "exit": "Resume and owner takeover preserve exact behavior and reject stale writers."
+    },
+    {
+      "order": 9,
+      "capabilities": [
+        "RUNTIME-MIGRATION-120"
+      ],
+      "exit": "Historical durable schemas have deterministic tested compatibility outcomes."
+    },
+    {
+      "order": 10,
+      "capabilities": [
+        "RUNTIME-RECONCILIATION-130"
+      ],
+      "exit": "Startup repairs or quarantines every declared partial durable state idempotently."
+    },
+    {
+      "order": 11,
+      "capabilities": [
+        "RUNTIME-FAULT-MATRIX-140"
+      ],
+      "exit": "Crash and concurrency evidence satisfies the final L_RT promotion gate."
+    }
+  ]
+}

@@ -72,8 +72,14 @@ jobs:
               stream.write(f"artifact=dist-{distribution}\n")
           PY
 
-  build:
+  validate:
     needs: route
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: [route, validate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +97,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [route, build]
+    needs: [route, validate, build]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

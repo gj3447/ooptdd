@@ -60,6 +60,8 @@ include = [
   "/docs/THREAT_MODEL.md",
   "/docs/architecture/functional-solid-contract.json",
   "/docs/architecture/functional-solid-harness.md",
+  "/docs/architecture/ooptdd-ouroboros-readiness-contract.json",
+  "/docs/architecture/ooptdd-ouroboros-readiness-harness.md",
   "/docs/backends.md",
   "/docs/ouroboros.md",
   "/docs/quickstart.md",

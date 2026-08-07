@@ -7,6 +7,7 @@ on:
   # manual re-run: lets a maintainer re-prove a green on demand (and makes it
   # observable whether Actions is wired at all on this repo, without waiting for a push).
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   architecture-and-types:
@@ -27,13 +28,17 @@ jobs:
           "import ooptdd; import ooptdd.engine.gate; import ooptdd.ouroboros"
       - name: Functional architecture contract
         run: uv run --no-sync python scripts/check_functional_architecture.py
+      - name: OOPTDD/Ouroboros core readiness contract
+        run: uv run --no-sync python scripts/check_ooptdd_ouroboros_readiness.py
       - name: Architecture, functional core, and generic protocol canaries
         run: >-
           uv run --no-sync pytest -q
           tests/test_functional_architecture_harness.py
+          tests/test_ooptdd_ouroboros_readiness_harness.py
           tests/test_functional_gate_kernel.py
           tests/test_gate_scope.py
           tests/test_ontology.py
+          tests/test_ouroboros_conformance.py
           tests/test_ouroboros_generic_kernel.py
       - name: Package typing
         run: uv run --no-sync mypy src/ooptdd
@@ -44,6 +49,7 @@ jobs:
           uv run --no-sync ruff check
           src/ tests/ examples/ extensions/
           scripts/check_functional_architecture.py
+          scripts/check_ooptdd_ouroboros_readiness.py
 
   test:
     runs-on: ${{ matrix.os }}

@@ -7,6 +7,7 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 
 from ooptdd.ouroboros import (
+    RECEIPT_SCHEMA_VERSION,
     CompletionEvidence,
     CompletionPolicy,
     PayloadValidator,
@@ -20,6 +21,7 @@ from ooptdd.ouroboros import (
     RevisionIdentity,
     TransitionRecord,
     TransitionRule,
+    canonical_json_bytes,
     digest_json,
     parse_receipt,
     receipt_from_snapshot,
@@ -218,6 +220,10 @@ def test_public_values_reject_mutability_and_noncanonical_wire_values():
 def test_generic_receipt_is_terminal_policy_bound_and_tamper_evident():
     definition = _door_protocol()
     evaluator: PolicyEvaluator = Evaluator(definition)
+    with pytest.raises(ValueError, match="successor_requires_terminal_state"):
+        start_successor(
+            _snapshot(definition), RevisionIdentity("release", "next"), evaluator
+        )
     complete = step(
         _snapshot(definition), ProtocolEvent.create("e", "unlock", {}, definition), evaluator
     ).snapshot
@@ -230,6 +236,25 @@ def test_generic_receipt_is_terminal_policy_bound_and_tamper_evident():
         replace(receipt, state="closed")
     successor = start_successor(complete, RevisionIdentity("release", "next"), evaluator)
     assert successor.generation == 1 and successor.history == ()
+
+
+def test_receipt_parser_rejects_a_self_consistent_unknown_schema_version():
+    definition = _door_protocol()
+    evaluator = Evaluator(definition)
+    complete = step(
+        _snapshot(definition), ProtocolEvent.create("e", "unlock", {}, definition), evaluator
+    ).snapshot
+    receipt = receipt_from_snapshot(complete, evaluator)
+    assert receipt.schema_version == RECEIPT_SCHEMA_VERSION
+
+    unsupported = "ouroboros-receipt/v999"
+    body = {**receipt.body(), "schema_version": unsupported}
+    content_digest = digest_json(
+        body, scope="ouroboros-receipt", schema_version=unsupported
+    ).value
+    wire = canonical_json_bytes({**body, "content_digest": content_digest})
+    with pytest.raises(ValueError, match="unsupported receipt schema_version"):
+        parse_receipt(wire)
 
 
 def test_self_digested_receipt_with_forged_transition_fails_definition_validation():
@@ -285,6 +310,10 @@ def test_empty_history_receipt_only_allows_an_initial_terminal_state():
     )
     with pytest.raises(ValueError, match="empty history"):
         receipt_from_snapshot(fabricated_snapshot, Evaluator(definition))
+    with pytest.raises(ValueError, match="empty history"):
+        start_successor(
+            fabricated_snapshot, RevisionIdentity("release", "next"), Evaluator(definition)
+        )
 
     initially_terminal = ProtocolDefinition(
         name="already-done",

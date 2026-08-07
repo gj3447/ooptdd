@@ -11,7 +11,8 @@ opt-in by exact module name; a package prefix never opts in future files automat
 the machine-enforced `purity_scope` is `direct-module-syntax-only`.
 
 - the exact gate primitives, freeze/value/ontology objects, rules, and kernel modules plus
-  the generic Ouroboros identity/model/port/receipt/reducer modules are the `pure_core`;
+  the generic Ouroboros conformance/identity/model/port/receipt/reducer modules are the
+  `pure_core`;
 - `ooptdd.domain` owns inward abstractions;
 - package facades, adapters, and the package API remain shells that compose concrete behavior
   outward. Separately distributed extensions compose through `ooptdd.sdk`; importing the generic

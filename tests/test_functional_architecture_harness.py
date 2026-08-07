@@ -120,6 +120,7 @@ def test_repository_satisfies_declared_functional_solid_contract():
         "ooptdd.engine.gate_primitives",
         "ooptdd.engine.gate_rules",
         "ooptdd.engine.gate_values",
+        "ooptdd.ouroboros.conformance",
         "ooptdd.ouroboros.identity",
         "ooptdd.ouroboros.model",
         "ooptdd.ouroboros.ports",

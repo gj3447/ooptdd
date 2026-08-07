@@ -167,11 +167,26 @@ def test_sdists_are_clean_and_base_does_not_vendor_extensions(built_distribution
         sdist = built_distributions[spec.name]["sdist"]
         with tarfile.open(sdist, "r:gz") as archive:
             names = {member.name for member in archive.getmembers()}
+            readiness_docs = tuple(
+                name
+                for name in names
+                if name.endswith("/docs/architecture/ooptdd-ouroboros-readiness-harness.md")
+            )
+            readiness_text = (
+                archive.extractfile(readiness_docs[0]).read().decode("utf-8")
+                if readiness_docs
+                else ""
+            )
         _assert_no_generated_files(names)
         assert any(name.endswith(f"/{spec.import_name}/__init__.py") for name in names)
 
         if spec.name == "ooptdd":
             assert sdist.stat().st_size < 2_000_000, "base sdist contains repository/cache bloat"
+            assert len(readiness_docs) == 1
+            assert "Repository checkout only" in readiness_text
+            assert not any(
+                name.endswith("/scripts/check_ooptdd_ouroboros_readiness.py") for name in names
+            )
             assert not any("/extensions/" in name for name in names)
             assert not any(
                 f"/{extension.import_name}/" in name

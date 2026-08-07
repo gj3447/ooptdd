@@ -17,6 +17,8 @@ from .model import (
 )
 from .ports import PolicyEvaluator
 
+RECEIPT_SCHEMA_VERSION = "ouroboros-receipt/v1"
+
 
 @dataclass(frozen=True)
 class ProtocolReceipt:
@@ -32,6 +34,8 @@ class ProtocolReceipt:
 
     def __post_init__(self) -> None:
         _text(self.schema_version, "receipt schema_version")
+        if self.schema_version != RECEIPT_SCHEMA_VERSION:
+            raise ValueError("unsupported receipt schema_version")
         _text(self.workflow_id, "receipt workflow_id")
         _text(self.state, "receipt state")
         _digest(self.policy_digest, "receipt policy_digest")
@@ -95,7 +99,7 @@ def receipt_from_snapshot(
     history_errors = _definition_history_errors(snapshot.state, snapshot.history, definition)
     if history_errors:
         raise ValueError(history_errors[0])
-    schema_version = "ouroboros-receipt/v1"
+    schema_version = RECEIPT_SCHEMA_VERSION
     body = {
         "schema_version": schema_version,
         "workflow_id": snapshot.workflow_id,
@@ -123,6 +127,8 @@ def receipt_from_snapshot(
 def validate_receipt(receipt: ProtocolReceipt, evaluator: PolicyEvaluator) -> tuple[str, ...]:
     errors: list[str] = []
     try:
+        if receipt.schema_version != RECEIPT_SCHEMA_VERSION:
+            errors.append("unsupported receipt schema_version")
         definition = evaluator.definition
         expected = digest_json(
             receipt.body(), scope="ouroboros-receipt", schema_version=receipt.schema_version
@@ -184,6 +190,8 @@ def parse_receipt(data: bytes) -> ProtocolReceipt:
     }
     if not isinstance(value, dict) or set(value) != required or canonical_json_bytes(value) != data:
         raise ValueError("receipt must be an exact canonical object")
+    if value["schema_version"] != RECEIPT_SCHEMA_VERSION:
+        raise ValueError("unsupported receipt schema_version")
     revision = value["material_revision"]
     if not isinstance(revision, dict) or set(revision) != {"namespace", "value"}:
         raise ValueError("receipt revision has the wrong shape")
@@ -206,4 +214,10 @@ def parse_receipt(data: bytes) -> ProtocolReceipt:
     )
 
 
-__all__ = ("ProtocolReceipt", "parse_receipt", "receipt_from_snapshot", "validate_receipt")
+__all__ = (
+    "RECEIPT_SCHEMA_VERSION",
+    "ProtocolReceipt",
+    "parse_receipt",
+    "receipt_from_snapshot",
+    "validate_receipt",
+)

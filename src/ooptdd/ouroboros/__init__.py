@@ -4,6 +4,12 @@ Domain workflows are explicit opt-in profiles. Importing this package does not l
 any profile or adapter.
 """
 
+from .conformance import (
+    ConformanceFinding,
+    InvalidEventSemantics,
+    ProtocolConformance,
+    analyze_definition,
+)
 from .identity import (
     CANONICALIZATION,
     MAX_INTEROPERABLE_INTEGER,
@@ -29,17 +35,26 @@ from .model import (
     TransitionRule,
 )
 from .ports import PolicyEvaluator, ReceiptStore, SnapshotStore
-from .receipt import ProtocolReceipt, parse_receipt, receipt_from_snapshot, validate_receipt
+from .receipt import (
+    RECEIPT_SCHEMA_VERSION,
+    ProtocolReceipt,
+    parse_receipt,
+    receipt_from_snapshot,
+    validate_receipt,
+)
 from .reducer import advance, start_successor, step
 
 __all__ = (
     "CANONICALIZATION",
     "MAX_INTEROPERABLE_INTEGER",
+    "RECEIPT_SCHEMA_VERSION",
     "CompletionPolicy",
     "CompletionEvidence",
+    "ConformanceFinding",
     "Digest",
     "PayloadValidator",
     "PolicyEvaluator",
+    "ProtocolConformance",
     "ProtocolBudget",
     "ProtocolDefinition",
     "ProtocolEvent",
@@ -52,7 +67,9 @@ __all__ = (
     "TransitionRecord",
     "TransitionResult",
     "TransitionRule",
+    "InvalidEventSemantics",
     "advance",
+    "analyze_definition",
     "canonical_json_bytes",
     "digest_json",
     "digest_raw",

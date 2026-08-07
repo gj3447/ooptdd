@@ -165,8 +165,13 @@ ooptdd verify order-42 --backend openobserve
 to this source repository. They measure and document the framework; they are not
 installed as `ooptdd` modules and are not included in the wheel.
 
+The readiness commands require a complete Git repository checkout. The base sdist keeps the
+readiness contract and handbook as informational documentation, but does not ship the checker or
+its test evidence; neither release archive is an independently executable readiness bundle.
+
 See [Quickstart](docs/quickstart.md), [semantics and design notes](SEMANTICS.md),
-[backend capabilities](docs/backends.md), and [Ouroboros](docs/ouroboros.md).
+[backend capabilities](docs/backends.md), [Ouroboros](docs/ouroboros.md), and the
+[OOPTDD/Ouroboros readiness harness](docs/architecture/ooptdd-ouroboros-readiness-harness.md).
 
 ## License
 

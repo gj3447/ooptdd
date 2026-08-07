@@ -13,6 +13,7 @@ The base package exports only:
 - immutable protocol, budget, snapshot, event, and transition values;
 - versioned payload validation, completion, and recovery policy declarations;
 - the pure `step(snapshot, event, evaluator)` function;
+- the pure, opt-in `analyze_definition(definition)` structural conformance function;
 - caller-owned policy-evaluation, snapshot-store, and receipt-store ports.
 
 There is no global protocol registry or default profile. Importing
@@ -89,9 +90,15 @@ requires completion authorities or artifacts, it must reach the terminal state t
 a transition where the evidence can be evaluated. Definitions that combine an initial
 terminal state with those requirements are rejected fail-closed.
 
+`analyze_definition` reports reachability, dead terminal outgoing rules, incomplete or
+denied recovery declarations, and the reducer's fixed invalid-event/replay behavior. It
+uses the reducer's structural admission rules, not a raw graph. It does not execute payload
+validators or claim semantic reachability, liveness, or totality; partial transition
+functions and caller-defined cycles remain valid.
+
 ## Receipts and effects
 
-`receipt_from_snapshot` emits a canonical, self-digested generic receipt only from a
+`receipt_from_snapshot` emits an exact-version canonical, self-digested generic receipt only from a
 terminal, policy-matched snapshot. `validate_receipt` recomputes its content digest and
 checks its policy, terminal state, history structure, initial state, and every declared
 transition. This is deterministic integrity validation, not authentication or an
@@ -100,11 +107,33 @@ must add an authenticated envelope and retain evaluator evidence. `ReceiptStore`
 persists the canonical bytes by digest; storage does not become part of the pure
 transition.
 
+`start_successor` first requires that the terminal snapshot can emit a structurally valid
+receipt, then advances one configured generation. It is still a local integrity helper:
+the v1 event and receipt formats do not bind an authenticated predecessor or prove that a
+claimed predecessor exists in an authoritative store.
+
 The generic kernel deliberately has **no effect intent vocabulary**. `step` returns only
 an immutable decision. A caller may persist its accepted snapshot with `SnapshotStore`
 and its terminal receipt with `ReceiptStore`, but retries, I/O, messages, and domain
 effects remain outside the kernel. This avoids silently prescribing effect semantics to
 unrelated workflows.
+
+## Readiness profiles
+
+The repository readiness harness keeps the local kernel claim separate from future runtime
+promotion. The `core` profile is enforced in CI; the `maintainability`, `runtime`, and
+`authority` profiles remain intentionally not ready until their executable evidence exists:
+
+These commands are repository-checkout-only maintainer checks. Published archives retain the
+readiness documentation for inspection but do not contain its complete checker/evidence closure.
+
+```console
+python scripts/check_ooptdd_ouroboros_readiness.py
+python scripts/check_ooptdd_ouroboros_readiness.py --profile runtime
+```
+
+See the [readiness and remediation catalog](architecture/ooptdd-ouroboros-readiness-harness.md)
+for every gap, falsifier, dependency, and acceptance condition.
 
 ## Opt-in OOPTDD mutation profile
 

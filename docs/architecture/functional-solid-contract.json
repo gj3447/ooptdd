@@ -16,6 +16,7 @@
         "ooptdd.engine.gate_primitives",
         "ooptdd.engine.gate_rules",
         "ooptdd.engine.gate_values",
+        "ooptdd.ouroboros.conformance",
         "ooptdd.ouroboros.identity",
         "ooptdd.ouroboros.model",
         "ooptdd.ouroboros.ports",
@@ -136,6 +137,7 @@
     "ooptdd.engine.gate_ontology",
     "ooptdd.engine.gate_rules",
     "ooptdd.engine.gate_kernel",
+    "ooptdd.ouroboros.conformance",
     "ooptdd.ouroboros.identity",
     "ooptdd.ouroboros.model",
     "ooptdd.ouroboros.ports",
@@ -293,9 +295,16 @@
     {
       "path": "src/ooptdd/ouroboros/__init__.py",
       "classification": "non_pure_debt",
-      "max_physical_lines": 66,
+      "max_physical_lines": 83,
       "max_function_lines": 0,
       "max_function_parameters": 0
+    },
+    {
+      "path": "src/ooptdd/ouroboros/conformance.py",
+      "classification": "pure_module",
+      "max_physical_lines": 193,
+      "max_function_lines": 25,
+      "max_function_parameters": 3
     },
     {
       "path": "src/ooptdd/ouroboros/identity.py",
@@ -321,14 +330,14 @@
     {
       "path": "src/ooptdd/ouroboros/receipt.py",
       "classification": "pure_module",
-      "max_physical_lines": 209,
-      "max_function_lines": 41,
+      "max_physical_lines": 223,
+      "max_function_lines": 43,
       "max_function_parameters": 3
     },
     {
       "path": "src/ooptdd/ouroboros/reducer.py",
       "classification": "pure_module",
-      "max_physical_lines": 121,
+      "max_physical_lines": 128,
       "max_function_lines": 65,
       "max_function_parameters": 3
     },

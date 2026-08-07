@@ -14,6 +14,7 @@ from .model import (
     TransitionResult,
 )
 from .ports import PolicyEvaluator
+from .receipt import receipt_from_snapshot
 
 
 def _reject(snapshot: ProtocolSnapshot, code: str) -> TransitionResult:
@@ -101,6 +102,11 @@ advance = step
 def start_successor(
     snapshot: ProtocolSnapshot, material_revision: RevisionIdentity, evaluator: PolicyEvaluator
 ) -> ProtocolSnapshot:
+    """Start a local successor after structural terminal-receipt validation.
+
+    This helper does not authenticate the predecessor or establish durable lineage.
+    """
+
     definition = evaluator.definition
     if (
         evaluator.version != definition.evaluator_version
@@ -110,6 +116,7 @@ def start_successor(
         raise ValueError("policy_mismatch")
     if snapshot.state not in definition.completion.terminal_states:
         raise ValueError("successor_requires_terminal_state")
+    receipt_from_snapshot(snapshot, evaluator)
     generation = snapshot.generation + 1
     if generation >= snapshot.budget.max_generations:
         raise ValueError("generation_budget_exhausted")
