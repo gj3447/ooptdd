@@ -73,9 +73,10 @@ test.
 
 ## Ouroboros protocol (experimental)
 
-`ooptdd.ouroboros` is a pure protocol kernel for cycling through an initial RED,
-readback-tier GREEN, isolated negative challenge, restoration,
-re-GREEN, and total finding disposition. It adds strict material/run identity,
+`ooptdd.ouroboros` has a deterministic functional core for cycling through an initial
+RED, readback-tier GREEN, isolated negative challenge, restoration, re-GREEN, and total
+finding disposition. Explicit port-based shells resolve snapshots, effects, receipts, and
+authenticated gate evidence around that core. It adds strict material/run identity,
 mutation-safe interruption, bounded ordinary progress and generation depth,
 generational lineage, and a replay-validated receipt v2 with an unkeyed
 change-detection hash.
@@ -85,7 +86,8 @@ checks can promote that tier; weighted gates require finite non-negative weights
 positive total gating weight, and a threshold in `(0, 1]`. Neither the adapter nor the
 kernel authenticates the producing authority. There is no daemon or persistence layer.
 Historical receipt v1 documents upcast only to an explicit `incomplete` draft; missing
-proof is never inferred.
+proof is never inferred. The exact functional-core boundary and its CI-enforced limits are
+documented in the [functional/SOLID architecture harness](docs/architecture/functional-solid-harness.md).
 
 See the [theory and contract](docs/ouroboros.md). The API remains experimental while
 independent production consumers and a durable runner are still absent.

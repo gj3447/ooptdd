@@ -136,7 +136,7 @@ class ClickHouseBackend:
     def _read(self, cid: str, since_us: int, until_us: int, *,
               limit: int | None = None, offset: int = 0) -> QueryResult:
         paged = limit is not None
-        cap = limit if paged else self.max_rows
+        cap = self.max_rows if limit is None else limit
         try:
             base = self._base()  # noqa: F841 — validates config before the network call
         except ValueError as exc:
@@ -171,7 +171,7 @@ class ClickHouseBackend:
                                error_kind=kind, retry_after_s=retry_after)
         data = payload.get("data", [])
         complete = len(data) <= cap
-        events = []
+        events: list[dict] = []
         for row in data[:cap]:
             # rows carry the original envelope in `data`; unwrap it so `where`/counts see
             # the real fields. A row without `data` (custom schema) is passed through as-is.

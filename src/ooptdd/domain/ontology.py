@@ -258,12 +258,22 @@ def check_conformance(
         name = ev.get("event")
         if not scope_all and name != event_type:
             continue
+        if not isinstance(name, str):
+            # An event envelope without a string event name cannot conform to any
+            # declared vocabulary. Treat it as malformed evidence even in open-world
+            # mode; silently skipping it could turn corrupt readback into a green gate.
+            violations.append({
+                "event": name,
+                "index": i,
+                "problems": ["event name must be a string"],
+            })
+            continue
         # ooptdd.* framework meta-events (e.g. ooptdd.verdict from emit_verdict_event) are not
         # part of any SUT's domain vocabulary — a closed-world DOMAIN ontology must not flag them
         # as drift, or shipping a verdict annotation into a cid would RED a conforms gate over it.
         # A domain ontology that deliberately declares an ooptdd.* type still validates it (get()
         # hits below); this only exempts the UNDECLARED case.
-        if isinstance(name, str) and name.startswith("ooptdd.") and ontology.get(name) is None:
+        if name.startswith("ooptdd.") and ontology.get(name) is None:
             continue
         et = ontology.get(name)
         if et is None:

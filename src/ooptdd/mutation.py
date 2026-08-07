@@ -112,7 +112,7 @@ def _matcher_witness(want):
     # compact candidate set, then ask the production matcher to prove the candidate.
     from .engine.trajectory import _matcher_args_pass
 
-    candidates = []
+    candidates: list[object] = []
 
     def candidate(value) -> None:
         if not any(value == existing for existing in candidates):
@@ -135,13 +135,13 @@ def _matcher_witness(want):
         candidate({key: True for key in has_keys})
     if has_keys or contains_all:
         candidate({key: True for key in [*has_keys, *(str(x) for x in contains_all)]})
-    for value in (_SENTINEL, "__ooptdd_safe_witness__", 1, ["__ooptdd_safe_witness__"]):
-        candidate(value)
+    for fallback in (_SENTINEL, "__ooptdd_safe_witness__", 1, ["__ooptdd_safe_witness__"]):
+        candidate(fallback)
 
     expected = {"value": want}
-    for value in candidates:
-        if _matcher_args_pass(expected, {"value": value}):
-            return value
+    for candidate_value in candidates:
+        if _matcher_args_pass(expected, {"value": candidate_value}):
+            return candidate_value
     return _MISSING
 
 
@@ -228,8 +228,11 @@ def derive_mutations(events: list[dict], spec: dict) -> list[tuple[str, list[dic
         cfg = rule.get("tool_calls")
         if not isinstance(cfg, dict):
             return
-        expected = [_tool_item(item) for item in cfg.get("expected", [])]
-        expected = [item for item in expected if item is not None]
+        expected: list[tuple[str, dict | None]] = []
+        for raw_item in cfg.get("expected", []):
+            item = _tool_item(raw_item)
+            if item is not None:
+                expected.append(item)
         event_name, name_attr, args_attr = _tool_fields(rule, cfg)
 
         compare = cfg.get("compare", ["name"])
@@ -241,7 +244,7 @@ def derive_mutations(events: list[dict], spec: dict) -> list[tuple[str, list[dic
         # keep duplicate name/argument requirements from collapsing into one mutation label.
         from .engine.trajectory import _observed_calls, _pair_score
 
-        observed = []
+        observed: list[tuple[int, tuple[str, object]]] = []
         for event_index, ev in enumerate(events):
             calls = _observed_calls([ev], event_name, name_attr, args_attr)
             if calls:
@@ -281,22 +284,25 @@ def derive_mutations(events: list[dict], spec: dict) -> list[tuple[str, list[dic
         # Mutate one bound call at a time. This exposes tolerance/duplicate blind spots and
         # gives every eligible mutant an unambiguous target identity.
         for expected_index, (name, args) in enumerate(expected):
-            event_index = matched_indices[expected_index]
-            if event_index is None:
+            matched_event_index = matched_indices[expected_index]
+            if matched_event_index is None:
                 continue
             renamed = list(events)
-            renamed[event_index] = {**renamed[event_index], name_attr: _SENTINEL}
+            renamed[matched_event_index] = {
+                **renamed[matched_event_index],
+                name_attr: _SENTINEL,
+            }
             add(f"rename_required_tool:{expected_index}:{name}", renamed)
             if args and "args" in compare:
                 for key in args:
                     mutated_args = _corrupt_args(
                         {key: args[key]},
-                        events[event_index].get(args_attr),
+                        events[matched_event_index].get(args_attr),
                     )
                     if mutated_args is not None:
                         corrupted = list(events)
-                        corrupted[event_index] = {
-                            **corrupted[event_index],
+                        corrupted[matched_event_index] = {
+                            **corrupted[matched_event_index],
                             args_attr: mutated_args,
                         }
                         add(

@@ -39,7 +39,7 @@ def make_arrival_metric(gate_spec: dict, *, backend=None, threshold: float = 1.0
     Raises a clear ImportError (with install hint) if deepeval isn't installed.
     """
     try:
-        from deepeval.metrics import BaseMetric
+        from deepeval.metrics import BaseMetric  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - exercised via test's fake module
         raise ImportError(
             "make_arrival_metric needs the deepeval package (pip install deepeval); "

@@ -49,13 +49,14 @@ class JsonlBackend:
         path_env: str = "OOPTDD_JSONL_PATH",
         **_ignored,
     ):
-        self.path = path or os.getenv(path_env, "")
+        resolved_path = path or os.getenv(path_env, "")
         self.path_env = path_env
-        if not self.path:
+        if not resolved_path:
             raise ValueError(
                 f"{path_env} (or path=) is required for the jsonl backend "
                 f"(e.g. {path_env}=/tmp/ooptdd-events.jsonl)."
             )
+        self.path: str = resolved_path
 
     def identity(self) -> str:
         """relocation 감지용 안정 identity (절대경로). ports.backend_identity 가 읽는다."""

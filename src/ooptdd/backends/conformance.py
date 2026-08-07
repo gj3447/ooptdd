@@ -30,12 +30,12 @@ import time
 from collections.abc import Callable
 
 from ..domain.model import correlation_keys
-from ..domain.ports import backend_caps
+from ..domain.ports import Backend, backend_caps
 from ..engine.gate import evaluate
 
 #: A factory returning a *fresh, write-and-read* backend bound to whatever store the author
 #: wants exercised (the in-memory default, or a real OpenObserve/ClickHouse/… via env/opener).
-BackendFactory = Callable[[], object]
+BackendFactory = Callable[[], Backend]
 
 
 def _read_window_us() -> tuple[int, int]:

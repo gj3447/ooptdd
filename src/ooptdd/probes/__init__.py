@@ -20,6 +20,8 @@ own store is relocation, not independence, and must declare ``separate_source=Fa
 """
 from __future__ import annotations
 
+from importlib.metadata import EntryPoint
+
 from ..domain.ports import ExternalProbe, ProbeResult
 
 _BUILTINS = {
@@ -73,7 +75,7 @@ class ProbeRegistry:
     def unregister(self, name: str) -> None:
         self._registered.pop(name, None)
 
-    def _entry_points(self) -> dict[str, object]:
+    def _entry_points(self) -> dict[str, EntryPoint]:
         from importlib.metadata import entry_points
 
         return {ep.name: ep for ep in entry_points(group=self._entry_point_group)}

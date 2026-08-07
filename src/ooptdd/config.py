@@ -7,6 +7,7 @@ The plugin reads `[tool.ooptdd]` via pytest's ini machinery; the CLI reads
 from __future__ import annotations
 
 import os
+import sys
 import warnings
 from dataclasses import dataclass, field
 
@@ -104,13 +105,10 @@ def from_mapping(table: dict | None) -> Settings:
 
 def load_pyproject(path: str = "pyproject.toml") -> dict:
     """Read ``[tool.ooptdd]`` from a pyproject file (returns {} if absent)."""
-    try:
-        import tomllib  # py3.11+
-    except ModuleNotFoundError:  # pragma: no cover
-        try:
-            import tomli as tomllib  # type: ignore
-        except ModuleNotFoundError:
-            return {}
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:  # pragma: no cover - exercised by the Python 3.10 CI lane
+        import tomli as tomllib
     try:
         with open(path, "rb") as fh:
             data = tomllib.load(fh)

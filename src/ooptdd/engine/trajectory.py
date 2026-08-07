@@ -71,21 +71,14 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 
-from .gate import _STRENGTH_BY_KEY, CheckCtx, check
+from .gate import CheckCtx, check
 from .monitor import _OPS, _norm_op
 
 _DEF_EVENT = "gen_ai.execute_tool"
 _DEF_NAME_ATTR = "gen_ai.tool.name"
 _DEF_ARGS_ATTR = "gen_ai.tool.call.arguments"
-
-# Discriminating power: tool_calls pins names (and optionally argument values) — value-pinned;
-# forbidden_tools is the negative wing — forbid. Registered here so a spec author gets an
-# honest strength class without declaring one (setdefault: an explicit ``strength:`` wins).
-_STRENGTH_BY_KEY.setdefault("tool_calls", "value-pinned")
-_STRENGTH_BY_KEY.setdefault("forbidden_tools", "forbid")
-_STRENGTH_BY_KEY.setdefault("forbidden_tool_calls", "forbid")
-_STRENGTH_BY_KEY.setdefault("aggregate", "threshold")
 
 # ── argument matchers (Phoenix pxi vocabulary, original implementation) ────────
 
@@ -274,7 +267,7 @@ def _arg_credit(exp: dict, got, *, exact: bool) -> float:
     return score
 
 
-def _pair_score(exp: tuple[str, dict | None], got: tuple[str, dict | None],
+def _pair_score(exp: tuple[str, dict | None], got: tuple[str, object],
                 *, with_args: bool, exact: bool) -> float:
     """0..1 match quality of one expected call against one observed call."""
     if exp[0] != got[0]:
@@ -381,7 +374,7 @@ def _check_tool_calls(events: list, rule: dict, ctx: CheckCtx) -> dict:
     }
 
 
-_AGG_FNS = {
+_AGG_FNS: dict[str, Callable[[list[float]], float]] = {
     "sum": sum,
     "max": max,
     "min": min,
@@ -406,7 +399,7 @@ def _check_aggregate(events: list, rule: dict, ctx: CheckCtx) -> dict:
         raise ValueError("aggregate requires `attr:` and `target:`")
     attr = spec["attr"]
     event_name = spec.get("event")
-    vals = []
+    vals: list[float] = []
     for ev in events:
         if event_name is not None and ev.get("event") != event_name:
             continue

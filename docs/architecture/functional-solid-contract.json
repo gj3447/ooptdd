@@ -1,0 +1,273 @@
+{
+  "schema_version": "ooptdd-functional-solid-contract/v1",
+  "harness_tier": "L_IDE",
+  "source_root": "src",
+  "package": "ooptdd",
+  "claim": "OOPTDD declares the exact modules below as its functional core. FA003 and FA004 are module-local syntactic checks, not transitive purity proofs; the contract does not prove semantic purity or SOLID.",
+  "purity_scope": "direct-module-syntax-only",
+  "layers": [
+    {
+      "name": "pure_core",
+      "exact_modules": [
+        "ooptdd.engine.gate_primitives",
+        "ooptdd.engine.gate_freeze",
+        "ooptdd.engine.gate_values",
+        "ooptdd.engine.gate_ontology",
+        "ooptdd.engine.gate_rules",
+        "ooptdd.engine.gate_kernel",
+        "ooptdd.ouroboros.identity",
+        "ooptdd.ouroboros.model",
+        "ooptdd.ouroboros.ports",
+        "ooptdd.ouroboros.reducer"
+      ],
+      "module_prefixes": [],
+      "may_depend_on": [
+        "domain",
+        "pure_core"
+      ]
+    },
+    {
+      "name": "functional_domain",
+      "exact_modules": [
+        "ooptdd.ouroboros.gate_adapter",
+        "ooptdd.ouroboros.schema"
+      ],
+      "module_prefixes": [],
+      "may_depend_on": [
+        "domain",
+        "functional_domain",
+        "pure_core"
+      ]
+    },
+    {
+      "name": "application_core",
+      "exact_modules": [
+        "ooptdd.ouroboros.completion"
+      ],
+      "module_prefixes": [],
+      "may_depend_on": [
+        "application_core",
+        "domain",
+        "functional_domain",
+        "pure_core"
+      ]
+    },
+    {
+      "name": "domain",
+      "exact_modules": [],
+      "module_prefixes": [
+        "ooptdd.domain"
+      ],
+      "may_depend_on": [
+        "domain"
+      ]
+    },
+    {
+      "name": "engine",
+      "exact_modules": [],
+      "module_prefixes": [
+        "ooptdd.engine"
+      ],
+      "may_depend_on": [
+        "domain",
+        "engine",
+        "pure_core"
+      ]
+    },
+    {
+      "name": "adapters",
+      "exact_modules": [],
+      "module_prefixes": [
+        "ooptdd.ouroboros"
+      ],
+      "may_depend_on": [
+        "application_core",
+        "adapters",
+        "domain",
+        "engine",
+        "functional_domain",
+        "pure_core"
+      ],
+      "default": true
+    },
+    {
+      "name": "api",
+      "exact_modules": [
+        "ooptdd"
+      ],
+      "module_prefixes": [],
+      "may_depend_on": [
+        "application_core",
+        "adapters",
+        "api",
+        "domain",
+        "engine",
+        "functional_domain",
+        "pure_core"
+      ]
+    }
+  ],
+  "pure_modules": [
+    "ooptdd.engine.gate_primitives",
+    "ooptdd.engine.gate_freeze",
+    "ooptdd.engine.gate_values",
+    "ooptdd.engine.gate_ontology",
+    "ooptdd.engine.gate_rules",
+    "ooptdd.engine.gate_kernel",
+    "ooptdd.ouroboros.identity",
+    "ooptdd.ouroboros.model",
+    "ooptdd.ouroboros.ports",
+    "ooptdd.ouroboros.reducer"
+  ],
+  "package_root_import_allowlist": [
+    "__version__"
+  ],
+  "pure_boundary": {
+    "forbidden_import_roots": [
+      "asyncio",
+      "datetime",
+      "logging",
+      "multiprocessing",
+      "os",
+      "pathlib",
+      "random",
+      "requests",
+      "secrets",
+      "socket",
+      "subprocess",
+      "tempfile",
+      "threading",
+      "time",
+      "urllib",
+      "uuid"
+    ],
+    "forbidden_calls": [
+      "__import__",
+      "breakpoint",
+      "compile",
+      "eval",
+      "exec",
+      "input",
+      "open",
+      "print"
+    ],
+    "allowed_imports_by_module": {
+      "ooptdd.engine.gate_freeze": [
+        "datetime.date",
+        "pathlib.PurePath",
+        "uuid.UUID"
+      ]
+    },
+    "require_frozen_dataclasses": true,
+    "forbid_global_nonlocal": true,
+    "forbid_module_global_mutation": true
+  },
+  "responsibility_budgets": [
+    {
+      "path": "src/ooptdd/ouroboros/__init__.py",
+      "classification": "non_pure_debt",
+      "max_physical_lines": 136,
+      "max_function_lines": 0,
+      "max_function_parameters": 0
+    },
+    {
+      "path": "src/ooptdd/ouroboros/completion.py",
+      "classification": "non_pure_debt",
+      "max_physical_lines": 384,
+      "max_function_lines": 52,
+      "max_function_parameters": 3
+    },
+    {
+      "path": "src/ooptdd/ouroboros/completion_io.py",
+      "classification": "non_pure_debt",
+      "max_physical_lines": 85,
+      "max_function_lines": 50,
+      "max_function_parameters": 4
+    },
+    {
+      "path": "src/ooptdd/ouroboros/gate_adapter.py",
+      "classification": "non_pure_debt",
+      "max_physical_lines": 1482,
+      "max_function_lines": 445,
+      "max_function_parameters": 9
+    },
+    {
+      "path": "src/ooptdd/ouroboros/identity.py",
+      "classification": "pure_module",
+      "max_physical_lines": 173,
+      "max_function_lines": 22,
+      "max_function_parameters": 3
+    },
+    {
+      "path": "src/ooptdd/ouroboros/model.py",
+      "classification": "pure_module",
+      "max_physical_lines": 658,
+      "max_function_lines": 35,
+      "max_function_parameters": 7
+    },
+    {
+      "path": "src/ooptdd/ouroboros/ports.py",
+      "classification": "pure_module",
+      "max_physical_lines": 49,
+      "max_function_lines": 6,
+      "max_function_parameters": 4
+    },
+    {
+      "path": "src/ooptdd/ouroboros/reducer.py",
+      "classification": "pure_module",
+      "max_physical_lines": 593,
+      "max_function_lines": 199,
+      "max_function_parameters": 7
+    },
+    {
+      "path": "src/ooptdd/ouroboros/schema.py",
+      "classification": "non_pure_debt",
+      "max_physical_lines": 929,
+      "max_function_lines": 73,
+      "max_function_parameters": 4
+    },
+    {
+      "path": "src/ooptdd/engine/gate_primitives.py",
+      "classification": "pure_module",
+      "max_physical_lines": 42,
+      "max_function_lines": 10,
+      "max_function_parameters": 1
+    },
+    {
+      "path": "src/ooptdd/engine/gate_freeze.py",
+      "classification": "pure_module",
+      "max_physical_lines": 137,
+      "max_function_lines": 24,
+      "max_function_parameters": 3
+    },
+    {
+      "path": "src/ooptdd/engine/gate_values.py",
+      "classification": "pure_module",
+      "max_physical_lines": 310,
+      "max_function_lines": 34,
+      "max_function_parameters": 9
+    },
+    {
+      "path": "src/ooptdd/engine/gate_ontology.py",
+      "classification": "pure_module",
+      "max_physical_lines": 153,
+      "max_function_lines": 22,
+      "max_function_parameters": 3
+    },
+    {
+      "path": "src/ooptdd/engine/gate_rules.py",
+      "classification": "pure_module",
+      "max_physical_lines": 291,
+      "max_function_lines": 29,
+      "max_function_parameters": 4
+    },
+    {
+      "path": "src/ooptdd/engine/gate_kernel.py",
+      "classification": "pure_module",
+      "max_physical_lines": 319,
+      "max_function_lines": 64,
+      "max_function_parameters": 7
+    }
+  ],
+  "require_budget_for_each_pure_module": true
+}

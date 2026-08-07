@@ -12,6 +12,10 @@ Requires the ``otel`` extra (``pip install ooptdd[otel]``).
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from opentelemetry._logs import Logger
 
 from .base import BackendCaps, QueryResult
 
@@ -42,7 +46,7 @@ class OtelBackend:
         # An injectable log-record exporter: the default (None) ships OTLP over the wire; tests
         # (and the write-only conformance kit) pass an in-memory exporter to capture what shipped.
         self._exporter = exporter
-        self._logger = None
+        self._logger: Logger | None = None
 
     def _ensure(self):
         if self._logger is not None:
@@ -81,6 +85,9 @@ class OtelBackend:
         self._ensure()
         from opentelemetry._logs import SeverityNumber
 
+        logger = self._logger
+        if logger is None:
+            raise RuntimeError("OTel logger initialization completed without a logger")
         scalar = (str, int, float, bool)
         for ev in events:
             sev = SeverityNumber.ERROR if ev.get("level") == "ERROR" else SeverityNumber.INFO
@@ -88,7 +95,7 @@ class OtelBackend:
             # old ``emit(LogRecord(...))`` form and the ``LogRecord`` import location both moved
             # across opentelemetry-sdk releases, silently breaking this driver — now caught by the
             # write-only conformance test (tests/test_otel_backend.py).
-            self._logger.emit(
+            logger.emit(
                 body=ev.get("event", "event"),
                 severity_number=sev,
                 attributes={k: v for k, v in ev.items() if isinstance(v, scalar)},

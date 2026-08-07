@@ -76,24 +76,66 @@ final collapsed pass/fail is identical to the historical count comparison; what 
 gains is a real incremental monitor with anticipatory verdicts, surfaced per check as
 ``verdict``/``settled_at``.
 """
+
 from __future__ import annotations
 
-import math
 import os
 from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
+from dataclasses import replace
+from decimal import Decimal
+from fractions import Fraction
+from typing import Any
 
-from ..domain.model import verify_chain
 from ..domain.ports import (
     Backend,
     Clock,
+    ExternalProbe,
     QuerySpec,
     SystemClock,
     TimeWindow,
     backend_caps,
     backend_identity,
     fetch,
+)
+from .gate_kernel import judge_events
+from .gate_primitives import stream_key
+from .gate_rules import (
+    _KEY_PROBES,  # noqa: F401 - compatibility re-export
+    _STRENGTH_BY_KEY,
+    _STRENGTH_RANK,
+    expand_rules,
+)
+from .gate_rules import (
+    check_charged as _kernel_check_charged,
+)
+from .gate_rules import (
+    detect_check_key as _kernel_detect_check_key,
+)
+from .gate_rules import (
+    finite_gate_number as _kernel_finite_gate_number,
+)
+from .gate_rules import (
+    gate_threshold as _kernel_gate_threshold,
+)
+from .gate_rules import (
+    label as _kernel_label,
+)
+from .gate_rules import (
+    rule_event_names as _kernel_rule_event_names,
+)
+from .gate_rules import (
+    strength as _kernel_strength,
+)
+from .gate_values import (
+    CheckCtx,
+    CheckFn,
+    ExternalObservation,
+    GateEvaluation,
+    GatePolicy,
+    GateSource,
+    freeze_value,
+    thaw_value,
 )
 from .monitor import (  # the evaluation kernel
     _OPS,
@@ -102,7 +144,6 @@ from .monitor import (  # the evaluation kernel
     _resolve_matcher,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
     compile_check,
     run_monitor,
-    stream_key,
 )
 
 # ---- check-predicate registry (the extension seam) -------------------------- #
@@ -113,26 +154,45 @@ from .monitor import (  # the evaluation kernel
 # structural-assertion surface: every dispatched key must resolve to a registered handler.
 
 
-@dataclass(frozen=True)
-class CheckCtx:
-    """Cross-cutting context a check handler may need — built once per :func:`evaluate`
-    call, so handlers take ``(events, rule, ctx)`` instead of 4-6 positional args."""
+class CheckRegistry(MutableMapping[str, CheckFn]):
+    """Mutable composition-shell registry with explicit immutable snapshots.
 
-    reachable: bool
-    indicators: dict
-    ontology: object | None = None
-    allow_errors: list | None = None
-    probe: object | None = None  # an ExternalProbe (independent oracle) for `external:` checks
-    cid: str | None = None
+    The historical mapping operations stay available for compatibility.  The functional
+    kernel never reads this object directly; each evaluation receives ``snapshot()``.
+    """
+
+    def __init__(self) -> None:
+        self._handlers: dict[str, CheckFn] = {}
+
+    def __getitem__(self, key: str) -> CheckFn:
+        return self._handlers[key]
+
+    def __setitem__(self, key: str, value: CheckFn) -> None:
+        self._handlers[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self._handlers[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._handlers)
+
+    def __len__(self) -> int:
+        return len(self._handlers)
+
+    def snapshot(self, *, default: CheckFn | None = None) -> Mapping[str, CheckFn]:
+        values = dict(self._handlers)
+        if default is not None:
+            values["__count__"] = default
+        return values
 
 
-CheckFn = Callable[[list, dict, CheckCtx], dict]
-CHECK_REGISTRY: dict[str, CheckFn] = {}
+CHECK_REGISTRY = CheckRegistry()
 
 
 def check(*keys: str) -> Callable[[CheckFn], CheckFn]:
     """Register a check handler under one or more spec keywords. Decoration-time only (a
     dict insert, no I/O). A duplicate key raises — guarding the silent-overwrite failure."""
+
     def deco(fn: CheckFn) -> CheckFn:
         for k in keys:
             if k in CHECK_REGISTRY:
@@ -140,6 +200,7 @@ def check(*keys: str) -> Callable[[CheckFn], CheckFn]:
         for k in keys:
             CHECK_REGISTRY[k] = fn
         return fn
+
     return deco
 
 
@@ -190,39 +251,14 @@ def _join_matchers(v) -> str:
     """Label helper total over BOTH shapes `_label` is fed: a RESULT's list of names
     (strings) and a RULE's list of matcher dicts — `",".join` on the raw value raised
     TypeError from `ooptdd lint` on any legitimate `present:[{event: a}, ...]` spec."""
-    items = v if isinstance(v, list) else [v]
-    return ",".join(
-        str(m.get("event") or m.get("where") or m) if isinstance(m, dict) else str(m)
-        for m in items)
+    from .gate_rules import join_matchers
+
+    return join_matchers(v)
 
 
 def _label(chk: dict) -> str:
     """Human handle for a check (used to surface optional failures)."""
-    if "label" in chk:  # a custom check/rule may name itself; honored for both result & rule dicts
-        return str(chk["label"])
-    if "external" in chk:
-        return "external:" + str(chk.get("external"))
-    if "metamorphic" in chk:
-        return "metamorphic:" + str(chk.get("metamorphic"))
-    if "invariant" in chk:
-        inv = chk["invariant"]
-        return "invariant:" + (inv if isinstance(inv, str) else "expr")
-    if "conforms" in chk:
-        return "conforms:" + str(chk["conforms"])
-    if "heartbeat" in chk:
-        return f"heartbeat:{chk['heartbeat']}@{chk.get('every_s')}s"
-    if "must_order" in chk:
-        return "must_order:" + ">".join(chk["must_order"])
-    if "present" in chk:
-        return "present:" + _join_matchers(chk["present"])
-    if "absent" in chk:
-        return "absent:" + _join_matchers(chk["absent"])
-    if "ratio" in chk:
-        return f"ratio:{chk['ratio']}{chk.get('op', '')}{chk.get('want', '')}"
-    if chk.get("event"):
-        return str(chk["event"])
-    where = chk.get("where") or {}
-    return "where:" + ",".join(f"{k}={v}" for k, v in where.items()) if where else "(any)"
+    return _kernel_label(chk)
 
 
 def _truthy(v) -> bool:
@@ -237,32 +273,36 @@ def _finite_gate_number(
     maximum: float | None = None,
 ) -> float:
     """Parse a gate scalar without accepting booleans, infinities, or unsafe ranges."""
+    return _kernel_finite_gate_number(value, label, minimum=minimum, maximum=maximum)
+
+
+def _exact_external_number(value: Any, label: str) -> Fraction:
+    """Preserve exact numeric identity for external-oracle comparisons."""
 
     if isinstance(value, bool):
         raise ValueError(f"{label} must be a finite number")
     try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError) as error:
+        return Fraction(value)
+    except (TypeError, ValueError, OverflowError, ZeroDivisionError) as error:
         raise ValueError(f"{label} must be a finite number") from error
-    if not math.isfinite(number):
-        raise ValueError(f"{label} must be a finite number")
-    if minimum is not None and number < minimum:
-        raise ValueError(f"{label} must be >= {minimum:g}")
-    if maximum is not None and number > maximum:
-        raise ValueError(f"{label} must be <= {maximum:g}")
-    return number
+
+
+def _compare_exact_external(op: str, observed: Fraction, expected: Fraction) -> bool:
+    if op == ">=":
+        return observed >= expected
+    if op == ">":
+        return observed > expected
+    if op == "<=":
+        return observed <= expected
+    if op == "<":
+        return observed < expected
+    if op == "==":
+        return observed == expected
+    raise ValueError(f"unknown external comparison operator {op!r}")
 
 
 def _gate_threshold(value) -> float:
-    threshold = _finite_gate_number(
-        value,
-        "gate threshold",
-        minimum=0.0,
-        maximum=1.0,
-    )
-    if threshold <= 0.0:
-        raise ValueError("gate threshold must be > 0")
-    return threshold
+    return _kernel_gate_threshold(value)
 
 
 # ---- registered check handlers (thin adapters over the kernel's compile_check) ---- #
@@ -278,9 +318,10 @@ def _run(rule: dict, events: list, ctx: CheckCtx) -> dict:
     # the known-benign allowlist for the implicit ERROR/CRITICAL absent, and must NOT bleed
     # into a USER-authored `absent:` check — a user who forbids `zdf.drop@B` means it, and the
     # spec-level allowlist (intended for the error wing) silently exempting it is a fail-open.
-    allow = ctx.allow_errors if rule.get("_auto") == "forbid_errors" else None
-    monitor = compile_check(rule, indicators=ctx.indicators, ontology=ctx.ontology,
-                            allow=allow)
+    allow = list(ctx.allow_errors) if rule.get("_auto") == "forbid_errors" else None
+    monitor = compile_check(
+        rule, indicators=dict(ctx.indicators), ontology=ctx.ontology, allow=allow
+    )
     return run_monitor(monitor, events, ctx.reachable)
 
 
@@ -336,28 +377,67 @@ def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     probe is inconclusive (surfaced via ``probe_reachable=False``, never a strict fail)."""
     spec = rule["external"]
     op = _norm_op(spec.get("op", "=="))
-    base = {"external": spec.get("kind", "?"), "op": op, "want": spec.get("want"),
-            "selector": spec.get("selector")}
-    if ctx.probe is None:
-        return {**base, "passed": False, "probe_reachable": None,
-                "reason": "no_external_probe_configured"}
-    res = ctx.probe.probe(spec.get("kind"), spec.get("selector"), ctx.cid)
-    if not res.reachable or not getattr(res, "complete", True):
-        return {**base, "passed": False, "probe_reachable": False, "value": None,
-                "reason": "external_probe_unreachable"}
-    value, want = res.value, spec.get("want")
+    base = {
+        "external": spec.get("kind", "?"),
+        "op": op,
+        "want": spec.get("want"),
+        "selector": spec.get("selector"),
+    }
+    observation = ctx.external_observation
+    if observation is None:
+        return {
+            **base,
+            "passed": False,
+            "probe_reachable": None,
+            "reason": "no_external_probe_configured",
+        }
+    if not observation.reachable or not observation.complete:
+        return {
+            **base,
+            "passed": False,
+            "probe_reachable": False,
+            "value": None,
+            "reason": "external_probe_unreachable",
+        }
+    # ExternalObservation stores a deep immutable snapshot.  Compare and expose a
+    # fresh compatibility value so representation details such as tuple-backed
+    # captured lists cannot change the rule's semantics.
+    value, want = thaw_value(observation.value), spec.get("want")
     if want is None:
         passed = value is not None  # the external fact merely has to EXIST
-    elif op == "==":
-        try:
-            passed = abs(value - want) <= float(spec.get("tol", 0.0))
-        except TypeError:
+    elif op in ("==", "!="):
+        tolerance = _exact_external_number(
+            spec.get("tol", 0.0), "external tolerance"
+        )
+        if tolerance < 0:
+            raise ValueError("external tolerance must be >= 0")
+        numeric_pair = all(
+            isinstance(item, int | float | Decimal | Fraction)
+            and not isinstance(item, bool)
+            for item in (value, want)
+        )
+        if op == "!=":
+            passed = value != want
+        elif numeric_pair:
+            observed_number = _exact_external_number(value, "external observed value")
+            expected_number = _exact_external_number(want, "external expected value")
+            passed = abs(observed_number - expected_number) <= tolerance
+        else:
             passed = value == want
     else:
-        passed = _OPS[op](value, want)
-    return {**base, "value": value, "probe_reachable": True,
-            "separate_source": bool(getattr(res, "separate_source", False)),
-            "derived_identity": getattr(res, "derived_identity", None), "passed": bool(passed)}
+        if op not in _OPS:
+            raise ValueError(f"unknown external comparison operator {op!r}")
+        observed_number = _exact_external_number(value, "external observed value")
+        expected_number = _exact_external_number(want, "external expected value")
+        passed = _compare_exact_external(op, observed_number, expected_number)
+    return {
+        **base,
+        "value": value,
+        "probe_reachable": True,
+        "separate_source": observation.separate_source,
+        "derived_identity": observation.derived_identity,
+        "passed": bool(passed),
+    }
 
 
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
@@ -367,34 +447,28 @@ def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)
 
 
-# Ordered (spec_key -> canonical registry key) probes: preserve the historical if-elif
-# priority and the keyword synonyms (forbid->absent, trajectory->must_order). Probed
-# before the generic registry scan so built-in precedence is deterministic even for a
-# (degenerate) multi-keyword rule.
-_KEY_PROBES = (
-    ("absent", "absent"), ("forbid", "absent"),
-    ("heartbeat", "heartbeat"),
-    ("must_order", "must_order"), ("trajectory", "must_order"),
-    ("present", "present"),
-    ("ratioMetric", "ratioMetric"),
-    ("conforms", "conforms"),
-    ("invariant", "invariant"),
-    ("metamorphic", "metamorphic"),
-    ("duration", "duration"),
-    ("external", "external"),
-)
+_CANONICAL_GATE_HANDLERS = frozenset({
+    _check_absent,
+    _check_heartbeat,
+    _check_must_order,
+    _check_present,
+    _check_ratio,
+    _check_conforms,
+    _check_invariant,
+    _check_metamorphic,
+    _check_duration,
+    _check_external,
+    _eval_count,
+})
 
 
-def _detect_check_key(rule: dict) -> str | None:
+def _detect_check_key(
+    rule: dict,
+    registry: Mapping[str, CheckFn] | None = None,
+) -> str | None:
     """The registry key for ``rule`` (``None`` -> the default count check). Built-in keys
     win in historical order; an externally-registered custom key is matched after."""
-    for spec_key, canon in _KEY_PROBES:
-        if spec_key in rule:
-            return canon
-    for key in CHECK_REGISTRY:
-        if key in rule:
-            return key
-    return None
+    return _kernel_detect_check_key(rule, registry or CHECK_REGISTRY.snapshot())
 
 
 # ---- strength / scope signal (honesty, not an oracle) ----------------------- #
@@ -404,126 +478,146 @@ def _detect_check_key(rule: dict) -> str | None:
 # `existence-only` gate proved tokens were emitted, pinned no field, ordered nothing, forbade
 # nothing. Higher strength is still author-vs-author (the `where` value descends from the same
 # mental model) — a harder self-check, NOT an external oracle (see METHODOLOGY "log-free zones").
-_STRENGTH_BY_KEY = {
-    "absent": "forbid", "must_order": "ordered", "ratioMetric": "ratio",
-    "heartbeat": "liveness", "conforms": "conformance", "invariant": "invariant",
-    "metamorphic": "metamorphic", "external": "external", "duration": "threshold",
-}
-
-# Discriminating-power weight per strength class — basis of the scalar strength score that turns
-# "the agent weakened the gate to win" into a measurable REGRESSION (see strength_fingerprint).
-# `external` ranks highest: it is the only class whose input is NOT the system's own self-report.
-_STRENGTH_RANK = {
-    "existence-only": 1, "bounded": 2, "threshold": 2,
-    "value-pinned": 3, "ordered": 3, "forbid": 3,
-    "ratio": 4, "liveness": 4, "conformance": 4, "invariant": 5, "metamorphic": 5, "external": 6,
-}
-
-
-def _strength(rule: dict) -> str:
+def _strength(
+    rule: dict,
+    registry: Mapping[str, CheckFn] | None = None,
+    strength_by_key: Mapping[str, str] | None = None,
+) -> str:
     """Discriminating-power class of a check (pure, total over every registry key + the default
     count). Low→high: existence-only < bounded < value-pinned/ordered/forbid/threshold <
     ratio/liveness/conformance."""
-    d = rule.get("strength")  # a custom check may declare its own discriminating-power class
-    if isinstance(d, str) and d:
-        return d
-    key = _detect_check_key(rule)
-    if key in _STRENGTH_BY_KEY:
-        return _STRENGTH_BY_KEY[key]
-    if key == "present":
-        ms = rule.get("present") or []
-        return "value-pinned" if any(m.get("where") for m in ms) else "existence-only"
-    # default count check (and any custom predicate without a richer shape)
-    if rule.get("where"):
-        return "value-pinned"
-    if rule.get("threshold") is not None:
-        return "threshold"
-    tight = _norm_op(rule.get("op", ">=")) in ("==", "!=", "<=", "<")
-    return "bounded" if tight else "existence-only"
+    return _kernel_strength(
+        rule,
+        registry or CHECK_REGISTRY.snapshot(),
+        strength_by_key or _STRENGTH_BY_KEY,
+    )
 
 
 def _rule_event_names(rule: dict) -> set[str]:
     """Event names a single gate rule asserts on, best-effort across every check shape — used to
     measure how much of the OBSERVED stream the gate actually names (the closed-world signal)."""
-    names: set[str] = set()
-    for key in ("present", "absent", "forbid"):
-        v = rule.get(key)
-        for m in (v if isinstance(v, list) else [v] if isinstance(v, dict) else []):
-            if isinstance(m, dict):
-                names.add(m.get("event"))
-    for key in ("must_order", "trajectory"):
-        for part in rule.get(key) or []:
-            names.add(part if isinstance(part, str) else
-                      part.get("event") if isinstance(part, dict) else None)
-    for container, sides in (("ratioMetric", ("good", "total")), ("invariant", ("left", "right")),
-                             ("metamorphic", ("a", "b"))):
-        c = rule.get(container)
-        if isinstance(c, dict):
-            for side in sides:
-                if isinstance(c.get(side), dict):
-                    names.add(c[side].get("event"))
-    if isinstance(rule.get("duration"), dict):
-        names.add(rule["duration"].get("event"))
-    names.add(rule.get("heartbeat"))
-    if isinstance(rule.get("conforms"), str):
-        names.add(rule["conforms"])
-    # trajectory predicates (ooptdd.engine.trajectory): they assert on tool/attr events —
-    # without this, a trajectory-only gate reports stream_coverage=0.0 and lists the very
-    # events it scored as "arrived UNOBSERVED". Default literal mirrors trajectory._DEF_EVENT
-    # (no import: trajectory imports this module, and coverage is a best-effort signal).
-    if isinstance(rule.get("tool_calls"), dict):
-        names.add(rule["tool_calls"].get("event", "gen_ai.execute_tool"))
-    if "forbidden_tools" in rule:
-        names.add(rule.get("event", "gen_ai.execute_tool"))
-    if "forbidden_tool_calls" in rule:
-        names.add(rule.get("event", "gen_ai.execute_tool"))
-    if isinstance(rule.get("aggregate"), dict):
-        names.add(rule["aggregate"].get("event"))
-    names.add(rule.get("event"))
-    for n in rule.get("events") or []:  # a custom check may declare the event names it asserts on
-        names.add(n if isinstance(n, str) else None)
-    return {n for n in names if isinstance(n, str) and n}
+    return _kernel_rule_event_names(rule)
 
 
 def _check_charged(chk: dict) -> bool:
     """Did a check actually SEE matching evidence (positive confirmation), vs pass on absence /
     emptiness? The charge-ratio over gating checks measures how much of a green is backed by
     observed events rather than by nothing happening — distinct from stream-coverage."""
-    if "charged" in chk:  # a custom handler may report its own charge (present only if it set it;
-        return bool(chk["charged"])  # the engine's own chk['charged'] is assigned AFTER this call)
-    if "got" in chk:
-        return chk["got"] > 0
-    if "present" in chk:
-        return len(chk.get("missing", [])) < len(chk.get("present", []))
-    if "must_order" in chk:
-        return any(v is not None for v in chk.get("firsts", {}).values())
-    if "ratio" in chk:
-        return chk.get("total", 0) > 0
-    if "invariant" in chk:
-        return chk.get("reason") != "invariant_no_evidence"
-    if "metamorphic" in chk:
-        return chk.get("reason") != "metamorphic_no_evidence"
-    if "external" in chk:
-        return chk.get("probe_reachable") is True and chk.get("value") is not None
-    if "heartbeat" in chk:
-        return chk.get("beats", 0) > 0
-    if "conforms" in chk:
-        # evidence = it validated a declared-type event OR saw a closed-world drift offender
-        # (`unknown`). ontology_not_loaded has unknown==[] so it stays uncharged (it saw nothing).
-        return chk.get("checked", 0) > 0 or bool(chk.get("unknown"))
-    if "absent" in chk:
-        return chk.get("violations", 0) > 0  # absent is "charged" only if it SAW an offender
-    return False
+    return _kernel_check_charged(chk)
 
 
-def _resolve_cid(spec: dict) -> str:
+def _resolve_cid(spec: dict, environ: Mapping[str, str] | None = None) -> str:
     if spec.get("cid"):
         return str(spec["cid"])
     env = spec.get("cid_env", "OOPTDD_CID")
-    cid = os.getenv(env)
+    cid = (os.environ if environ is None else environ).get(env)
     if not cid:
         raise ValueError(f"gate needs a cid: set `cid:` in the spec or export {env}")
     return cid
+
+
+def resolve_gate_policy(
+    spec: Mapping[str, object],
+    environ: Mapping[str, str] | None = None,
+) -> GatePolicy:
+    """Resolve legacy env defaults once, at the imperative shell boundary."""
+
+    values = os.environ if environ is None else environ
+
+    def flag(spec_key: str, env_key: str) -> bool:
+        declared = spec.get(spec_key)
+        return bool(declared) if declared is not None else _truthy(values.get(env_key))
+
+    return GatePolicy(
+        forbid_errors=flag("forbid_errors", "OOPTDD_FORBID_ERRORS"),
+        require_corroboration=flag("require_corroboration", "OOPTDD_REQUIRE_CORROBORATION"),
+        require_signature=flag("require_signature", "OOPTDD_REQUIRE_SIGNATURE"),
+        signing_key=values.get("OOPTDD_SIGNING_KEY"),
+        require_independent_store=flag("require_independent_store", "OOPTDD_REQUIRE_INDEPENDENT"),
+    )
+
+
+def _capture_external_observations(
+    spec: Mapping[str, object],
+    policy: GatePolicy,
+    probe: ExternalProbe | None,
+    cid: str,
+    handlers: Mapping[str, CheckFn],
+) -> dict[int, ExternalObservation]:
+    """Perform external probe effects before entering the functional core."""
+
+    if probe is None:
+        return {}
+    observations: dict[int, ExternalObservation] = {}
+    for index, rule in enumerate(expand_rules(spec, policy)):
+        key = _kernel_detect_check_key(rule, handlers)
+        handler = handlers.get(key or "__count__")
+        if handler is not _check_external:
+            continue
+        external = rule.get("external")
+        if not isinstance(external, dict):
+            continue
+        kind = external.get("kind")
+        if not isinstance(kind, str) or not kind:
+            raise ValueError("external check kind must be a non-empty string")
+        # A probe is an effectful, caller-provided port.  Give it its own selector
+        # value so it cannot rewrite the captured specification that the kernel will
+        # subsequently judge.
+        selector = thaw_value(freeze_value(external.get("selector")))
+        result = probe.probe(kind, selector, cid)
+        observations[index] = ExternalObservation(
+            reachable=bool(result.reachable),
+            value=result.value,
+            complete=bool(getattr(result, "complete", True)),
+            separate_source=bool(getattr(result, "separate_source", False)),
+            derived_identity=getattr(result, "derived_identity", None),
+        )
+    return observations
+
+
+def _capture_custom_check_results(
+    evaluation: GateEvaluation,
+    probe: ExternalProbe | None,
+) -> dict[int, Mapping[str, object]]:
+    """Execute extension effects in the shell and capture only their returned values."""
+
+    spec = thaw_value(evaluation.spec)
+    events = sorted(
+        (thaw_value(event) for event in evaluation.events),
+        key=stream_key,
+    )
+    rules = expand_rules(spec, evaluation.policy)
+    indicators = spec.get("indicators") or {}
+    allow_errors = tuple(spec.get("allow_errors") or [])
+    captured: dict[int, Mapping[str, object]] = {}
+    for index, rule in enumerate(rules):
+        key = _kernel_detect_check_key(rule, evaluation.registry)
+        handler = evaluation.registry.get(key or "__count__")
+        if handler is None:
+            raise ValueError(f"no check handler registered for {key or '__count__'!r}")
+        if any(handler is canonical for canonical in _CANONICAL_GATE_HANDLERS):
+            continue
+        context = CheckCtx(
+            reachable=evaluation.source.reachable and evaluation.source.complete,
+            indicators=indicators,
+            ontology=evaluation.ontology,
+            allow_errors=allow_errors,
+            probe=probe,
+            cid=evaluation.source.cid,
+        )
+        raw = handler(
+            [thaw_value(freeze_value(event)) for event in events],
+            thaw_value(freeze_value(rule)),
+            context,
+        )
+        if not isinstance(raw, dict):
+            name = getattr(handler, "__name__", repr(handler))
+            raise ValueError(
+                f"check handler {name!r} (key={key!r}) must return a dict with an exact "
+                f"bool 'passed' value. Got: {raw!r}"
+            )
+        captured[index] = raw
+    return captured
 
 
 def evaluate(
@@ -558,6 +652,7 @@ def evaluate(
     cid = cid if cid is not None else _resolve_cid(spec)  # kwarg overrides spec cid/cid_env
     if ontology is None and spec.get("ontology"):
         from ..domain.ontology import Ontology  # file-first; offline, no KG dependency
+
         ontology = Ontology.from_file(spec["ontology"])
     if lookback_s is None:
         lookback_s = duration_s(spec.get("timeWindow", spec.get("time_window")))
@@ -569,11 +664,17 @@ def evaluate(
     res = fetch(backend, QuerySpec(cid=cid, window=window))
     # getattr default keeps duck-typed/older result objects (no `complete` field) working.
     return evaluate_events(
-        spec, res.events, reachable=res.reachable,
-        complete=getattr(res, "complete", True), ontology=ontology, cid=cid, probe=probe,
+        spec,
+        res.events,
+        reachable=res.reachable,
+        complete=getattr(res, "complete", True),
+        ontology=ontology,
+        cid=cid,
+        probe=probe,
         # emit provenance: WHO/WHERE these events came from — stamped into oracle{} (so a green
         # is never a SILENT self-agreement) and used to demote a probe that re-reads this endpoint.
-        emit_backend=type(backend).__name__, emit_identity=backend_identity(backend),
+        emit_backend=type(backend).__name__,
+        emit_identity=backend_identity(backend),
         # is the store an INDEPENDENT judge (not the SUT's own in-process/same-host writer)?
         # Read from the driver's typed caps — this is what makes `require_independent_store` a
         # real gate instead of dead data (grill A1: caps.independent was never consulted).
@@ -596,297 +697,73 @@ def evaluate_events(
     emit_identity: str | None = None,
     emit_independent: bool | None = None,
     emit_sampled: bool = False,
+    policy: GatePolicy | None = None,
+    registry: Mapping[str, CheckFn] | None = None,
+    strength_by_key: Mapping[str, str] | None = None,
+    external_observations: Mapping[int, ExternalObservation] | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> dict:
-    """Judge an already-fetched event set against a gate spec (no I/O).
+    """Judge fetched events through a closed, immutable functional-core input.
 
-    This is the post-read half of :func:`evaluate`, split out so the same monitor dispatch
-    runs over a one-shot query *and* over each freshly-polled prefix in the arrival loop —
-    a verified arrival and a gate evaluation can therefore never diverge. ``reachable`` /
-    ``complete`` come from the :class:`~ooptdd.domain.ports.QueryResult`; a not-reachable or
-    not-complete read is never a clean pass.
+    This compatibility shell resolves CID and environment defaults, snapshots the
+    extension registry, and captures external probe observations.  The actual judgement
+    is :func:`judge_events`, which performs no I/O and reads no ambient state.
     """
-    cid = cid if cid is not None else _resolve_cid(spec)
-    indicators = spec.get("indicators") or {}
-    # Consume events in store-timestamp order so the monitors' first-occurrence /
-    # sequencing / liveness automata see the true arrival stream.
-    events = sorted(events, key=stream_key)
-    rules = list(spec.get("expect", []))
-    # The negative wing: forbid ERROR/CRITICAL records for this cid. Default-ON via the
-    # OOPTDD_FORBID_ERRORS env so consumers opt in without editing every spec; a spec can
-    # override with `forbid_errors: false` (opt out) or exempt known-benign ones via
-    # `allow_errors:`. Without it, a cycle whose good events all arrived but which also
-    # logged an error reads as green-and-noisy — the field-error blind spot.
-    # allow_errors entries exempt known-benign errors from the forbid wing — but an entry
-    # with neither `event` nor `where` matches EVERY event and silently disables the whole
-    # negative wing (grill F2a). That is never a legitimate allowlist; it is a fail-open, so
-    # it is a loud spec error, not a silent green.
-    for a in (spec.get("allow_errors") or []):
-        if not isinstance(a, dict) or not (a.get("event") or a.get("where")):
-            raise ValueError(
-                f"allow_errors entry {a!r} matches every event (no event/where) — it would "
-                "disable the entire negative wing; name the benign error explicitly")
-    fe = spec.get("forbid_errors")
-    if fe is None:
-        fe = _truthy(os.getenv("OOPTDD_FORBID_ERRORS"))
-    if fe:
-        levels = spec.get("error_levels") or ["ERROR", "CRITICAL"]
-        rules.append({"absent": [{"where": {"level": lv}} for lv in levels],
-                      "_auto": "forbid_errors"})
-    # pin_service (opt-in spec key): assert every counted event carries service==<value>, so a
-    # service-drifted or service-missing emitter reds the gate. Injected as a conservation
-    # invariant — count(all) == count(where service==pinned) — reusing the existing monitor.
-    ps = spec.get("pin_service")
-    if ps:
-        rules.append({"invariant": {"left": {"reduce": "count"},
-                                    "right": {"where": {"service": ps}, "reduce": "count"},
-                                    "op": "=="},
-                      "label": f"pin_service={ps}", "_auto": "pin_service"})
-    # Dispatch each rule through the check-predicate registry (the extension seam):
-    # detect the rule's predicate keyword, look up its handler (else the default count
-    # check). A check passes only over a *clean* read — reachable AND complete; a truncated
-    # read (complete=False) is incomplete evidence and gates every check, exactly like an
-    # unreachable store. The top-level result still reports the true reachable/complete.
-    ctx = CheckCtx(reachable=reachable and complete, indicators=indicators,
-                   ontology=ontology, allow_errors=spec.get("allow_errors"),
-                   probe=probe, cid=cid)
-    checks = []
-    for rule in rules:
-        key = _detect_check_key(rule)
-        handler = CHECK_REGISTRY[key] if key is not None else _eval_count
-        chk = handler(events, rule, ctx)
-        # Enforce the check-result contract at the seam (not as a deep KeyError three sites later):
-        # every handler must return a dict carrying a bool 'passed'. Names the handler + key so a
-        # custom-check author sees exactly what to fix.
-        if not isinstance(chk, dict) or "passed" not in chk:
-            raise ValueError(
-                f"check handler {getattr(handler, '__name__', repr(handler))!r} (key={key!r}) "
-                f"returned a result without the required 'passed' key; a check result must be a "
-                f"dict with a bool 'passed'. Got: {chk!r}"
-            )
-        chk["optional"] = bool(rule.get("optional", False))
-        # Pact "pending pacts": a `pending` expectation is verified and surfaced but does
-        # NOT gate the build — for an event whose emitter isn't wired yet. Once it passes,
-        # drop the flag to promote it to a hard gate (see `pending_satisfied`).
-        chk["pending"] = bool(rule.get("pending", False))
-        # A signed or non-finite weight can make a failed check *increase* the weighted
-        # pass ratio (or turn it into NaN).  Weight is therefore specification data with a
-        # fail-closed numeric domain, not an arbitrary float coercion.
-        chk["weight"] = _finite_gate_number(
-            rule.get("weight", 1.0),
-            "gate check weight",
-            minimum=0.0,
-        )  # promptfoo per-assertion weight
-        chk["strength"] = _strength(rule)  # discriminating-power class (signal, not an oracle)
-        chk["kind"] = key or "count"  # stable identity for programmatic RED diagnosis
-        if "label" in rule and "label" not in chk:
-            chk["label"] = rule["label"]  # a rule-declared label follows into the result
-        # Seal the same canonical human handle every consumer already derives through
-        # `_label`.  Downstream typed projections can now consume the result value without
-        # importing this engine module's private formatting helper across the layer boundary.
-        chk["label"] = _label(chk)
-        # A declared `separate_source=True` is DEMOTED to derived-self when the probe's own
-        # derived_identity equals the emit endpoint: it provably re-read the system's own store, so
-        # the independence claim is false (relocation, not corroboration). Asymmetric on purpose — a
-        # derived identity can FALSIFY a declared True but never PROMOTE a missing one, so an honest
-        # source whose identity we cannot derive (derived_identity=None, or no emit_identity to
-        # compare) keeps its declared bool. This makes `separate_source` checkable, not just trust.
-        _di = chk.get("derived_identity")
-        _same_endpoint = (
-            chk["strength"] == "external" and _di is not None and emit_identity is not None
-            and str(_di).rstrip("/") == str(emit_identity).rstrip("/")
+
+    captured_spec = thaw_value(freeze_value(spec))
+    captured_events = thaw_value(freeze_value(events))
+    if not isinstance(captured_spec, dict) or not isinstance(captured_events, list):
+        raise TypeError("gate spec must be an object and events must be a list")
+    resolved_cid = cid if cid is not None else _resolve_cid(captured_spec, environ)
+    resolved_policy = policy or resolve_gate_policy(captured_spec, environ)
+    handlers = dict(CHECK_REGISTRY.snapshot() if registry is None else registry)
+    handlers.setdefault("__count__", _eval_count)
+    strengths = dict(_STRENGTH_BY_KEY if strength_by_key is None else strength_by_key)
+    observations = (
+        _capture_external_observations(
+            captured_spec,
+            resolved_policy,
+            probe,
+            resolved_cid,
+            handlers,
         )
-        if _same_endpoint and chk.get("separate_source"):
-            chk["demoted_same_endpoint"] = True  # self-explaining: the probe re-read the emit store
-        _effective_separate = bool(chk.get("separate_source")) and not _same_endpoint
-        # grounding: where the truth comes from — only a (non-demoted) separate-source `external`
-        # check is CORROBORATED by an independent oracle; everything else (incl. a probe re-reading
-        # the system's own store) is DERIVED-SELF. Orthogonal to strength.
-        chk["grounding"] = ("corroborated" if chk["strength"] == "external"
-                            and _effective_separate else "derived-self")
-        chk["charged"] = _check_charged(chk)  # did it see matching evidence (vs pass on absence)?
-        checks.append(chk)
-    # A check gates only if it is neither optional (#10) nor pending (Pact). Optional/pending
-    # misses are surfaced separately so a silently-degraded stream never reads as clean.
-    # `not c.get("tautological")` excludes a failure-incapable check (e.g. `count >= 0`): it is
-    # not optional/pending, but it can never fail, so counting it as gating would let a gate whose
-    # ONLY check is `count >= 0` read GREEN while asserting nothing. `scope.total` still counts it.
-    gating = [c for c in checks
-              if not c["optional"] and not c["pending"] and not c.get("tautological")]
-    # A gate must assert something that can FAIL to be a clean pass. The old `bool(checks)` guard
-    # only caught ZERO checks; a gate whose every check is optional/pending (gating==0) ALSO
-    # asserts nothing that can fail and must equally not be GREEN — this is the agent-loop's free
-    # weakening move (mark-optional / mark-pending to turn a gate green). `vacuous` is the reason.
-    asserts_anything = bool(gating)
-    vacuous = bool(checks) and not asserts_anything
-    threshold = spec.get("threshold")
-    if threshold is None:
-        # all-or-nothing (default, unchanged): every gating check must pass.
-        required_ok = all(c["passed"] for c in gating)
-        score = None
-    else:
-        # promptfoo test-level threshold: pass iff the *weighted* pass-ratio meets it
-        # (a quorum of expected events, not strict unanimity).
-        threshold_value = _gate_threshold(threshold)
-        wtot = sum(c["weight"] for c in gating)
-        if not math.isfinite(wtot) or wtot <= 0.0:
-            raise ValueError(
-                "weighted gate requires a finite positive total gating weight"
-            )
-        passed_weight = sum(c["weight"] for c in gating if c["passed"])
-        if not math.isfinite(passed_weight):
-            raise ValueError("weighted gate passed-weight total must be finite")
-        score = passed_weight / wtot
-        required_ok = score >= threshold_value
-    # A store we never reached (reachable=False) is INFRA and a truncated read
-    # (complete=False) is incomplete evidence — neither is ever a clean pass (CLI exit 2). And a
-    # gate that asserts nothing GATING (empty expect, or every check optional/pending) is never a
-    # clean pass either (`asserts_anything`, above). `scope` reports what — and how hard — this
-    # verdict actually asserted, so GREEN cannot be misread as "the system is correct": it is a
-    # closed-world claim over the events the author NAMED, not over un-named behavior.
-    # Stream charge-coverage: of the event TYPES that actually arrived for this cid, how many
-    # does the gate even name? `unasserted_observed` are events the system emitted that NO check
-    # observes — a measured slice of the closed-world gap (the rest, un-emitted paths, stays
-    # invisible). A green gate that names 1 of 9 arrived types is technically green and almost
-    # blind; this puts a number on it.
-    observed = {e.get("event") for e in events if e.get("event")}
-    asserted = set().union(*(_rule_event_names(r) for r in rules)) if rules else set()
-    named = observed & asserted
-    # An `external:` check whose probe was unreachable surfaces probe_reachable=False so the verdict
-    # layer maps it to inconclusive (?), never a strict fail — the same honesty as an unreachable
-    # store. A missing probe (no_external_probe_configured) is a loud RED, not a silent green.
-    probe_reachable = not any(c.get("probe_reachable") is False for c in checks)
-    # oracle provenance: how many GATING checks are CORROBORATED by an independent source (only
-    # `external:`) vs DERIVED-SELF (the system's own emit). single_authority=True is the meta-
-    # blind-spot made visible: this green is the system agreeing with itself. charge: how many
-    # gating checks actually SAW matching evidence (vs passed on absence) — distinct from coverage.
-    # Corroboration is an ACHIEVEMENT, not a check kind: a separate-source `external:` the probe
-    # could not reach OR that REFUTED the system (passed=False) corroborates nothing — counting it
-    # would issue the "independently corroborated" receipt the oracle denied, and would let a
-    # refuting oracle satisfy require_corroboration. So the corroboration must have actually passed.
-    corroborated = sum(
-        1 for c in gating if c.get("grounding") == "corroborated" and c.get("passed")
+        if external_observations is None
+        else dict(external_observations)
     )
-    charged = sum(1 for c in gating if c.get("charged"))
-    # require_corroboration (spec key or env OOPTDD_REQUIRE_CORROBORATION, default OFF): promote the
-    # single_authority SIGNAL to a GATE — a gate whose every check is the system's own self-report
-    # (zero separate-source corroboration) is not a clean pass. A fixable misconfiguration (RED),
-    # not inconclusive: add a separate-source `external:` or accept self-consistency by leaving OFF.
-    # THREAT SCOPE (docs/THREAT_MODEL.md): `separate_source` is the probe's self-declaration — this
-    # defends against an honest single-authority gate, NOT a SUT that supplies a colluding probe.
-    rc = spec.get("require_corroboration")
-    if rc is None:
-        rc = _truthy(os.getenv("OOPTDD_REQUIRE_CORROBORATION"))
-    rc = bool(rc)
-    uncorroborated = rc and asserts_anything and corroborated == 0
-    # require_signature (spec key or env OOPTDD_REQUIRE_SIGNATURE, default OFF): promote emit
-    # PROVENANCE to a GATE, mirroring require_corroboration above. When ON, the events for this cid
-    # must form an intact tamper-evident hash chain (domain.model.sign_chain) under the key in
-    # OOPTDD_SIGNING_KEY — an unsigned injected event breaks the prev-link and a post-sign edit
-    # breaks the MAC, so a forged GREEN (a positive check satisfied by an off-chain event) is no
-    # longer a clean pass. THREAT SCOPE (docs/THREAT_MODEL.md): this authenticates a WRITER — it
-    # defends against an out-of-band tamperer, NOT a SUT that holds the signing key in its own env.
-    # This closes the gap that require_signature was ONLY enforced on the
-    # pytest-summary path (engine.verify), never on the gate path every consumer counts domain
-    # events through. Strict like that path: required-but-unverifiable (no key) or an unsigned /
-    # broken stream is `unauthenticated`, never a silent green. Backend-stamped `_*` fields (e.g.
-    # `_timestamp`, added on read after signing) are excluded from the canonical form. Keyless/OFF
-    # is unchanged — opt-in. `authenticated` is True/False when enforced, None when not.
-    rs = spec.get("require_signature")
-    if rs is None:
-        rs = _truthy(os.getenv("OOPTDD_REQUIRE_SIGNATURE"))
-    rs = bool(rs)
-    authenticated = None
-    if rs and asserts_anything:
-        sig_key = os.getenv("OOPTDD_SIGNING_KEY")
-        if sig_key:
-            chain = [{k: v for k, v in e.items() if not k.startswith("_")} for e in events]
-            authenticated = bool(verify_chain(chain, sig_key)["ok"])
-        else:
-            authenticated = False  # required but unverifiable (no key) — never a clean pass
-    unauthenticated = rs and asserts_anything and authenticated is not True
-    # require_independent_store (spec key or env OOPTDD_REQUIRE_INDEPENDENT, default OFF): promote
-    # the emit-backend independence SIGNAL to a GATE. A non-independent store (in-process `memory`,
-    # same-host author-writable `jsonl`) is the SUT judging itself — arrival there proves gate
-    # mechanics, not that the evidence reached a store the SUT couldn't just write. When ON, such a
-    # green is only clean if at least one gating check is corroborated by a separate source; else
-    # `dependent_store` (a fixable misconfiguration → RED, not inconclusive). `emit_independent` is
-    # None when unknown (a duck-typed backend with no caps) — then this cannot fire (never invents a
-    # RED from missing metadata). This is the grill-A1 fix: caps.independent stops being dead data.
-    ri = spec.get("require_independent_store")
-    if ri is None:
-        ri = _truthy(os.getenv("OOPTDD_REQUIRE_INDEPENDENT"))
-    ri = bool(ri)
-    dependent_store = (ri and asserts_anything and emit_independent is False
-                       and corroborated == 0)
-    result = {
-        "ok": reachable and complete and asserts_anything and required_ok
-        and not uncorroborated and not unauthenticated and not dependent_store,
-        "reachable": reachable,
-        "complete": complete,
-        "probe_reachable": probe_reachable,
-        "vacuous": vacuous,
-        "uncorroborated": uncorroborated,
-        "unauthenticated": unauthenticated,
-        "dependent_store": dependent_store,
-        "authenticated": authenticated,
-        "cid": cid,
-        "checks": checks,
-        "oracle": {
-            "gating": len(gating),
-            "corroborated": corroborated,
-            "derived_self": len(gating) - corroborated,
-            "single_authority": bool(gating) and corroborated == 0,
-            "enforced": rc,
-            # emit provenance: WHERE this verdict's events came from, so a single_authority green is
-            # never SILENT — a reviewer sees the self-agreement without reading the spec.
-            # emit_backend is the driver class; emit_identity the framework-derived endpoint.
-            # relocated counts gating `external:` checks whose separate_source claim was demoted.
-            "emit_backend": emit_backend,
-            "emit_identity": emit_identity,
-            "emit_independent": emit_independent,
-            "independent_store_enforced": ri,
-            "relocated": sum(1 for c in gating if c.get("demoted_same_endpoint")),
-            "signature_enforced": rs,
-            # verdict provenance: was the negative wing (forbid ERROR/CRITICAL) enforced for this
-            # run? Stamped like `enforced`/`signature_enforced` so a judge reads the posture off the
-            # receipt instead of re-deriving it from the (env-dependent) spec.
-            "forbid_errors": bool(fe),
-        },
-        "scope": {
-            "gating": len(gating),
-            "optional": sum(1 for c in checks if c["optional"]),
-            "pending": sum(1 for c in checks if c["pending"]),
-            "total": len(checks),
-            "asserts_anything": asserts_anything,
-            "by_strength": dict(Counter(c["strength"] for c in gating)),
-            "observed_event_types": len(observed),
-            "named_event_types": len(named),
-            "unasserted_observed": sorted(observed - asserted)[:10],
-            "stream_coverage": (len(named) / len(observed)) if observed else None,
-            "charged": charged,
-            "charge_ratio": (charged / len(gating)) if gating else None,
-            "uncharged": [_label(c) for c in gating if not c.get("charged")][:10],
-        },
-        "optional_failed": [_label(c) for c in checks if c["optional"] and not c["passed"]],
-        "pending_failed": [_label(c) for c in checks if c["pending"] and not c["passed"]],
-        "pending_satisfied": [_label(c) for c in checks if c["pending"] and c["passed"]],
-    }
-    if score is not None:
-        result["score"] = score
-        result["threshold"] = threshold_value
-    if emit_sampled:
-        # honest flag: this verdict was read from a SAMPLED store (see BackendCaps.samples);
-        # evidence_tier caps store-derived rungs at `arrived` on it.
-        result["sampled"] = True
-    return result
+    evaluation = GateEvaluation.capture(
+        captured_spec,
+        captured_events,
+        policy=resolved_policy,
+        source=GateSource(
+            cid=resolved_cid,
+            reachable=reachable,
+            complete=complete,
+            emit_backend=emit_backend,
+            emit_identity=emit_identity,
+            emit_independent=emit_independent,
+            emit_sampled=emit_sampled,
+        ),
+        registry=handlers,
+        strength_by_key=strengths,
+        external_observations=observations,
+        ontology=ontology,
+    )
+    evaluation = replace(
+        evaluation,
+        captured_check_results=_capture_custom_check_results(evaluation, probe),
+    )
+    return judge_events(evaluation).as_dict()
 
 
 def failed_checks(result: dict) -> list[dict]:
     """The GATING checks that failed — the RED contributors, for programmatic diagnosis. Excludes
     optional/pending checks (they never gate ``ok``). Each carries a stable ``kind`` so a consumer
     keys off ``c["kind"]`` instead of string-matching the raw check shape."""
-    return [c for c in result.get("checks", [])
-            if not c.get("passed") and not c.get("optional") and not c.get("pending")]
+    return [
+        c
+        for c in result.get("checks", [])
+        if not c.get("passed") and not c.get("optional") and not c.get("pending")
+    ]
 
 
 def green_banner(result: dict) -> str:
@@ -903,20 +780,26 @@ def green_banner(result: dict) -> str:
         f"behavior is unobserved). (cid={result.get('cid')})"
     )
     if sc.get("gating") and set(bys) <= {"existence-only"}:
-        line += (" WARNING: every gating check is existence-only — proves tokens were emitted, "
-                 "not that they had any effect.")
+        line += (
+            " WARNING: every gating check is existence-only — proves tokens were emitted, "
+            "not that they had any effect."
+        )
     if sc.get("stream_coverage") is not None:
-        line += (f" Stream-coverage: {sc.get('named_event_types')}/"
-                 f"{sc.get('observed_event_types')} arrived event-type(s) named")
+        line += (
+            f" Stream-coverage: {sc.get('named_event_types')}/"
+            f"{sc.get('observed_event_types')} arrived event-type(s) named"
+        )
         un = sc.get("unasserted_observed") or []
         line += f" ({len(un)} arrived UNOBSERVED: {','.join(un[:5])})." if un else "."
     orc = result.get("oracle") or {}
     if orc.get("gating"):
-        line += (" Oracle: single authority — 0 checks corroborated by an independent source "
-                 "(add an `external:` check to break self-consistency)."
-                 if orc.get("single_authority")
-                 else f" Oracle: {orc.get('corroborated')}/{orc.get('gating')} independently"
-                      " corroborated.")
+        line += (
+            " Oracle: single authority — 0 checks corroborated by an independent source "
+            "(add an `external:` check to break self-consistency)."
+            if orc.get("single_authority")
+            else f" Oracle: {orc.get('corroborated')}/{orc.get('gating')} independently"
+            " corroborated."
+        )
     if sc.get("charge_ratio") is not None:
         line += f" Charge: {sc.get('charged')}/{sc.get('gating')} gating check(s) saw evidence."
     return line
@@ -935,20 +818,38 @@ def lint_spec(spec: dict) -> list[dict]:
     """
     rules = list(spec.get("expect", []))
     if not rules:
-        return [{"code": "VAC0", "severity": "high", "label": "(spec)",
-                 "message": "empty `expect:` — gate declares no expectations, asserts nothing."}]
+        return [
+            {
+                "code": "VAC0",
+                "severity": "high",
+                "label": "(spec)",
+                "message": "empty `expect:` — gate declares no expectations, asserts nothing.",
+            }
+        ]
     out: list[dict] = []
     gating = [r for r in rules if not r.get("optional") and not r.get("pending")]
     if not gating:
-        out.append({"code": "VAC1", "severity": "high", "label": "(spec)",
-                    "message": "no gating checks — every check is optional/pending; the gate can "
-                               "never fail (vacuous). Mark at least one check gating."})
+        out.append(
+            {
+                "code": "VAC1",
+                "severity": "high",
+                "label": "(spec)",
+                "message": "no gating checks — every check is optional/pending; the gate can "
+                "never fail (vacuous). Mark at least one check gating.",
+            }
+        )
     t = spec.get("threshold")
     if t is not None and float(t) < 1.0 and not spec.get("justification"):
-        out.append({"code": "VAC2", "severity": "high", "label": "(spec)",
-                    "message": f"threshold {t} < 1.0 silently licenses dropping up to "
-                               f"{(1 - float(t)) * 100:.0f}% of expectations every run; add a "
-                               "`justification:` field if this quorum is intentional."})
+        out.append(
+            {
+                "code": "VAC2",
+                "severity": "high",
+                "label": "(spec)",
+                "message": f"threshold {t} < 1.0 silently licenses dropping up to "
+                f"{(1 - float(t)) * 100:.0f}% of expectations every run; add a "
+                "`justification:` field if this quorum is intentional.",
+            }
+        )
     for i, r in enumerate(gating):
         # read the `target:` alias too (grill F4: VAC4 only checked count/want, so a
         # `target: 0` gate escaped with a mere medium finding), and match the FULL tautology
@@ -956,18 +857,31 @@ def lint_spec(spec: dict) -> list[dict]:
         _op = _norm_op(str(r.get("op", ">="))) if r.get("op") else None
         _cnt = r.get("count", r.get("target", r.get("want", 1)))
         _taut = isinstance(_cnt, (int, float)) and (
-            (_op == ">=" and _cnt <= 0) or (_op == ">" and _cnt < 0) or (_op == "!=" and _cnt < 0))
+            (_op == ">=" and _cnt <= 0) or (_op == ">" and _cnt < 0) or (_op == "!=" and _cnt < 0)
+        )
         if _taut:
-            out.append({"code": "VAC4", "severity": "high", "label": _label(r),
-                        "message": f"check #{i} ({_label(r)}) is `count {_op} {_cnt}` — counts are "
-                                   "non-negative, so it is always satisfied and can never fail "
-                                   "(tautology). Use `>= 1`, a `where`, or a real threshold."})
+            out.append(
+                {
+                    "code": "VAC4",
+                    "severity": "high",
+                    "label": _label(r),
+                    "message": f"check #{i} ({_label(r)}) is `count {_op} {_cnt}` — counts are "
+                    "non-negative, so it is always satisfied and can never fail "
+                    "(tautology). Use `>= 1`, a `where`, or a real threshold.",
+                }
+            )
             continue
         if _strength(r) == "existence-only":
-            out.append({"code": "VAC3", "severity": "medium", "label": _label(r),
-                        "message": f"check #{i} ({_label(r)}) is existence-only — proves a token "
-                                   "arrived, pins no field/order/forbid. Add a `where`, "
-                                   "`must_order`, `absent`, or `invariant` to discriminate."})
+            out.append(
+                {
+                    "code": "VAC3",
+                    "severity": "medium",
+                    "label": _label(r),
+                    "message": f"check #{i} ({_label(r)}) is existence-only — proves a token "
+                    "arrived, pins no field/order/forbid. Add a `where`, "
+                    "`must_order`, `absent`, or `invariant` to discriminate.",
+                }
+            )
     return out
 
 
@@ -981,11 +895,7 @@ def strength_fingerprint(spec: dict) -> dict:
     gating = [r for r in rules if not r.get("optional") and not r.get("pending")]
     strengths = [_strength(r) for r in gating]
     raw_threshold = spec.get("threshold")
-    threshold = (
-        1.0
-        if raw_threshold is None
-        else _gate_threshold(raw_threshold)
-    )
+    threshold = 1.0 if raw_threshold is None else _gate_threshold(raw_threshold)
     raw = sum(_STRENGTH_RANK.get(s, 1) for s in strengths)
     return {
         "gating": len(gating),
@@ -1018,8 +928,15 @@ def compare_strength(baseline: dict, current: dict) -> dict:
     if current["min_threshold"] < baseline["min_threshold"]:
         regs.append(f"threshold lowered {baseline['min_threshold']} -> {current['min_threshold']}")
     bb, cb = baseline.get("by_strength", {}), current.get("by_strength", {})
-    for cls in ("invariant", "ratio", "conformance", "liveness",
-                "ordered", "forbid", "value-pinned"):
+    for cls in (
+        "invariant",
+        "ratio",
+        "conformance",
+        "liveness",
+        "ordered",
+        "forbid",
+        "value-pinned",
+    ):
         if cb.get(cls, 0) < bb.get(cls, 0):
             regs.append(f"{cls} checks dropped {bb.get(cls, 0)} -> {cb.get(cls, 0)}")
     # Enforcement-axis downgrade: disabling a required wing (signature / corroboration /
@@ -1032,10 +949,15 @@ def compare_strength(baseline: dict, current: dict) -> dict:
             if be.get(axis) and not ce.get(axis):
                 regs.append(f"{axis} enforcement dropped {be.get(axis)} -> {ce.get(axis)}")
         if ce.get("allow_errors", 0) > be.get("allow_errors", 0):
-            regs.append(f"allow_errors widened {be.get('allow_errors', 0)} "
-                        f"-> {ce.get('allow_errors', 0)}")
-    return {"weakened": bool(regs), "regressions": regs,
-            "baseline_score": baseline["score"], "current_score": current["score"]}
+            regs.append(
+                f"allow_errors widened {be.get('allow_errors', 0)} -> {ce.get('allow_errors', 0)}"
+            )
+    return {
+        "weakened": bool(regs),
+        "regressions": regs,
+        "baseline_score": baseline["score"],
+        "current_score": current["score"],
+    }
 
 
 #: The assertion-strength ladder (LakatoTree element ``elem-ooptdd-assert-strength-ladder``),
@@ -1099,11 +1021,13 @@ def can_i_deploy(results: list[dict]) -> dict:
     was unreachable OR read incompletely (truncated) is inconclusive — an INFRA hold, not a
     clean pass. Returns ``{deployable, blockers:[cid], inconclusive:[cid], pending:{cid:[..]}}``.
     """
+
     def _incomplete(r: dict) -> bool:
         return not r["reachable"] or not r.get("complete", True)
 
-    blockers = [r["cid"] for r in results if r["reachable"] and r.get("complete", True)
-                and not r["ok"]]
+    blockers = [
+        r["cid"] for r in results if r["reachable"] and r.get("complete", True) and not r["ok"]
+    ]
     inconclusive = [r["cid"] for r in results if _incomplete(r)]
     pending = {r["cid"]: r["pending_failed"] for r in results if r.get("pending_failed")}
     return {

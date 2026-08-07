@@ -162,6 +162,8 @@ def poll_until_present(
         last_events, reachable=last_reachable, complete=last_complete,
         queried_ok=queried_ok, attempt=attempts, final=True,
     )
+    if body is None:
+        raise RuntimeError("final prefix evaluation must return a terminal verdict")
     # Anti-flap confirm: a FINAL-path green passed on the last-read prefix but was
     # not irrevocable (else it would have early-settled above) — a late offender can
     # land right after that read. Re-read confirm_rounds extra times; any round that
@@ -170,7 +172,10 @@ def poll_until_present(
     while body.get("ok") and confirms_run < max(confirm_rounds, 0):
         sleeper(confirm_delay_s)
         confirms_run += 1
-        body = _read(attempts, final=True)
+        confirmed = _read(attempts, final=True)
+        if confirmed is None:
+            raise RuntimeError("final prefix confirmation must return a terminal verdict")
+        body = confirmed
     body["attempts"] = attempts
     return _stamp_arrival(body, extended=extended, confirms=confirms_run)
 

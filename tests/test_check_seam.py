@@ -10,6 +10,7 @@ honesty accounting via optional keys, and add unregister — all without changin
 import pytest
 
 import ooptdd.engine.gate as gate
+from ooptdd.domain.ports import ProbeResult
 
 
 @pytest.fixture(autouse=True)
@@ -62,6 +63,63 @@ def test_wellformed_custom_check_still_evaluates():
     res = _eval(_spec([{"seam_ok": "x"}]), [])
     assert res["ok"] is True
     assert any(c.get("passed") for c in res["checks"])
+
+
+def test_custom_check_keeps_the_live_probe_but_kernel_receives_only_its_result():
+    calls = []
+
+    class Probe:
+        def probe(self, kind, selector, cid):
+            calls.append((kind, selector, cid))
+            return ProbeResult(reachable=True, value=selector["value"])
+
+    probe = Probe()
+
+    @gate.check("seam_probe")
+    def _h(events, rule, ctx):
+        assert ctx.probe is probe
+        first = ctx.probe.probe("first", {"value": 20}, ctx.cid)
+        second = ctx.probe.probe("second", {"value": 22}, ctx.cid)
+        return {"passed": first.value + second.value == 42, "got": 2}
+
+    result = gate.evaluate_events(
+        _spec([{"seam_probe": True}]),
+        [],
+        reachable=True,
+        probe=probe,
+    )
+
+    assert result["ok"] is True
+    assert calls == [
+        ("first", {"value": 20}, "seam-cid"),
+        ("second", {"value": 22}, "seam-cid"),
+    ]
+
+
+def test_custom_external_override_controls_probe_calls_without_builtin_preprobe():
+    calls = []
+
+    class Probe:
+        def probe(self, kind, selector, cid):
+            calls.append((kind, selector, cid))
+            return ProbeResult(reachable=True, value=42)
+
+    gate.unregister("external")
+
+    @gate.check("external")
+    def _override(events, rule, ctx):
+        result = ctx.probe.probe("custom", {"owned": True}, ctx.cid)
+        return {"passed": result.value == 42, "value": result.value}
+
+    result = gate.evaluate_events(
+        _spec([{"external": {"kind": "builtin", "selector": {"id": 7}, "want": 42}}]),
+        [],
+        reachable=True,
+        probe=Probe(),
+    )
+
+    assert result["ok"] is True
+    assert calls == [("custom", {"owned": True}, "seam-cid")]
 
 
 # ── (b) let a custom check opt into the honesty accounting ──────────────────────────

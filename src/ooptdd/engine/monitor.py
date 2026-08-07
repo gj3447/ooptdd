@@ -32,6 +32,8 @@ import math
 import operator
 from collections.abc import Callable
 
+from .gate_primitives import _OP_ALIASES, _norm_op, stream_key  # noqa: F401
+
 # ── three-valued LTL₃ verdict domain ────────────────────────────────────────────
 SAT = "sat"    # ⊤  settled true  — no extension can falsify
 VIOL = "viol"  # ⊥  settled false — no extension can satisfy
@@ -43,17 +45,6 @@ _OPS: dict[str, Callable[[float, float], bool]] = {
     ">=": operator.ge, ">": operator.gt, "==": operator.eq,
     "!=": operator.ne, "<=": operator.le, "<": operator.lt,
 }
-_OP_ALIASES = {
-    "gte": ">=", "ge": ">=", "gt": ">", "eq": "==", "ne": "!=",
-    "lte": "<=", "le": "<=", "lt": "<",
-}
-
-
-def _norm_op(op) -> str:
-    """Map an OpenSLO word operator to its symbolic form; pass symbols through."""
-    return _OP_ALIASES.get(str(op), str(op))
-
-
 def _want(rule: dict):
     """``target`` (OpenSLO) is an alias for ``count``; default 1."""
     if "target" in rule:
@@ -150,15 +141,6 @@ def _brief(ev: dict) -> dict:
     without dumping a whole payload into the verdict."""
     keys = ("event", "level", "message", "msg", "error", "exc", "_timestamp")
     return {k: ev[k] for k in keys if k in ev} or {"event": ev.get("event")}
-
-
-def stream_key(ev: dict):
-    """Sort key putting events without a store timestamp first, then by ``_timestamp``, then by the
-    backend's per-event ``_seq`` — the tie-break that keeps same-batch events (which share one
-    wall-clock ``_timestamp``) in ship order. Events without ``_seq`` sort as 0 (concurrent)."""
-    ts = ev.get("_timestamp")
-    seq = ev.get("_seq")
-    return (ts is None, ts if ts is not None else 0, seq if seq is not None else 0)
 
 
 # ── monitor automata ─────────────────────────────────────────────────────────── #
@@ -401,7 +383,7 @@ class OrderMonitor(Monitor):
         return all(self._pair_ok(seen[i], seen[i + 1]) for i in range(len(seen) - 1))
 
     def _gaps_exceeded(self):
-        out = []
+        out: list[str] = []
         if self.within_s is None:
             return out
         bound = self.within_s * 1_000_000
@@ -567,7 +549,12 @@ class RatioMonitor(Monitor):
         })
 
 
-_REDUCERS = {"sum": sum, "min": min, "max": max, "last": lambda vs: vs[-1]}
+_REDUCERS: dict[str, Callable[[list[float]], float]] = {
+    "sum": sum,
+    "min": min,
+    "max": max,
+    "last": lambda values: values[-1],
+}
 
 
 class InvariantMonitor(Monitor):

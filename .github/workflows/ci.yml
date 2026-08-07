@@ -9,6 +9,41 @@ on:
   workflow_dispatch:
 
 jobs:
+  architecture-and-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: astral-sh/setup-uv@v5
+      - name: Verify dependency lock
+        run: uv lock --check
+      - name: Install locked Python 3.10 environment
+        run: uv sync --locked --python 3.10 --extra dev --extra otel
+      - name: Python 3.10 package import smoke
+        run: >-
+          uv run --no-sync python -c
+          "import ooptdd; import ooptdd.engine.gate; import ooptdd.ouroboros"
+      - name: Functional architecture contract
+        run: uv run --no-sync python scripts/check_functional_architecture.py
+      - name: Architecture, functional core, and completion canaries
+        run: >-
+          uv run --no-sync pytest -q
+          tests/test_functional_architecture_harness.py
+          tests/test_functional_gate_kernel.py
+          tests/test_gate_scope.py
+          tests/test_ontology.py
+          tests/test_ouroboros_completion.py
+      - name: Package typing
+        run: uv run --no-sync mypy src/ooptdd
+      - name: Strict Ouroboros typing
+        run: uv run --no-sync mypy --strict src/ooptdd/ouroboros
+      - name: Lint maintained Python surfaces and architecture checker
+        run: >-
+          uv run --no-sync ruff check
+          src/ tests/ examples/ scripts/check_functional_architecture.py
+
   test:
     runs-on: ${{ matrix.os }}
     env:

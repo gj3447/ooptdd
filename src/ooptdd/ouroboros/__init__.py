@@ -4,6 +4,21 @@ The public surface is deliberately namespaced as ``ooptdd.ouroboros`` so generic
 such as ``step`` and ``Phase`` do not collide with the mature gate API.
 """
 
+from .completion import (
+    AuthenticatedGateCompletionPolicy,
+    AuthorityVerdict,
+    CompletionAssessment,
+    ResolvedGateEvidence,
+    assess_authenticated_gate_completion,
+    parse_and_validate_artifact_bytes,
+    required_gate_artifacts,
+    validate_gate_artifact_binding,
+)
+from .completion_io import (
+    GateEvidenceAuthority,
+    GateEvidenceResolver,
+    resolve_and_assess_authenticated_gate_completion,
+)
 from .gate_adapter import (
     GATE_EVIDENCE_VERSION,
     OUROBOROS_GATE_EVIDENCE_SCHEMA,
@@ -60,6 +75,7 @@ from .schema import (
 
 __all__ = [
     "CANONICALIZATION",
+    "AuthenticatedGateCompletionPolicy",
     "GATE_EVIDENCE_VERSION",
     "LEGACY_RECEIPT_VERSION",
     "MAX_INTEROPERABLE_INTEGER",
@@ -70,6 +86,8 @@ __all__ = [
     "CycleIdentity",
     "CycleSnapshot",
     "Digest",
+    "AuthorityVerdict",
+    "CompletionAssessment",
     "Disposition",
     "EffectClass",
     "EffectIntent",
@@ -81,6 +99,8 @@ __all__ = [
     "EvidenceTier",
     "FindingDisposition",
     "GateEvidenceBundle",
+    "GateEvidenceAuthority",
+    "GateEvidenceResolver",
     "InterruptReason",
     "MaterialLock",
     "MonitorVerdict",
@@ -90,18 +110,24 @@ __all__ = [
     "ProtocolBudget",
     "ProtocolEvent",
     "ReceiptStore",
+    "ResolvedGateEvidence",
     "RunEvidence",
     "RunOutcome",
     "RunRole",
     "SnapshotStore",
     "TransitionResult",
     "adapt_gate_verification",
+    "assess_authenticated_gate_completion",
     "canonical_json_bytes",
     "digest_json",
     "digest_raw",
     "raw_sha256",
     "receipt_content_digest",
     "receipt_from_snapshot",
+    "parse_and_validate_artifact_bytes",
+    "required_gate_artifacts",
+    "validate_gate_artifact_binding",
+    "resolve_and_assess_authenticated_gate_completion",
     "successor_from_receipt",
     "step",
     "upcast_v1_receipt",

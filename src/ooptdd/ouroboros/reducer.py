@@ -590,4 +590,4 @@ def step(snapshot: CycleSnapshot, event: ProtocolEvent) -> TransitionResult:
     return _rejected(snapshot, event, "invalid_transition")
 
 
-__all__ = ["step"]
+__all__ = ("step",)

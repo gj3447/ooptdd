@@ -145,6 +145,16 @@ def _require_text(value: str, label: str) -> None:
         raise ValueError(f"{label} must not contain NUL")
 
 
+def _json_object(value: str, label: str) -> dict[str, Any]:
+    try:
+        decoded = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} must be valid JSON: {error}") from error
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{label} must encode an object")
+    return decoded
+
+
 @dataclass(frozen=True)
 class ProtocolBudget:
     max_steps: int
@@ -337,7 +347,7 @@ class ProtocolEvent:
 
     @property
     def payload(self) -> dict[str, Any]:
-        return json.loads(self.payload_json)
+        return _json_object(self.payload_json, "event payload_json")
 
     @classmethod
     def create(
@@ -458,7 +468,7 @@ class EffectIntent:
 
     @property
     def payload(self) -> dict[str, Any]:
-        return json.loads(self.payload_json)
+        return _json_object(self.payload_json, "effect payload_json")
 
     @classmethod
     def create(
@@ -618,7 +628,7 @@ class TransitionResult:
     rejection_code: str | None = None
 
 
-__all__ = [
+__all__ = (
     "COMPLETION_EVIDENCE_TIERS",
     "PROTOCOL_VERSION",
     "RECEIPT_VERSION",
@@ -645,4 +655,4 @@ __all__ = [
     "RunRole",
     "TERMINAL_PHASES",
     "TransitionResult",
-]
+)

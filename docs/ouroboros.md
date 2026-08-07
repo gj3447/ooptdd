@@ -196,8 +196,9 @@ evidence it does not possess.  Its receipt self-hash is change detection, not on
 external anchors described above.
 
 Ouroboros v2 turns the informal “test the test, then bite the result” cycle into a
-bounded protocol.  It is intentionally a **pure module**, not a daemon or workflow
-engine.  The current implementation answers one narrow question:
+bounded protocol. Its reducer is intentionally a **pure decision kernel**, not a daemon or
+workflow engine; sibling adapters and port-based shells handle validation and effects. The
+reducer answers one narrow question:
 
 > Given an immutable cycle snapshot and one typed event, what state and effect intents
 > follow without inventing evidence?
@@ -277,9 +278,9 @@ The completion criterion is thus a local fixed point under the locked verifier a
 scope, not a universal fixed point.  Changing the spec, verifier, source, or environment
 creates a new problem and therefore a new generation.
 
-#### Engineering: pure decision, caller-owned effects
+#### Engineering: pure reducer decision, caller-owned effects
 
-The module contains no I/O.  A transition returns stable `EffectIntent` values.  A future
+The reducer contains no I/O.  A transition returns stable `EffectIntent` values.  A future
 runner must commit its snapshot/event record before delivering effects and deduplicate by
 `effect_id`.  Persistence, retries, timeouts, no-progress and total-invocation limits,
 scheduling, and artifact reads remain ports owned by the caller.

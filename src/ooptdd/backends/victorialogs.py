@@ -184,7 +184,7 @@ class VictoriaLogsBackend:
             kind, retry_after = classify_http_error(exc)
             return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}",
                                error_kind=kind, retry_after_s=retry_after)
-        events = []
+        events: list[dict] = []
         complete = True
         for line in payload.splitlines():
             line = line.strip()

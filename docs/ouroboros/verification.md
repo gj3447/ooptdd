@@ -20,11 +20,22 @@ The matrix distinguishes an implemented fact from a future operational claim.
 | Evidence tier is derived rather than caller-selected on the gate-adapter path | tier recomputation, non-gating causal-check, sampled-cap, and external-identity tests | an optional/pending check promotes weak evidence, or a caller promotes arrived evidence to causal/external without the required gating check | implemented structurally on the adapter path |
 | Crash recovery and effect delivery | none in this module | process dies between state and external effect | deferred |
 | Evidence producer and oracle authority are authenticated | no detached attestation or externally owned anchor in this module | a colluding producer fabricates a self-consistent verifier result and boundary | authenticated store adapter and external anchor required |
+| Authenticated gate completion resolves four unique typed run artifacts | `resolve_and_assess_authenticated_gate_completion` tests with injected resolver and authority ports | a locally replay-valid receipt names a missing, duplicate, non-canonical, context-mismatched, digest-mismatched, unauthenticated, dependent, or wrong-authority artifact | implemented as an opt-in fail-closed policy; exact bytes and full receipt context are validated before authority invocation, the verifier's claimed ID is checked, and deployment trust-root selection remains caller-owned |
 | Independent-store arrival in production | existing backend integrations, not this protocol slice | store/SUT share authority | adapter evidence required |
 | Caller loop terminates | none in this module; invalid/replayed calls do not consume `max_steps` | caller invokes forever without admissible progress | caller-owned retry, timeout, no-progress, and invocation bounds required |
 | Reducer/receipt producer is authentic | none in this module | attacker rewrites receipt and recomputes its unkeyed hash | out of scope |
 | A claimed predecessor hash exists in an authoritative chain | none in this module | self-consistent successor names an unavailable predecessor | chain validator or authenticated store required |
 | Scientific or Lakatosian progress | no judge in this module | internally consistent but degenerating cycle | out of scope |
+
+Authenticated gate completion is deliberately narrower than an authoritative cycle claim.
+It authenticates the exact canonical gate-artifact bytes selected by a locally valid receipt;
+it does not authenticate the receipt producer, prove lineage availability, establish oracle
+truth, or make a caller-provided authority independent in fact. Those remain separate trust
+and deployment obligations.
+
+The authority port is not a cryptographic identity mechanism. Its ``authority_id`` is a claim
+returned by the caller-selected verifier and compared with policy; callers must bind the concrete
+verifier to an authenticated trust root through deployment configuration or a stronger adapter.
 
 ## Verification commands
 

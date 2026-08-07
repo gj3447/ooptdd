@@ -11,6 +11,8 @@ CLI and plugin call sites.
 """
 from __future__ import annotations
 
+from importlib.metadata import EntryPoint
+
 from .base import (
     DEFAULT_CAPS,
     Backend,
@@ -69,7 +71,7 @@ class BackendRegistry:
     def unregister(self, name: str) -> None:
         self._registered.pop(name, None)
 
-    def _entry_points(self) -> dict[str, object]:
+    def _entry_points(self) -> dict[str, EntryPoint]:
         from importlib.metadata import entry_points
 
         return {ep.name: ep for ep in entry_points(group=self._entry_point_group)}

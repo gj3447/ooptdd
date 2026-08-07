@@ -280,7 +280,10 @@ class ProbeResult:
     """Outcome of one external-state probe.
 
     reachable: True iff the probe round-trip succeeded (regardless of value). False -> `?`.
-    value:     the external fact (any value), or None if absent / not extracted.
+    value:     the external fact, or None if absent / not extracted. The functional gate
+               captures JSON-like mappings/containers plus immutable Decimal, Fraction,
+               date, UUID, and PurePath values. Adapters must normalize other domain objects;
+               unsupported values fail loudly instead of retaining a mutable alias.
     complete:  True iff the probe read the full fact (no truncation).
     """
 

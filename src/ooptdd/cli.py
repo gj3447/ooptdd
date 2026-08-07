@@ -322,8 +322,13 @@ def _cmd_audit_rank(args) -> int:
             print("RANKING REFUSED - ranking file must be a JSON list of mutation_ids "
                   "(or objects carrying mutation_id)", file=sys.stderr)
             return 2
-        published_ids = [item.get("mutation_id") if isinstance(item, dict) else item
-                         for item in raw]
+        candidates = [item.get("mutation_id") if isinstance(item, dict) else item
+                      for item in raw]
+        if not all(isinstance(item, str) for item in candidates):
+            print("RANKING REFUSED - every ranking entry must be a string mutation_id "
+                  "or an object carrying a string mutation_id", file=sys.stderr)
+            return 2
+        published_ids = [item for item in candidates if isinstance(item, str)]
     res = verify_audit_ranking(report, spec, events, published_ids)
     if not res["ok"]:
         print(f"RANKING REFUSED - {res['reason']}", file=sys.stderr)

@@ -161,7 +161,7 @@ def receipt_content_digest(document: dict[str, Any], *, schema_version: str) -> 
     return digest_json(candidate, scope="ouroboros-receipt-content", schema_version=schema_version)
 
 
-__all__ = [
+__all__ = (
     "CANONICALIZATION",
     "MAX_INTEROPERABLE_INTEGER",
     "Digest",
@@ -170,4 +170,4 @@ __all__ = [
     "digest_raw",
     "raw_sha256",
     "receipt_content_digest",
-]
+)

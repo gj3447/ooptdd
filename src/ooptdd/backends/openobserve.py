@@ -48,7 +48,7 @@ class OpenObserveBackend:
         **_ignored,
     ):
         self.stream = stream
-        self.org = org or os.getenv("OOPTDD_OO_ORG", "default")
+        self.org: str = org or os.getenv("OOPTDD_OO_ORG") or "default"
         self.url_env = url_env
         self.user_env = user_env
         self.password_env = password_env

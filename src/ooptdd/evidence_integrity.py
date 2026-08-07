@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class EvidenceIntegrityError(ValueError):
@@ -132,7 +132,8 @@ def validate_registration_repository(lock: dict, preregistration: dict, receipt:
         raise EvidenceIntegrityError(
             "lock, preregistration, and git receipt must name the registration repository"
         )
-    identities = {_repository_identity(value) for value in (preregistered, actual, locked)}
+    repositories = cast(tuple[str, str, str], named_repositories)
+    identities = {_repository_identity(value) for value in repositories}
     if len(identities) != 1:
         raise EvidenceIntegrityError("registration repository does not match preregistered source")
 

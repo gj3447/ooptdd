@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from collections.abc import Mapping
 
 from ..domain.ports import ProbeResult
 
@@ -21,10 +22,25 @@ class HttpProbe:
         self._open = opener or (lambda req, timeout: urllib.request.urlopen(req, timeout=timeout))
 
     def probe(self, kind, selector, cid) -> ProbeResult:
-        sel = {"url": selector} if isinstance(selector, str) else dict(selector or {})
-        ident = sel.get("url")  # the service URL read — comparable against the emit endpoint
-        req = urllib.request.Request(sel.get("url", ""), method="GET",
-                                     headers=sel.get("headers") or {})
+        if isinstance(selector, str):
+            sel = {"url": selector}
+        elif isinstance(selector, Mapping):
+            sel = dict(selector)
+        else:
+            raise ValueError("http probe selector must be a URL string or mapping")
+        url = sel.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError("http probe selector requires a non-empty string `url`")
+        raw_headers: object = sel.get("headers") or {}
+        if not isinstance(raw_headers, Mapping):
+            raise ValueError("http probe `headers` must be a string-to-string mapping")
+        headers: dict[str, str] = {}
+        for key, value in raw_headers.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise ValueError("http probe `headers` must be a string-to-string mapping")
+            headers[key] = value
+        ident = url  # the service URL read — comparable against the emit endpoint
+        req = urllib.request.Request(url, method="GET", headers=headers)
         try:
             with self._open(req, timeout=self.timeout) as r:
                 body = r.read().decode()

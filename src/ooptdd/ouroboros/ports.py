@@ -46,4 +46,4 @@ class ReceiptStore(Protocol):
     def get(self, receipt_sha256: str) -> bytes | None: ...
 
 
-__all__ = ["EffectResult", "EffectSink", "ReceiptStore", "SnapshotStore"]
+__all__ = ("EffectResult", "EffectSink", "ReceiptStore", "SnapshotStore")

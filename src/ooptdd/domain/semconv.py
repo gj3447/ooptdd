@@ -66,7 +66,7 @@ def gen_ai_ontology(*, closed_world: bool = False) -> Ontology:
     """
     event_types = {}
     for name, required in _REQUIRED.items():
-        constraints = {
+        constraints: dict[str, dict[str, object]] = {
             "gen_ai.provider.name": {"enum": list(GEN_AI_PROVIDERS)},
             "gen_ai.usage.input_tokens": {"type": "int", "min": 0},
             "gen_ai.usage.output_tokens": {"type": "int", "min": 0},
@@ -151,7 +151,9 @@ def gen_ai_ontology_1_41(*, closed_world: bool = False) -> Ontology:
     """Build the ``gen_ai@1.41`` ontology (see the dual-track note above)."""
     event_types = {}
     for name, required in _REQUIRED_1_41.items():
-        constraints = {"gen_ai.provider.name": {"enum": list(GEN_AI_PROVIDERS_1_41)}}
+        constraints: dict[str, dict[str, object]] = {
+            "gen_ai.provider.name": {"enum": list(GEN_AI_PROVIDERS_1_41)}
+        }
         for attr in _TOKEN_ATTRS_1_41:
             constraints[attr] = {"type": "int", "min": 0}
         if name == "gen_ai.evaluation.result":

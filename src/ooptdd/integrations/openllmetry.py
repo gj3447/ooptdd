@@ -52,13 +52,14 @@ def span_to_event(span: dict, *, cid: str) -> dict | None:
     if not cid:
         raise ValueError("span_to_event needs a cid (the readback correlation key)")
     attrs = {k: v for k, v in (span.get("attributes") or {}).items() if v is not None}
-    event_name = _KIND_TO_EVENT.get(attrs.get(TRACELOOP_SPAN_KIND))
+    kind = attrs.get(TRACELOOP_SPAN_KIND)
+    event_name = _KIND_TO_EVENT.get(kind) if isinstance(kind, str) else None
     if event_name is None:
         return None
     out: dict = {"cid": cid, "event": event_name}
     entity = attrs.get(TRACELOOP_ENTITY_NAME)
     name_attr = _NAME_ATTR.get(event_name)
-    if name_attr and entity:
+    if name_attr and isinstance(entity, str) and entity:
         # NOT filled in when absent: a required attr the trace never carried must stay
         # missing so `conforms:` REDs on it.
         out[name_attr] = entity

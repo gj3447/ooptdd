@@ -57,7 +57,9 @@ _EXPECTED_OUTCOME = {
 }
 
 
-def _closed_schema(properties: dict[str, Any], *, required: set[str] | None = None) -> dict:
+def _closed_schema(
+    properties: dict[str, Any], *, required: set[str] | None = None
+) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
