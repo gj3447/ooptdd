@@ -1,28 +1,44 @@
-"""The enriched core CLI: each subcommand is a stateless wrapper over a library function,
-with the LTL3 exit ladder (0 GREEN / 1 RED / 2 INFRA) and a ``--json`` machine surface.
-"""
+"""The generic CLI is a stateless wrapper over domain-neutral library operations."""
+
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
-from ooptdd.backends.memory import MemoryBackend, reset
-from ooptdd.cli import main
+from ooptdd.backends.jsonl import JsonlBackend
+from ooptdd.cli import build_parser, main
 from ooptdd.domain.model import sign_chain
-
-
-@pytest.fixture(autouse=True)
-def _clean():
-    reset()
-    yield
-    reset()
 
 
 def _spec_file(tmp_path, body: str) -> str:
     p = tmp_path / "spec.yaml"
     p.write_text(body, encoding="utf-8")
     return str(p)
+
+
+def _jsonl_backend(tmp_path, monkeypatch) -> JsonlBackend:
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("OOPTDD_JSONL_PATH", str(path))
+    return JsonlBackend(path=str(path))
+
+
+def test_generic_parser_has_no_specialized_commands_or_imports():
+    parser = build_parser()
+    help_text = parser.format_help().lower()
+    assert not any(word in help_text for word in ("pytest", "mutation", "trajectory", "genai"))
+    script = """
+import sys
+import ooptdd.cli
+ooptdd.cli.build_parser()
+blocked = ('ooptdd.adapters.pytest', 'ooptdd_mutation',
+           'ooptdd_trajectory', 'ooptdd_genai')
+raise SystemExit(any(name in sys.modules for name in blocked))
+"""
+    completed = subprocess.run([sys.executable, "-c", script], check=False)
+    assert completed.returncode == 0
 
 
 # ── stateless single-shot commands ─────────────────────────────────────────────
@@ -44,12 +60,13 @@ def test_backends_list_and_doctor(capsys):
 
 
 # ── gate / verify --gate over the memory store ─────────────────────────────────
-def test_gate_green_and_red(tmp_path, capsys):
+def test_gate_satisfied_and_violated(tmp_path, capsys, monkeypatch):
+    backend = _jsonl_backend(tmp_path, monkeypatch)
     spec = _spec_file(tmp_path, "cid: c1\nexpect:\n  - {event: a, op: '>=', count: 1}\n")
-    assert main(["gate", spec]) == 1           # nothing shipped yet -> RED
+    assert main(["gate", spec, "--backend", "jsonl"]) == 1
     capsys.readouterr()
-    MemoryBackend().ship([{"cid": "c1", "event": "a"}])
-    assert main(["gate", spec]) == 0           # now GREEN
+    backend.ship([{"cid": "c1", "event": "a"}])
+    assert main(["gate", spec, "--backend", "jsonl"]) == 0
 
 
 @pytest.mark.parametrize("cmd", ["gate", "monitor"])
@@ -65,41 +82,22 @@ def test_missing_cid_is_a_clean_error_not_a_traceback(tmp_path, capsys, cmd):
     assert "Traceback" not in err
 
 
-def test_verify_gate_flag_for_arbitrary_events(tmp_path, capsys):
+def test_verify_gate_flag_for_arbitrary_events(tmp_path, capsys, monkeypatch):
+    backend = _jsonl_backend(tmp_path, monkeypatch)
     spec = _spec_file(tmp_path, "expect:\n  - {event: cycle, op: '>=', count: 1}\n")
-    MemoryBackend().ship([{"cid": "run9", "event": "cycle"}])
-    assert main(["verify", "run9", "--gate", spec, "--retries", "1"]) == 0
+    backend.ship([{"cid": "run9", "event": "cycle"}])
+    assert main(["verify", "run9", "--gate", spec, "--backend", "jsonl", "--retries", "1"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["verdict"] == "present"
 
 
 # ── can-i-deploy (Pact-style multi-gate) ───────────────────────────────────────
 def test_can_i_deploy(tmp_path, capsys):
-    spec = _spec_file(tmp_path, "cid: dep1\nexpect:\n  - {event: ok, op: '>=', count: 1}\n")
-    assert main(["can-i-deploy", spec, "--json"]) == 1   # RED blocker -> not deployable
-    capsys.readouterr()
-    MemoryBackend().ship([{"cid": "dep1", "event": "ok"}])
-    assert main(["can-i-deploy", spec, "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["deployable"] is True
+    del tmp_path, capsys
+    assert "can-i-deploy" not in build_parser().format_help()
 
 
 # ── mutate (gate discriminating power) ─────────────────────────────────────────
-def test_mutate_scores_a_gate(tmp_path, capsys):
-    spec = _spec_file(tmp_path, "expect:\n  - {event: a, where: {v: 1}, op: '==', count: 1}\n")
-    events = tmp_path / "ev.json"
-    events.write_text(json.dumps([{"event": "a", "v": 1}]), encoding="utf-8")
-    assert main(["mutate", spec, "--events", str(events), "--json"]) == 0
-    report = json.loads(capsys.readouterr().out)
-    assert report["baseline_green"] is True and "score" in report
-
-
-def test_mutate_baseline_not_green_is_infra(tmp_path, capsys):
-    spec = _spec_file(tmp_path, "expect:\n  - {event: a, op: '>=', count: 5}\n")
-    events = tmp_path / "ev.json"
-    events.write_text(json.dumps([{"event": "a"}]), encoding="utf-8")
-    assert main(["mutate", spec, "--events", str(events)]) == 2   # no baseline -> INFRA
-
-
 # ── ontology check / compat ────────────────────────────────────────────────────
 def test_ontology_check_and_compat(tmp_path, capsys):
     onto = tmp_path / "o.yaml"
@@ -120,8 +118,9 @@ def test_ontology_check_and_compat(tmp_path, capsys):
 # ── verify-chain (tamper-evident receipts) ─────────────────────────────────────
 def test_verify_chain_detects_tamper(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("OOPTDD_SIGNING_KEY", "k")
-    chain = sign_chain([{"event": "test_session", "total": 1},
-                        {"event": "test_session", "total": 2}], "k")
+    chain = sign_chain(
+        [{"event": "test_session", "total": 1}, {"event": "test_session", "total": 2}], "k"
+    )
     recs = tmp_path / "recs.json"
     recs.write_text(json.dumps(chain), encoding="utf-8")
     assert main(["verify-chain", "--records", str(recs), "--key-env", "OOPTDD_SIGNING_KEY"]) == 0
@@ -139,9 +138,10 @@ def test_verify_chain_missing_key_is_infra(tmp_path, monkeypatch):
 
 
 # ── monitor surfaces the streaming verdict ─────────────────────────────────────
-def test_monitor_surfaces_verdict(tmp_path, capsys):
+def test_monitor_surfaces_verdict(tmp_path, capsys, monkeypatch):
+    backend = _jsonl_backend(tmp_path, monkeypatch)
     spec = _spec_file(tmp_path, "cid: m1\nexpect:\n  - {event: a, op: '>=', count: 1}\n")
-    MemoryBackend().ship([{"cid": "m1", "event": "a"}])
-    assert main(["monitor", spec, "--json"]) == 0
+    backend.ship([{"cid": "m1", "event": "a"}])
+    assert main(["monitor", spec, "--backend", "jsonl", "--json"]) == 0
     view = json.loads(capsys.readouterr().out)
     assert view["checks"][0]["verdict"] == "sat" and view["ok"] is True

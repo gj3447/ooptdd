@@ -1,8 +1,14 @@
 """The heart of ooptdd: the three-valued verdict and the policy on top of it."""
+
+from ooptdd.adapters.pytest import (
+    build_outcome_records,
+    build_session_start,
+    session_finish,
+    verify_policy,
+    verify_trace,
+)
 from ooptdd.backends import MemoryBackend
 from ooptdd.backends.base import QueryResult
-from ooptdd.domain.model import build_outcome_records, build_session_start
-from ooptdd.engine.verify import session_finish, verify_policy, verify_trace
 
 
 class _Unreachable:
@@ -18,10 +24,13 @@ class _Unreachable:
 
 def test_present_when_session_shipped():
     b = MemoryBackend()
-    b.ship(build_outcome_records(
-        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}],
-        cid="c", service="x",
-    ))
+    b.ship(
+        build_outcome_records(
+            [{"nodeid": "t::a", "outcome": "passed", "when": "call"}],
+            cid="c",
+            service="x",
+        )
+    )
     v = verify_trace(b, "c", expect_total=1, retries=1)
     assert v["verdict"] == "present"
     assert v["ok"] is True
@@ -30,8 +39,9 @@ def test_present_when_session_shipped():
 def test_absent_is_a_real_miss_not_inconclusive():
     # query reachable, but nothing stored (drop) -> ⊥ absent
     b = MemoryBackend(drop=True)
-    b.ship(build_outcome_records(
-        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c"))
+    b.ship(
+        build_outcome_records([{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c")
+    )
     v = verify_trace(b, "c", expect_total=1, retries=1)
     assert v["verdict"] == "absent"
     assert v["ok"] is False
@@ -45,10 +55,12 @@ def test_inconclusive_when_store_unreachable():
 def test_partial_loss_detected():
     # session says total=3 but only 1 outcome arrived -> not ok (partial loss)
     b = MemoryBackend()
-    b.ship([
-        {"cid": "c", "event": "test_session", "total": 3, "passed": 3, "service": "x"},
-        {"cid": "c", "event": "test_outcome", "outcome": "passed"},
-    ])
+    b.ship(
+        [
+            {"cid": "c", "event": "test_session", "total": 3, "passed": 3, "service": "x"},
+            {"cid": "c", "event": "test_outcome", "outcome": "passed"},
+        ]
+    )
     v = verify_trace(b, "c", expect_total=3, retries=1)
     assert v["verdict"] == "present"
     assert v["ok"] is False
@@ -59,7 +71,7 @@ def test_partial_loss_detected():
 def test_build_session_start_shape():
     rec = build_session_start("c", service="svc", expected_total=4)
     assert rec["event"] == "session_start" and rec["cid"] == "c"
-    assert rec["correlation_id"] == "c" and rec["cycle_id"] == "c"
+    assert rec["correlation_id"] == "c" and "cycle_id" not in rec
     assert rec["service"] == "svc" and rec["expected_total"] == 4
 
 
@@ -85,7 +97,9 @@ def test_total_loss_has_no_start_flag():
 def _signed(cid, key):
     return build_outcome_records(
         [{"nodeid": "t::a", "outcome": "passed", "when": "call"}],
-        cid=cid, service="x", signing_key=key,
+        cid=cid,
+        service="x",
+        signing_key=key,
     )
 
 
@@ -109,8 +123,12 @@ def test_tampered_record_is_detected_and_not_ok():
 
 
 def test_forgery_fails_build_even_in_warn():
-    v = {"ok": False, "verdict": "present", "sig_status": "invalid",
-         "reasons": ["sig_invalid_possible_forgery"]}
+    v = {
+        "ok": False,
+        "verdict": "present",
+        "sig_status": "invalid",
+        "reasons": ["sig_invalid_possible_forgery"],
+    }
     assert verify_policy(v, "warn")["fail_build"] is True
     assert verify_policy(v, "strict")["fail_build"] is True
 
@@ -118,8 +136,11 @@ def test_forgery_fails_build_even_in_warn():
 def test_unsigned_is_graceful_noop_when_not_required():
     # sender had no key -> unsigned; verifier with a key does NOT fail (transition-safe)
     b = MemoryBackend()
-    b.ship(build_outcome_records(
-        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c", service="x"))
+    b.ship(
+        build_outcome_records(
+            [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c", service="x"
+        )
+    )
     v = verify_trace(b, "c", expect_total=1, retries=1, signing_key="k")
     assert v["sig_status"] == "unsigned" and v["ok"] is True
 
@@ -134,8 +155,11 @@ def test_unverifiable_when_verifier_has_no_key():
 def test_require_signature_rejects_unsigned():
     # enforcement on: an unsigned receipt is no longer acceptable (closes unsigned-forgery)
     b = MemoryBackend()
-    b.ship(build_outcome_records(
-        [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c", service="x"))
+    b.ship(
+        build_outcome_records(
+            [{"nodeid": "t::a", "outcome": "passed", "when": "call"}], cid="c", service="x"
+        )
+    )
     v = verify_trace(b, "c", expect_total=1, retries=1, signing_key="k", require_signature=True)
     assert v["sig_status"] == "unsigned" and v["ok"] is False
     assert any("signature_required" in r for r in v["reasons"])
@@ -143,9 +167,37 @@ def test_require_signature_rejects_unsigned():
 
 def test_sign_record_is_deterministic_and_key_sensitive():
     from ooptdd.domain.model import sign_record
+
     rec = {"cid": "c", "event": "test_session", "total": 1, "passed": 1, "failed": 0, "skipped": 0}
     assert sign_record(rec, "k") == sign_record(rec, "k")
     assert sign_record(rec, "k") != sign_record(rec, "other")
+
+
+def test_sign_record_authenticates_arbitrary_application_fields():
+    from ooptdd.domain.model import sign_record
+
+    record = {"cid": "c", "event": "invoice.created", "amount": 12, "currency": "EUR"}
+    signature = sign_record(record, "k")
+    assert sign_record({**record, "amount": 13}, "k") != signature
+    assert sign_record({**record, "new_application_field": True}, "k") != signature
+
+
+def test_sign_record_ignores_only_signature_transport_and_backend_metadata():
+    from ooptdd.domain.model import SIG_ALG, sign_record
+
+    record = {"cid": "c", "event": "invoice.created", "amount": 12}
+    signature = sign_record(record, "k")
+    decorated = {
+        **record,
+        "sig": "transport-value",
+        "sig_alg": SIG_ALG,
+        "sig_chain": "chain-value",
+        "prev_sig": "previous-value",
+        "_timestamp": 123,
+        "_backend_partition": 4,
+    }
+    assert SIG_ALG == "hmac-sha256-v2"
+    assert sign_record(decorated, "k") == signature
 
 
 def test_policy_strict_fails_only_on_absent():
@@ -162,20 +214,26 @@ def test_green_banner_surfaces_signature_only_when_signing_is_in_play():
     # in play, so a valid green is attested and an unverifiable one is loud — but keyless
     # zero-config (unsigned) stays quiet (no signing intent => no banner noise; an unsigned
     # receipt in a KEYED env is already RED via enforce-if-keyed).
-    base = {"ok": True, "verdict": "present", "session": {"passed": 2, "total": 2},
-            "outcomes": 2, "attempts": 1}
+    base = {
+        "ok": True,
+        "verdict": "present",
+        "session": {"passed": 2, "total": 2},
+        "outcomes": 2,
+        "attempts": 1,
+    }
+
     def msg(sig):
         return verify_policy({**base, "sig_status": sig}, "warn")["message"]
+
     assert "sig=valid" in msg("valid")
     assert "sig=unverifiable" in msg("unverifiable")
-    assert "sig=" not in msg("unsigned")          # keyless zero-config stays quiet
+    assert "sig=" not in msg("unsigned")  # keyless zero-config stays quiet
 
 
 def test_session_finish_strict_catches_silent_loss():
     reports = [{"nodeid": f"t::{i}", "outcome": "passed", "when": "call"} for i in range(5)]
     # 5 tests "shipped" but the backend silently drops them
-    r = session_finish(MemoryBackend(drop=True), reports, "cid-loss",
-                       mode="strict", retries=1)
+    r = session_finish(MemoryBackend(drop=True), reports, "cid-loss", mode="strict", retries=1)
     assert r["fail_build"] is True
     assert any("silent ingest loss" in m for m in r["messages"])
 

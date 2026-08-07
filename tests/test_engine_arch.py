@@ -5,6 +5,7 @@ These lock the refinements that make the engine deterministically testable, give
 resident mode a first-class entry point, and make backend resolution injectable — all
 additive, with the dependency direction unchanged.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -56,30 +57,30 @@ def test_system_clock_is_microseconds():
 
 
 # ── compile_check: rule -> the right Monitor (single source of truth) ──────────
-@pytest.mark.parametrize("rule, cls", [
-    ({"event": "a", "op": ">=", "count": 1}, CountMonitor),
-    ({"present": [{"event": "a"}]}, PresentMonitor),
-    ({"absent": {"where": {"level": "ERROR"}}}, AbsentMonitor),
-    ({"forbid": {"where": {"level": "ERROR"}}}, AbsentMonitor),   # synonym
-    ({"must_order": ["a", "b"]}, OrderMonitor),
-    ({"trajectory": ["a", "b"]}, OrderMonitor),                  # synonym
-])
+@pytest.mark.parametrize(
+    "rule, cls",
+    [
+        ({"event": "a", "op": ">=", "count": 1}, CountMonitor),
+        ({"present": [{"event": "a"}]}, PresentMonitor),
+        ({"absent": {"where": {"level": "ERROR"}}}, AbsentMonitor),
+        ({"forbid": {"where": {"level": "ERROR"}}}, AbsentMonitor),  # synonym
+        ({"must_order": ["a", "b"]}, OrderMonitor),
+    ],
+)
 def test_compile_check_picks_the_right_monitor(rule, cls):
     assert isinstance(compile_check(rule), cls)
 
 
 def test_compile_check_equals_batch_handler_output():
     # the monitor compile_check builds, run over events, equals what gate produces
-    from ooptdd.backends.memory import reset
     from ooptdd.engine.gate import evaluate
-    reset()
+
     b = MemoryBackend()
     b.ship([{"cid": "c", "event": "a"}, {"cid": "c", "event": "a"}])
     rule = {"event": "a", "op": ">=", "count": 2}
     gate_chk = evaluate(b, {"cid": "c", "expect": [rule]})["checks"][0]
     direct = run_monitor(compile_check(rule), [_ev("a"), _ev("a")], reachable=True)
     assert direct["got"] == gate_chk["got"] == 2 and direct["passed"] == gate_chk["passed"]
-    reset()
 
 
 # ── LiveMonitorSet: the live path equals the batch path ────────────────────────
@@ -89,7 +90,7 @@ def test_live_monitor_set_matches_batch():
     live = LiveMonitorSet.from_rules(rules)
     for ev in stream:
         live.feed(ev)
-    assert live.verdicts() == [SAT, SAT]                  # count>=2 reached; b present
+    assert live.verdicts() == [SAT, SAT]  # count>=2 reached; b present
     collapsed = live.collapse(reachable=True)
     assert collapsed[0]["got"] == 2 and collapsed[1]["passed"] is True
 
@@ -99,7 +100,7 @@ def test_live_monitor_set_latches_viol_incrementally():
     live.feed(_ev("ok"))
     assert live.verdicts() == ["pend"]
     live.feed(_ev("boom", level="ERROR"))
-    assert live.verdicts() == [VIOL]                       # latched on the first offender
+    assert live.verdicts() == [VIOL]  # latched on the first offender
 
 
 # ── BackendCaps / backend_caps bridge ──────────────────────────────────────────
@@ -111,20 +112,28 @@ def test_backend_caps_reads_caps_when_present():
 def test_backend_caps_synthesizes_from_legacy_queryable():
     class _Legacy:
         queryable = False
+
     caps = backend_caps(_Legacy())
     assert caps.queryable is False and caps.write_only is True
+    assert caps.independent is False
+
+
+def test_backend_caps_defaults_do_not_claim_independent_storage():
+    assert BackendCaps().independent is False
+
+    class _Legacy:
+        queryable = True
+
+    assert backend_caps(_Legacy()).independent is False
 
 
 # ── fetch shim: typed QuerySpec over legacy and query_spec backends ────────────
 def test_fetch_drives_a_legacy_query_only_backend():
-    from ooptdd.backends.memory import reset
-    reset()
     b = MemoryBackend()
     b.ship([{"cid": "c", "event": "a"}])
     spec = QuerySpec(cid="c", window=TimeWindow(0, 10**19))
     res = fetch(b, spec)
     assert res.reachable and [e["event"] for e in res.events] == ["a"]
-    reset()
 
 
 def test_fetch_prefers_query_spec_when_present():
@@ -142,6 +151,7 @@ def test_fetch_prefers_query_spec_when_present():
         def query_spec(self, spec):
             self.called["cid"] = spec.cid
             from ooptdd.backends.base import QueryResult
+
             return QueryResult(reachable=True, events=[{"event": "z"}])
 
     b = _SpecBackend()
@@ -169,8 +179,10 @@ def test_fetch_drops_reserved_queryspec_fields_for_legacy_backends():
             seen.update(cid=cid, since_us=since_us, until_us=until_us)
             return QueryResult(reachable=True)
 
-    fetch(_Legacy(), QuerySpec(cid="c", window=TimeWindow(5, 9),
-                               limit=10, cursor="pg2", where={"event": "x"}))
+    fetch(
+        _Legacy(),
+        QuerySpec(cid="c", window=TimeWindow(5, 9), limit=10, cursor="pg2", where={"event": "x"}),
+    )
     assert seen == {"cid": "c", "since_us": 5, "until_us": 9}  # limit/cursor/where dropped
 
 
@@ -195,8 +207,10 @@ def test_query_spec_backend_receives_the_reserved_fields():
             got.update(limit=spec.limit, cursor=spec.cursor, where=spec.where)
             return QueryResult(reachable=True)
 
-    fetch(_Spec(), QuerySpec(cid="c", window=TimeWindow(0, 1),
-                             limit=10, cursor="pg2", where={"event": "x"}))
+    fetch(
+        _Spec(),
+        QuerySpec(cid="c", window=TimeWindow(0, 1), limit=10, cursor="pg2", where={"event": "x"}),
+    )
     assert got == {"limit": 10, "cursor": "pg2", "where": {"event": "x"}}
 
 

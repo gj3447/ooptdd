@@ -9,13 +9,17 @@ events come from OpenLLMetry over OTLP instead of the hand-emitter — see
   * ``conforms`` against the built-in **OTel GenAI** ontology (Tier-2 #8)
   * ``present`` subset + ``trajectory`` ordered sequence (Tier-1/2)
   * ``within_s`` bounded interval (Tier-3 #10)
-  * ``assert_gate`` DeepEval-style in-test assertion (Tier-2 #9)
+  * an explicitly composed runtime and GenAI ontology
 """
+
 from __future__ import annotations
 
+from ooptdd_genai import gen_ai_ontology
+from ooptdd_trajectory import ooptdd_checks
+
 from examples.agent_gen_ai import run_agent
-from ooptdd import Ontology, assert_gate
 from ooptdd.backends.memory import MemoryBackend, reset
+from ooptdd.bootstrap import compose_runtime
 
 
 def test_agent_trace_conforms_and_sequences():
@@ -33,12 +37,19 @@ def test_agent_trace_conforms_and_sequences():
             # the expected operations occurred (any order)
             {"present": [{"event": "gen_ai.invoke_agent"}, {"event": "gen_ai.chat"}]},
             # the agent invoked, then chatted, then ran a tool — in order, promptly
-            {"trajectory": ["gen_ai.invoke_agent", "gen_ai.chat", "gen_ai.execute_tool"],
-             "within_s": 60},
+            {
+                "trajectory": ["gen_ai.invoke_agent", "gen_ai.chat", "gen_ai.execute_tool"],
+                "within_s": 60,
+            },
             # at least two tool calls
             {"event": "gen_ai.execute_tool", "op": "gte", "target": 2},
         ],
     }
-    res = assert_gate(spec, backend=b, ontology=Ontology.builtin("gen_ai"))
+    runtime = compose_runtime(
+        project={"extensions": ["trajectory"]},
+        environment={},
+        extension_providers={"trajectory": ooptdd_checks},
+    ).activate_extensions()
+    res = runtime.evaluate(b, spec, ontology=gen_ai_ontology())
     assert res["ok"]
     reset()

@@ -1,7 +1,9 @@
 # Migrating in-house consumers onto `ooptdd`
 
-> Status: 2026-06-16. Decisions locked with the user; execution is per-consumer (each is a
-> *rewrite*, not a drop-in swap — the in-house twins predate the Backend-Protocol API).
+> Historical migration record (2026-06-16). Consumer-specific decisions below describe that
+> migration and are not framework defaults. Current releases do not expose a `pytest11` entry
+> point: every pytest integration is activated explicitly with `-p ooptdd.plugin` or a consumer's
+> own `pytest_plugins` declaration.
 
 ## Locked decisions
 
@@ -40,10 +42,11 @@
 | `oo_verify.verify_trace(cid, opener=…)` | `verify_trace(backend, cid, …)` — backend first arg, returns `verdict` |
 | `oo_sink.enabled()` (`CONSUMER_LOGS_E2E ∧ OO_PASS`) | `Settings.is_enabled()` (`OOPTDD_ENABLED` + backend); env `OOPTDD_OO_*` |
 | `session_finish(reports, cid, shipper=, verifier=)` | `session_finish(backend, reports, cid, …)` |
-| custom `conftest` hooks | the **pytest11 plugin auto-registers** — delete the hooks |
+| custom `conftest` hooks | explicitly load `ooptdd.plugin`, or call the library API directly |
 
 Env contract changes: `OO_URL/OO_PASS/CONSUMER_LOGS_E2E` → `OOPTDD_OO_URL/OOPTDD_OO_PASSWORD/OOPTDD_ENABLED`.
-Graceful: where ooptdd (vendored) is absent, the plugin simply doesn't load → tests run, LTDD off.
+If an optional consumer does not load the plugin, pytest runs normally. A required-presence lane
+must load it explicitly so a missing package fails at startup.
 
 ### Making absence RED (required-presence lanes)
 
@@ -55,7 +58,7 @@ have receipts, make absence loud with **either**:
 
 - **Force the plugin** — add `-p ooptdd.plugin` to that lane's pytest invocation (or `addopts`).
   pytest fails at startup if `ooptdd.plugin` can't be imported, so absence is a hard error, not a
-  skip. (Do NOT combine with `-p no:ooptdd`, which is for suppressing the *dev-box auto-ship*.)
+  skip.
 - **Drop in the canary** — copy `scripts/templates/conftest_ooptdd_required.py` next to your
   receipts (or merge its body into an existing `conftest.py`) and set `OOPTDD_REQUIRED` on the
   required lanes:
@@ -107,30 +110,20 @@ Done first (on purpose: consumers migrate once, to a complete package). All TDD,
   agent that can read CI secrets). **Remaining (ops, not code):** dedicated write-only ingest account +
   provision the CI secret + run `require_signature` + `strict` for full enforcement.
 
-## ★ Canonical wiring pattern (resolved 2026-06-16) — vendored ≠ pytest11 auto-register
+## Current explicit wiring pattern
 
-A trap surfaced during the canary: **decision #2 (vendored, no pip) and "delete the conftest hooks
-→ the pytest11 plugin auto-registers" are in tension.** Entry-point plugins (`pytest11`) only load
-for *pip-installed distributions*. A vendored copy under `_vendor/` is NOT installed, so it never
-auto-registers. Worse, on a dev box where ooptdd *is* pip-installed, that installed plugin
-auto-ships — so a naive vendored consumer would either (a) have no LTDD in the field, or (b)
-double-ship in dev. The resolved canonical pattern (used by consumer-a + consumer-b):
+The base distribution never activates pytest by installation side effect. Consumers choose one of
+two explicit boundaries:
 
-1. **Disable the auto-plugin**: `addopts = … -p no:ooptdd` in the consumer's pytest config. The dev
-   pip-installed copy can no longer auto-ship; the vendored library is the single source in *every*
-   env (dev / CI / Windows field PC).
-2. **Wire the vendored core as a library** in `conftest.py` (root, or `tests/` if that is on
-   `testpaths`): `sys.path.insert(0, "<_vendor>")`, `import ooptdd`, then manual
-   `pytest_runtest_logreport` (collect) + `pytest_sessionfinish` (`ooptdd.session_finish(backend, …)`).
-   Backend = `openobserve` when an oo target is set, else zero-infra `memory`.
-3. **Gate on an explicit opt-in** (`CONSUMER_LOGS_E2E=1` or `OOPTDD_ENABLED`), NOT on `OO_URL` presence —
-   a dev shell that merely exports `OO_URL` must not auto-ship every run.
-4. **Make `_vendor`'s drift-check collectable**: add `_vendor` to `testpaths` (consumer-b) or place it
-   in the test dir (consumer-a). It REDs the moment the vendored copy diverges from canonical.
-5. **Separate concern stays put**: a *per-test domain-event* assertion (consumer-a `consumer_trace.py`,
-   consumer-b `oo_trace` fixture + `consumer_log_sink`) asserts the production event sequence, not test
-   outcomes — keep it; it is NOT a twin of ooptdd. Optional later: delegate its ship/query to a
-   vendored `OpenObserveBackend` to dedup network code (lakatotree did this for its `oo_sink`).
+1. **Plugin adapter:** install the `pytest` extra and run `pytest -p ooptdd.plugin`, or declare
+   `pytest_plugins = ["ooptdd.plugin"]` in that consumer's `conftest.py`.
+2. **Library embedding:** import `ooptdd` and invoke the event, backend, and verification APIs from
+   consumer-owned hooks or application code.
+
+Vendored consumers still own their import path and drift check. Domain-event assertions remain in
+the consumer: they are application policy, not part of the generic `ooptdd` package. Historical
+`-p no:ooptdd` entries in the migration-status log below recorded protection against the old
+auto-plugin release and are unnecessary with the current distribution.
 
 ## Migration status (2026-06-16)
 

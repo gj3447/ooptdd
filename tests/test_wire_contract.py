@@ -6,15 +6,16 @@ out-of-process emitters (p333's Rust, omd) re-implemented it by imitation and dr
 spec_version on every builder record, an in-package ENVELOPE_SCHEMA (the SSOT) mirrored on disk
 for external consumers, and a CLI that emits the actual schema.
 """
+
 import json
 from pathlib import Path
 
 import ooptdd.cli as cli
+from ooptdd.adapters.pytest import build_outcome_records, build_session_start
 from ooptdd.domain.model import (
     ENVELOPE_SCHEMA,
     ENVELOPE_SPEC_VERSION,
-    build_outcome_records,
-    build_session_start,
+    build_event,
     correlation_keys,
 )
 from ooptdd.domain.ontology import EventType
@@ -24,8 +25,8 @@ _SCHEMA_FILE = Path(__file__).resolve().parents[1] / "docs" / "schema" / "envelo
 
 def _validate(schema: dict, inst) -> list[str]:
     """Tiny JSON-Schema-2020-12 subset validator (type object|string, required, properties with
-    const/enum/type). Returns violation strings; [] means valid. Stdlib only — jsonschema is not
-    a dependency."""
+    const/enum/minLength/type). Returns violation strings; [] means valid. Stdlib only —
+    jsonschema is not a dependency."""
     errs: list[str] = []
     t = schema.get("type")
     if t == "object":
@@ -43,12 +44,15 @@ def _validate(schema: dict, inst) -> list[str]:
         errs.append(f"const mismatch: {inst!r} != {schema['const']!r}")
     if "enum" in schema and inst not in schema["enum"]:
         errs.append(f"{inst!r} not in enum {schema['enum']}")
+    if "minLength" in schema and isinstance(inst, str) and len(inst) < schema["minLength"]:
+        errs.append(f"string shorter than minLength {schema['minLength']}")
     return errs
 
 
 def _records() -> list[dict]:
     recs = build_outcome_records(
-        [{"nodeid": "t::a", "outcome": "passed", "when": "call", "duration": 0.1}], "wc-cid")
+        [{"nodeid": "t::a", "outcome": "passed", "when": "call", "duration": 0.1}], "wc-cid"
+    )
     recs.append(build_session_start("wc-cid"))
     return recs
 
@@ -58,10 +62,10 @@ def _session() -> dict:
 
 
 # ── GUARD 1: trap-guard (green before AND after) — the wrong-place fix must not pass ──
-def test_correlation_keys_stays_exactly_three_aliases():
+def test_correlation_keys_stays_exactly_generic_aliases():
     """spec_version must NOT be stamped into correlation_keys (it would break every consumer of
     that primitive and this exact-dict contract); it belongs in the record builders."""
-    assert correlation_keys("c") == {"cid": "c", "correlation_id": "c", "cycle_id": "c"}
+    assert correlation_keys("c") == {"cid": "c", "correlation_id": "c"}
 
 
 # ── GUARD 2: the fix flips red -> green ──────────────────────────────────────────────
@@ -105,12 +109,29 @@ def test_schema_rejects_a_drifted_spec_version():
     assert _validate(ENVELOPE_SCHEMA, bad) != []
 
 
+def test_level_is_optional_and_preserves_arbitrary_nonempty_severity():
+    no_level = build_event("generic-cid", "work.completed")
+    assert _validate(ENVELOPE_SCHEMA, no_level) == []
+
+    custom_level = build_event("generic-cid", "work.completed", level="NOTICE")
+    assert _validate(ENVELOPE_SCHEMA, custom_level) == []
+
+
+def test_schema_rejects_empty_level_when_present():
+    bad = _session()
+    bad["level"] = ""
+    assert _validate(ENVELOPE_SCHEMA, bad) != []
+
+
 def test_closed_ontology_does_not_flag_spec_version():
     """The companion ontology edit: a closed EventType must treat spec_version as a carrier key,
     not unexpected payload drift. Declaring the real payload keys leaves only envelope keys as
     'extra' — all must be recognized carriers, so reverting the ENVELOPE_KEYS edit reds this."""
-    et = EventType(name="test_session", required=["total", "passed", "failed", "skipped"],
-                   additional_properties=False)
+    et = EventType(
+        name="test_session",
+        required=["total", "passed", "failed", "skipped"],
+        additional_properties=False,
+    )
     errs = et.validate(_session())
     assert errs == [], errs
     assert not any("spec_version" in e for e in errs)

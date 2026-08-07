@@ -12,6 +12,7 @@ samples=True`` caps the evidence-tier ladder at ``arrived`` for store-derived
 rungs — ``external_verdict`` is untouched, because a passing separate-source
 ``external:`` check bypasses the sampled store entirely (that rung's whole point).
 """
+
 from __future__ import annotations
 
 import time
@@ -53,14 +54,17 @@ def test_raise_for_status_carries_status_and_retry_after():
     assert kind == "rate_limited" and ra == 3.0
 
 
-def test_openobserve_429_is_typed_not_anonymous(monkeypatch):
-    monkeypatch.setenv("OOPTDD_OO_URL", "http://oo:5080")
-    monkeypatch.setenv("OOPTDD_OO_PASSWORD", "pw")
-
+def test_openobserve_429_is_typed_not_anonymous():
     def opener(req, timeout):
         raise _http_error(429, {"Retry-After": "5"})
 
-    oo = OpenObserveBackend(stream="s", org="o", opener=opener)
+    oo = OpenObserveBackend(
+        base_url="http://oo:5080",
+        environment={"OOPTDD_OO_PASSWORD": "pw"},
+        stream="s",
+        org="o",
+        opener=opener,
+    )
     res = oo.query("c1", since_us=0, until_us=1)
     assert res.reachable is False
     assert res.error_kind == "rate_limited" and res.retry_after_s == 5.0
@@ -80,8 +84,12 @@ class ThrottledBackend:
 
     def query(self, cid, *, since_us, until_us):
         if self.clock.now_us() - self.start < 9_000_000:
-            return QueryResult(reachable=False, error="HTTPError: 429",
-                               error_kind="rate_limited", retry_after_s=9.0)
+            return QueryResult(
+                reachable=False,
+                error="HTTPError: 429",
+                error_kind="rate_limited",
+                retry_after_s=9.0,
+            )
         return QueryResult(reachable=True, events=[{"cid": cid, "event": "a"}])
 
 
@@ -109,8 +117,7 @@ def test_poller_sleeps_retry_after_instead_of_burning_attempts():
     clock = FakeClock()
     sleeper = AdvancingSleeper(clock)
     backend = ThrottledBackend(clock)
-    res = verify_gate(backend, "c", SPEC, retries=2, delay=0.1,
-                      clock=clock, sleeper=sleeper)
+    res = verify_gate(backend, "c", SPEC, retries=2, delay=0.1, clock=clock, sleeper=sleeper)
     # with plain backoff (0.1s, 0.2s) both attempts land inside the throttle window
     # and the verdict would be inconclusive; honoring Retry-After=9 the second
     # attempt reads clean.
@@ -121,7 +128,9 @@ def test_poller_sleeps_retry_after_instead_of_burning_attempts():
 # ── sampled-store evidence cap ─────────────────────────────────────────────────
 def _tier_result(*, sampled, corroborated=0):
     return {
-        "reachable": True, "complete": True, "ok": True,
+        "reachable": True,
+        "complete": True,
+        "ok": True,
         "sampled": sampled,
         "scope": {"asserts_anything": True, "charge_ratio": 1.0},
         "oracle": {"corroborated": corroborated},
@@ -151,6 +160,7 @@ def test_backend_caps_samples_defaults_false_and_evaluate_stamps_it():
         def query(self, cid, *, since_us, until_us):
             return QueryResult(reachable=True, events=[{"cid": cid, "event": "a"}])
 
-    res = evaluate(SampledBackend(), {"cid": "s1", "expect": [
-        {"event": "a", "op": ">=", "count": 1}]})
+    res = evaluate(
+        SampledBackend(), {"cid": "s1", "expect": [{"event": "a", "op": ">=", "count": 1}]}
+    )
     assert res["sampled"] is True and res["ok"] is True

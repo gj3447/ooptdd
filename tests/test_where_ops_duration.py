@@ -14,6 +14,7 @@ Grammar additions (F-study P0, minimal by design — NOT a selector DSL):
   Zero matched events is not a pass (``no_evidence``), mirroring the invariant
   monitor's no-evidence RED.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -83,11 +84,18 @@ def test_where_op_dict_flows_through_count_and_absent(tmp_path):
         {"event": "pay", "amount": 150},
         {"event": "pay", "amount": 250},
     ]
-    spec = {"cid": "c", "expect": [
-        {"event": "pay", "where": {"amount": {"op": "gte", "value": 100}},
-         "op": "==", "count": 2},
-        {"absent": {"event": "pay", "where": {"amount": {"op": "gt", "value": 500}}}},
-    ]}
+    spec = {
+        "cid": "c",
+        "expect": [
+            {
+                "event": "pay",
+                "where": {"amount": {"op": "gte", "value": 100}},
+                "op": "==",
+                "count": 2,
+            },
+            {"absent": {"event": "pay", "where": {"amount": {"op": "gt", "value": 500}}}},
+        ],
+    }
     res = evaluate_events(spec, events, reachable=True)
     assert res["ok"] is True
 
@@ -100,8 +108,11 @@ def _dur_rule(**kw):
 
 
 def test_duration_green_when_all_matched_satisfy():
-    events = [{"event": "step", "elapsed_s": 0.3}, {"event": "step", "elapsed_s": 1.5},
-              {"event": "other", "elapsed_s": 99}]
+    events = [
+        {"event": "step", "elapsed_s": 0.3},
+        {"event": "step", "elapsed_s": 1.5},
+        {"event": "other", "elapsed_s": 99},
+    ]
     res = run_monitor(compile_check(_dur_rule()), events, True)
     assert res["passed"] is True and res["got"] == 2 and res["violations"] == 0
 
@@ -145,11 +156,20 @@ def test_duration_unreachable_read_is_never_a_pass():
 
 def test_duration_where_filter_and_gte_shape():
     # `gte` direction: e.g. "every replica count stayed >= 2"
-    rule = {"duration": {"event": "scale", "where": {"pool": "web"},
-                         "field": "replicas", "op": "gte", "target": 2}}
-    events = [{"event": "scale", "pool": "web", "replicas": 3},
-              {"event": "scale", "pool": "batch", "replicas": 0},
-              {"event": "scale", "pool": "web", "replicas": 2}]
+    rule = {
+        "duration": {
+            "event": "scale",
+            "where": {"pool": "web"},
+            "field": "replicas",
+            "op": "gte",
+            "target": 2,
+        }
+    }
+    events = [
+        {"event": "scale", "pool": "web", "replicas": 3},
+        {"event": "scale", "pool": "batch", "replicas": 0},
+        {"event": "scale", "pool": "web", "replicas": 2},
+    ]
     res = run_monitor(compile_check(rule), events, True)
     assert res["passed"] is True and res["got"] == 2
 
@@ -162,15 +182,20 @@ def test_duration_requires_field_and_target():
 
 
 def test_duration_full_gate_integration():
-    MemoryBackend().ship([
-        {"cid": "d1", "event": "checkout", "elapsed_s": 0.4},
-        {"cid": "d1", "event": "checkout", "elapsed_s": 0.9},
-    ])
-    spec = {"cid": "d1", "expect": [
-        {"duration": {"event": "checkout", "field": "elapsed_s", "op": "lte",
-                      "target": 1.0}},
-    ]}
-    events = MemoryBackend().query("d1", since_us=0, until_us=2**63 - 1).events
+    backend = MemoryBackend()
+    backend.ship(
+        [
+            {"cid": "d1", "event": "checkout", "elapsed_s": 0.4},
+            {"cid": "d1", "event": "checkout", "elapsed_s": 0.9},
+        ]
+    )
+    spec = {
+        "cid": "d1",
+        "expect": [
+            {"duration": {"event": "checkout", "field": "elapsed_s", "op": "lte", "target": 1.0}},
+        ],
+    }
+    events = backend.query("d1", since_us=0, until_us=2**63 - 1).events
     res = evaluate_events(spec, events, reachable=True)
     assert res["ok"] is True
     chk = res["checks"][0]

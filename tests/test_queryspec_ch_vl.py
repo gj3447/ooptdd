@@ -12,6 +12,7 @@ Neither store's API is cursor-native, so the drivers do NOT pretend otherwise:
 In both, a spec with neither limit nor cursor delegates to the existing
 read-to-completion ``query()`` — the engine's live path is unchanged.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,8 +54,10 @@ class ChOpener:
         self.queries.append(sql)
         limit = int(sql.split("LIMIT ")[1].split()[0])
         offset = int(sql.split("OFFSET ")[1].split()[0]) if "OFFSET " in sql else 0
-        rows = [{"data": json.dumps({"event": f"e{i}"}), "_timestamp": 1000 + i}
-                for i in range(offset, min(offset + limit, self.total))]
+        rows = [
+            {"data": json.dumps({"event": f"e{i}"}), "_timestamp": 1000 + i}
+            for i in range(offset, min(offset + limit, self.total))
+        ]
         return _resp(json.dumps({"data": rows}).encode())
 
 
@@ -64,9 +67,10 @@ def ch(monkeypatch):
 
     def make(total):
         opener = ChOpener(total)
-        backend = ClickHouseBackend(table="tests")
+        backend = ClickHouseBackend(table="tests", base_url="http://ch:8123")
         backend._post = lambda params, body, headers: opener(params, body, headers)
         return backend, opener
+
     return make
 
 
@@ -120,8 +124,10 @@ class VlOpener:
         if "limit+" in req.full_url or "limit%20" in req.full_url:
             tail = req.full_url.replace("%20", "+").split("limit+")[1]
             limit = int(tail.split("&")[0])
-        lines = "\n".join(json.dumps({"event": f"e{i}", "_time": "2026-07-23T00:00:00Z"})
-                          for i in range(min(limit, self.total)))
+        lines = "\n".join(
+            json.dumps({"event": f"e{i}", "_time": "2026-07-23T00:00:00Z"})
+            for i in range(min(limit, self.total))
+        )
         return _resp(lines.encode())
 
 
@@ -131,7 +137,8 @@ def vl(monkeypatch):
 
     def make(total):
         opener = VlOpener(total)
-        return VictoriaLogsBackend(opener=opener), opener
+        return VictoriaLogsBackend(base_url="http://vl:9428", opener=opener), opener
+
     return make
 
 

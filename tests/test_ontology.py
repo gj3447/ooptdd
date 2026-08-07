@@ -6,18 +6,23 @@ Pre-registered metric (LakatosTree_ooptdd_ontology_20260616 / node V1-ontology-t
 Classes: (1) missing required attr, (2) bad enum value, (3) unknown event type
 (closed-world drift). novel_prediction = predictive power the flat gate lacks.
 """
+
 from ooptdd.backends import MemoryBackend, memory_reset
 from ooptdd.domain.ontology import Ontology
 from ooptdd.engine.gate import evaluate
 
-ONTO = Ontology.from_dict({
-    "event_types": {
-        "payment_authorized": {"required": ["amount"],
-                               "constraints": {"amount": {"type": "number", "min": 0}}},
-        "order_finalized": {"constraints": {"status": {"enum": ["ok", "ng"]}}},
-        "order_received": {},
+ONTO = Ontology.from_dict(
+    {
+        "event_types": {
+            "payment_authorized": {
+                "required": ["amount"],
+                "constraints": {"amount": {"type": "number", "min": 0}},
+            },
+            "order_finalized": {"constraints": {"status": {"enum": ["ok", "ng"]}}},
+            "order_received": {},
+        }
     }
-})
+)
 
 
 def _ship(events):
@@ -37,13 +42,13 @@ def _onto_ok(b, expect):
 
 # ── the three pre-registered classes: flat says GREEN, ontology says RED ──────
 def test_class1_missing_required_attr():
-    b = _ship([{"event": "payment_authorized"}])           # no `amount`
+    b = _ship([{"event": "payment_authorized"}])  # no `amount`
     assert _flat_green(b, [{"event": "payment_authorized", "op": ">=", "count": 1}]) is True
     assert _onto_ok(b, [{"conforms": "payment_authorized"}]) is False
 
 
 def test_class2_bad_enum_value():
-    b = _ship([{"event": "order_finalized", "status": "kinda"}])   # not in {ok,ng}
+    b = _ship([{"event": "order_finalized", "status": "kinda"}])  # not in {ok,ng}
     assert _flat_green(b, [{"event": "order_finalized", "op": "==", "count": 1}]) is True
     assert _onto_ok(b, [{"conforms": "order_finalized"}]) is False
 
@@ -61,8 +66,10 @@ def test_metric_three_classes_caught():
     cases = [
         ([{"event": "payment_authorized"}], [{"conforms": "payment_authorized"}]),
         ([{"event": "order_finalized", "status": "kinda"}], [{"conforms": "order_finalized"}]),
-        ([{"event": "order_received"}, {"event": "quantum_flux"}],
-         [{"conforms": "*", "closed_world": True}]),
+        (
+            [{"event": "order_received"}, {"event": "quantum_flux"}],
+            [{"conforms": "*", "closed_world": True}],
+        ),
     ]
     caught = 0
     for events, conforms_expect in cases:
@@ -77,8 +84,12 @@ def test_metric_three_classes_caught():
 
 # ── guardrails: no false positives, and graceful without an ontology ──────────
 def test_conforming_events_pass():
-    b = _ship([{"event": "payment_authorized", "amount": 10},
-               {"event": "order_finalized", "status": "ok"}])
+    b = _ship(
+        [
+            {"event": "payment_authorized", "amount": 10},
+            {"event": "order_finalized", "status": "ok"},
+        ]
+    )
     expect = [{"conforms": "payment_authorized"}, {"conforms": "order_finalized"}]
     assert _onto_ok(b, expect) is True
 
@@ -99,6 +110,6 @@ def test_ontology_from_file_offline(tmp_path):
     p = tmp_path / "onto.yaml"
     p.write_text("event_types:\n  ping:\n    required: [seq]\n")
     onto = Ontology.from_file(str(p))
-    assert onto.get("ping").required == ["seq"]
+    assert onto.get("ping").required == ("seq",)
     b = _ship([{"event": "ping"}])  # missing seq
     assert evaluate(b, {"cid": "c", "expect": [{"conforms": "ping"}]}, ontology=onto)["ok"] is False

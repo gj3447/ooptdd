@@ -15,6 +15,7 @@ Two layers:
 
 # KG: seed-ooptdd-negwing-toxiproxy-regression-20260618, finding_ooptddoss_f048d8f43c68
 """
+
 from __future__ import annotations
 
 import json
@@ -23,6 +24,7 @@ import pytest
 
 from ooptdd.backends.memory import MemoryBackend, reset
 from ooptdd.engine.gate import evaluate
+from ooptdd.engine.gate_values import GatePolicy
 
 _CID = "fault-cid"
 # A minimal gate: the good lifecycle must complete. The ERROR-forbid is injected by
@@ -39,8 +41,8 @@ def _clean():
 
 
 @pytest.fixture
-def _forbid_errors(monkeypatch):
-    monkeypatch.setenv("OOPTDD_FORBID_ERRORS", "1")
+def _forbid_errors():
+    return GatePolicy(forbid_errors=True)
 
 
 def _app_under_fault(backend, cid, *, inject_fault: bool) -> None:
@@ -50,24 +52,30 @@ def _app_under_fault(backend, cid, *, inject_fault: bool) -> None:
     the positive-only wing would have passed."""
     backend.ship([{"cid": cid, "event": "request.start"}])
     if inject_fault:
-        backend.ship([{
-            "cid": cid, "event": "upstream.call", "level": "ERROR",
-            "error": "ConnectTimeout: toxiproxy latency toxic 5000ms exceeded deadline",
-        }])
+        backend.ship(
+            [
+                {
+                    "cid": cid,
+                    "event": "upstream.call",
+                    "level": "ERROR",
+                    "error": "ConnectTimeout: toxiproxy latency toxic 5000ms exceeded deadline",
+                }
+            ]
+        )
     backend.ship([{"cid": cid, "event": "request.end", "verdict": "PASS"}])
 
 
 def test_clean_run_is_green(_forbid_errors):
     b = MemoryBackend()
     _app_under_fault(b, _CID, inject_fault=False)
-    res = evaluate(b, _GATE)
+    res = evaluate(b, _GATE, policy=_forbid_errors)
     assert res["ok"] is True  # good events arrived, no ERROR -> GREEN
 
 
 def test_injected_fault_error_turns_gate_red_and_surfaces(_forbid_errors):
     b = MemoryBackend()
     _app_under_fault(b, _CID, inject_fault=True)
-    res = evaluate(b, _GATE)
+    res = evaluate(b, _GATE, policy=_forbid_errors)
     assert res["ok"] is False  # the injected fault's ERROR flips it via the forbid wing
     absent = [c for c in res["checks"] if "absent" in c][0]
     assert absent["violations"] == 1
@@ -80,7 +88,7 @@ def test_allowlisted_fault_stays_green(_forbid_errors):
     b = MemoryBackend()
     _app_under_fault(b, _CID, inject_fault=True)
     gate = {**_GATE, "allow_errors": [{"event": "upstream.call"}]}
-    res = evaluate(b, gate)
+    res = evaluate(b, gate, policy=_forbid_errors)
     assert res["ok"] is True
 
 
@@ -106,7 +114,9 @@ def test_real_toxiproxy_timeout_is_caught_by_forbid_wing(_forbid_errors):
     # Point a proxy at a black-holed upstream and time it out, so a connect through the
     # proxy's listen port reliably fails — the network fault we want the app to log.
     proxy = server.create(
-        name="ooptdd_negwing", listen="127.0.0.1:0", upstream="10.255.255.1:9",
+        name="ooptdd_negwing",
+        listen="127.0.0.1:0",
+        upstream="10.255.255.1:9",
     )
     proxy.add_toxic(type="timeout", attributes={"timeout": 200})  # ms
     listen_host, listen_port = proxy.listen.rsplit(":", 1)
@@ -128,7 +138,7 @@ def test_real_toxiproxy_timeout_is_caught_by_forbid_wing(_forbid_errors):
     # the app logs the real fault it hit; the forbid wing must catch it
     b.ship([{"cid": _CID, "event": "upstream.call", "level": "ERROR", "error": injected_error}])
     b.ship([{"cid": _CID, "event": "request.end", "verdict": "PASS"}])
-    res = evaluate(b, _GATE)
+    res = evaluate(b, _GATE, policy=_forbid_errors)
     assert res["ok"] is False
     absent = [c for c in res["checks"] if "absent" in c][0]
     assert absent["violations"] == 1

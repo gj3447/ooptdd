@@ -1,10 +1,12 @@
 """Tier-3: MTL intervals (#10), HMAC hash-chaining (#11), ontology compat (#13)."""
+
 from __future__ import annotations
 
 import pytest
 
+from ooptdd.adapters.pytest import build_outcome_records
 from ooptdd.backends.base import QueryResult
-from ooptdd.domain.model import build_outcome_records, sign_chain, verify_chain
+from ooptdd.domain.model import sign_chain, verify_chain
 from ooptdd.domain.ontology import Ontology, ontology_compat
 from ooptdd.engine.gate import evaluate
 
@@ -71,9 +73,15 @@ def test_heartbeat_no_beat_is_red():
 
 def test_heartbeat_optional_miss_surfaced_not_gating():
     b = _Fixed([_ev("other", 1)])
-    res = evaluate(b, {"cid": "c1", "expect": [
-        {"heartbeat": "hb", "every_s": 5, "optional": True},
-    ]})
+    res = evaluate(
+        b,
+        {
+            "cid": "c1",
+            "expect": [
+                {"heartbeat": "hb", "every_s": 5, "optional": True},
+            ],
+        },
+    )
     # all-optional gate is vacuous (asserts nothing gating) -> not GREEN; miss still surfaced
     assert res["ok"] is False and res["vacuous"] is True
     assert res["optional_failed"] == ["heartbeat:hb@5.0s"]
@@ -82,8 +90,12 @@ def test_heartbeat_optional_miss_surfaced_not_gating():
 # ── #11 HMAC hash chain ───────────────────────────────────────────────────────
 def _records():
     return build_outcome_records(
-        [{"nodeid": f"t::{i}", "outcome": "passed", "duration": 0.0, "when": "call"}
-         for i in range(3)], cid="c1")
+        [
+            {"nodeid": f"t::{i}", "outcome": "passed", "duration": 0.0, "when": "call"}
+            for i in range(3)
+        ],
+        cid="c1",
+    )
 
 
 def test_chain_round_trips_intact():

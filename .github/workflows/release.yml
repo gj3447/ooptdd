@@ -1,36 +1,104 @@
-# Tag-driven PyPI release via Trusted Publishing (OIDC) — no tokens anywhere.
-# Cut a release entirely from the CLI:
-#   git tag -a ooptdd-X.Y.Z -m "..." && git push origin ooptdd-X.Y.Z
-# The 'pypi' environment on this repo is the publisher PyPI trusts
-# (configured at pypi.org/manage/project/ooptdd/settings/publishing/).
+# Tag-driven PyPI release via Trusted Publishing (OIDC) -- no API tokens.
+#
+# Each PyPI project must trust this workflow and the `pypi` GitHub environment.
+# A tag names exactly one distribution and must agree with its project version:
+#
+#   ooptdd-v0.6.0
+#   ooptdd-mutation-v0.1.0
+#   ooptdd-trajectory-v0.1.0
+#   ooptdd-genai-v0.1.0
 name: release
 
 on:
   push:
-    tags: ["ooptdd-*"]
+    tags:
+      - "ooptdd-v*"
+      - "ooptdd-mutation-v*"
+      - "ooptdd-trajectory-v*"
+      - "ooptdd-genai-v*"
 
 jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      distribution: ${{ steps.route.outputs.distribution }}
+      project_dir: ${{ steps.route.outputs.project_dir }}
+      artifact: ${{ steps.route.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - id: route
+        name: Validate and route the release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          routes = {
+              "ooptdd": Path("."),
+              "ooptdd-mutation": Path("extensions/ooptdd-mutation"),
+              "ooptdd-trajectory": Path("extensions/ooptdd-trajectory"),
+              "ooptdd-genai": Path("extensions/ooptdd-genai"),
+          }
+          match = re.fullmatch(
+              r"(ooptdd(?:-(?:mutation|trajectory|genai))?)-v"
+              r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)",
+              tag,
+          )
+          if match is None:
+              raise SystemExit(f"unsafe or malformed release tag: {tag!r}")
+          distribution = match.group(1)
+          project_dir = routes[distribution]
+          with (project_dir / "pyproject.toml").open("rb") as handle:
+              project = tomllib.load(handle)["project"]
+          expected = f"{distribution}-v{project['version']}"
+          if project["name"] != distribution:
+              raise SystemExit(
+                  f"route metadata mismatch: expected {distribution!r}, got {project['name']!r}"
+              )
+          if tag != expected:
+              raise SystemExit(f"tag/version mismatch: got {tag!r}, expected {expected!r}")
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a") as stream:
+              stream.write(f"distribution={distribution}\n")
+              stream.write(f"project_dir={project_dir.as_posix()}\n")
+              stream.write(f"artifact=dist-{distribution}\n")
+          PY
+
   build:
+    needs: route
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Build sdist + wheel from the tag
-        run: uv build
+      - name: Build the routed sdist and wheel
+        env:
+          PROJECT_DIR: ${{ needs.route.outputs.project_dir }}
+        run: uv build --out-dir dist "$PROJECT_DIR"
+      - name: Check distribution metadata and archive contents
+        run: uvx twine check dist/*
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: ${{ needs.route.outputs.artifact }}
           path: dist/
+          if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [route, build]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write   # OIDC — this IS the credential
+      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
+          name: ${{ needs.route.outputs.artifact }}
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1

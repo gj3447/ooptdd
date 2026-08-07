@@ -11,6 +11,7 @@ Drivers are discovered three ways, in order:
   2. the ``ooptdd.backends`` entry-point group (``pip install`` a 3rd-party driver)
   3. an explicit instance passed in code
 """
+
 from __future__ import annotations
 
 from ..domain.ports import (
@@ -18,24 +19,32 @@ from ..domain.ports import (
     Backend,
     BackendCaps,
     Clock,
+    EventSink,
+    EventSource,
+    FlushPort,
     QueryResult,
     QuerySpec,
     SystemClock,
     TimeWindow,
     backend_caps,
     fetch,
+    sanitize_endpoint_identity,
 )
 
 __all__ = [
     "Backend",
     "QueryResult",
     "BackendCaps",
+    "EventSink",
+    "EventSource",
+    "FlushPort",
     "DEFAULT_CAPS",
     "QuerySpec",
     "TimeWindow",
     "Clock",
     "SystemClock",
     "backend_caps",
+    "sanitize_endpoint_identity",
     "fetch",
     "raise_for_status",
     "HTTPStatusError",
@@ -79,6 +88,7 @@ def classify_http_error(exc) -> tuple[str | None, float | None]:
     if status == 408 or isinstance(exc, TimeoutError):
         return "timeout", None
     import socket
+
     if isinstance(exc, socket.timeout):
         return "timeout", None
     return "other", None

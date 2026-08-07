@@ -1,35 +1,33 @@
 """Gate runner — evaluate a YAML trace spec against a backend.
 
-A gate is the *Red* artifact: you write what you expect to observe before the
-code emits it. It is plain data in your repo (the agent only proposes it; the
-store is the judge), and it is intentionally count-based — existence and
-cardinality, the assertions that are robust on eventually-consistent stores.
+A gate is plain data describing what a backend must report. It is intentionally
+count-based: existence and cardinality remain robust on eventually-consistent stores.
 
 Spec format (``gates/*.yaml``)::
 
     cid_env: OOPTDD_CID        # or:  cid: a-literal-correlation-id
-    service: myapp.tests       # optional, informational
+    service: myapp             # optional, informational
     timeWindow: 1h             # optional rolling readback window (OpenSLO style:
                                #   30s/5m/2h/1d or bare seconds); default = backend's
     indicators:                # optional SLI layer — *how to select* (named, reusable)
-      ng_cycles: {event: cycle, where: {verdict: NG}}
-      done:      {event: cycle, where: {verdict: PASS}}
+      errors:    {event: request.completed, where: {status: error}}
+      completed: {event: request.completed, where: {status: success}}
     expect:                    # the SLO layer — *what counts as green* (criteria)
-      - event: test_session
+      - event: batch_completed
         op: ">="              # symbolic (>= > == <= <) OR OpenSLO words (gte/gt/eq/lte/lt)
         count: 1
-      - event: test_outcome
+      - event: item_processed
         op: gte                #   `target:` is an alias for `count:`
         target: 5
-      - indicatorRef: ng_cycles # reuse a named indicator; criteria stay here
+      - indicatorRef: errors    # reuse a named indicator; criteria stay here
         op: eq
         target: 0
       - ratioMetric:           # good/total ratio (OpenSLO ratioMetric)
-          good:  {indicatorRef: done}
-          total: {event: cycle}
+          good:  {indicatorRef: completed}
+          total: {event: request.completed}
         op: gte
         target: 0.99
-      - present:               # subset-present, ANY order (testfixtures order_matters=False);
+      - present:               # subset-present, ANY order;
           - {event: a}         #   each matcher must match >=1 event. The default "did these
           - {event: b, where: {station: A}}   #   happen?" check — order is NOT asserted.
       - must_order: [a, b, c]  # each must occur, first-occurrence times non-decreasing
@@ -40,14 +38,10 @@ Spec format (``gates/*.yaml``)::
         op: ">="               #   but it IS surfaced (and an unreachable store is still
         count: 1               #   INFRA, reported via `reachable`, never a clean pass)
         optional: true
-      - tool_calls:            # agent-trajectory predicates (ooptdd.engine.trajectory):
-          expected: [search]   #   expected-vs-ARRIVED tool calls, match exact/subset/
-          match: subset        #   ordered, optional argument scoring + matchers
-      - forbidden_tools: [rm]  # arrival of a forbidden tool call = RED
       - aggregate:             # numeric rollup budget (sum/max/min/avg of an attr)
-          {fn: sum, attr: gen_ai.usage.output_tokens, target: 50000}
+          {fn: sum, attr: duration_ms, target: 50000}
     forbid_errors: true        # optional (spec-level): inject an implicit ERROR/CRITICAL
-                               #   `absent` into the gate (default = env OOPTDD_FORBID_ERRORS;
+                               #   `absent` into the gate (caller policy may map environment;
                                #   set false here to opt a spec out). Levels via `error_levels:`.
     allow_errors:              # optional (spec-level) allowlist — these matched errors are
       - {event: zdf.drop}      #   exempt (known-benign), so they don't flip the gate.
@@ -55,13 +49,12 @@ Spec format (``gates/*.yaml``)::
 Counting is done over the events the backend returns for ``cid`` — no
 backend-specific query language, so the same gate runs on memory, OpenObserve, or
 any future driver. ``where`` filters on arbitrary event fields (e.g. ``verdict``,
-``level``) by partial-dict equality — only the listed keys must match, like
-``pytest-structlog``'s ``log.has(evt, **ctx)``. ``must_order`` checks sequencing
+``level``) by partial-dict equality — only the listed keys must match.
+``must_order`` checks sequencing
 using each event's ``_timestamp`` (store-receive time) — so an ordering verdict is only as
-trustworthy as the transport's order-preservation: out-of-order ingest can flip it (see
-METHODOLOGY.md "Ordering rests on store-receive time"; prefer ``invariant`` or ``external:``
-when the transport can reorder and the ordering itself is under test). ``present`` asserts a
-subset occurred in *any* order (``testfixtures.check_present(order_matters=False)``).
+trustworthy as the transport's order-preservation. Prefer ``invariant`` or ``external:``
+when the transport can reorder and ordering itself is being verified. ``present`` asserts a
+subset occurred in any order.
 
 The vocabulary (``op: gte``, ``target``, ``timeWindow``, ``indicators``/``indicatorRef``,
 ``ratioMetric``) is deliberately aligned with **OpenSLO** and **Keptn** SLO specs so
@@ -79,12 +72,13 @@ gains is a real incremental monitor with anticipatory verdicts, surfaced per che
 
 from __future__ import annotations
 
-import os
+import math
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping, MutableMapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Any
 
 from ..domain.ports import (
@@ -97,6 +91,12 @@ from ..domain.ports import (
     backend_caps,
     backend_identity,
     fetch,
+)
+from ..domain.settings import (
+    DEFAULT_ENV_KEYS,
+    FALSE_VALUES,
+    TRUE_VALUES,
+    EnvironmentKeys,
 )
 from .gate_kernel import judge_events
 from .gate_primitives import stream_key
@@ -139,41 +139,42 @@ from .gate_values import (
 )
 from .monitor import (  # the evaluation kernel
     _OPS,
-    _matches,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
+    _matches,
     _norm_op,
-    _resolve_matcher,  # noqa: F401  re-exported for backward compat (ooptdd.mutation)
+    _resolve_matcher,
     compile_check,
     run_monitor,
 )
 
-# ---- check-predicate registry (the extension seam) -------------------------- #
-# Each gate check kind (present/absent/conforms/...) is a handler registered under its
-# spec keyword, not a branch in a central if-elif. New predicates register via
-# ``@check("<key>")`` WITHOUT editing ``evaluate()`` — the pluggy/hypothesis registration
-# pattern (a string-keyed single-dispatch table), absorbed here. The registry is also a
-# structural-assertion surface: every dispatched key must resolve to a registered handler.
+
+def matches_event(event: dict[str, Any], event_name: str | None, where: dict[str, Any]) -> bool:
+    """Return whether an event satisfies a generic event/attribute matcher."""
+
+    return _matches(event, event_name, where)
 
 
-class CheckRegistry(MutableMapping[str, CheckFn]):
-    """Mutable composition-shell registry with explicit immutable snapshots.
+def resolve_matcher(
+    matcher: dict[str, Any],
+    indicators: dict[str, Any],
+) -> tuple[str | None, dict[str, Any]]:
+    """Resolve an inline matcher or an indicator reference into event and attributes."""
 
-    The historical mapping operations stay available for compatibility.  The functional
-    kernel never reads this object directly; each evaluation receives ``snapshot()``.
-    """
+    return _resolve_matcher(matcher, indicators)
 
-    def __init__(self) -> None:
-        self._handlers: dict[str, CheckFn] = {}
+
+# ---- immutable check-predicate registry (the extension seam) ---------------- #
+
+
+class CheckRegistry(Mapping[str, CheckFn]):
+    """Immutable predicate mapping captured at a composition boundary."""
+
+    def __init__(self, handlers: Mapping[str, CheckFn]) -> None:
+        self._handlers = MappingProxyType(dict(handlers))
 
     def __getitem__(self, key: str) -> CheckFn:
         return self._handlers[key]
 
-    def __setitem__(self, key: str, value: CheckFn) -> None:
-        self._handlers[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self._handlers[key]
-
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self):
         return iter(self._handlers)
 
     def __len__(self) -> int:
@@ -183,32 +184,93 @@ class CheckRegistry(MutableMapping[str, CheckFn]):
         values = dict(self._handlers)
         if default is not None:
             values["__count__"] = default
-        return values
+        return MappingProxyType(values)
+
+    def strength_snapshot(self) -> Mapping[str, str]:
+        """Return strength metadata declared by registered handlers."""
+        return MappingProxyType(
+            {
+                key: value
+                for key, handler in self._handlers.items()
+                if isinstance((value := getattr(handler, "__ooptdd_strength__", None)), str)
+                and value
+            }
+        )
 
 
-CHECK_REGISTRY = CheckRegistry()
+def check_strengths(
+    registry: Mapping[str, CheckFn] | None = None,
+) -> Mapping[str, str]:
+    """Snapshot built-in and explicitly registered predicate strength metadata."""
+    handlers = core_check_registry() if registry is None else registry
+    strengths = dict(_STRENGTH_BY_KEY)
+    strengths.update(
+        {
+            key: value
+            for key, handler in handlers.items()
+            if isinstance((value := getattr(handler, "__ooptdd_strength__", None)), str) and value
+        }
+    )
+    return strengths
 
 
-def check(*keys: str) -> Callable[[CheckFn], CheckFn]:
-    """Register a check handler under one or more spec keywords. Decoration-time only (a
-    dict insert, no I/O). A duplicate key raises — guarding the silent-overwrite failure."""
+def check(
+    *keys: str,
+    strength: str | None = None,
+    event_names: Callable[[Mapping[str, Any]], object] | None = None,
+) -> Callable[[CheckFn], CheckFn]:
+    """Attach predicate metadata without registering or mutating process state."""
+
+    if strength is not None and (not isinstance(strength, str) or not strength):
+        raise ValueError("check strength metadata must be non-empty text")
+    if event_names is not None and not callable(event_names):
+        raise TypeError("check event_names metadata must be callable")
+
+    if not keys or any(not isinstance(key, str) or not key for key in keys):
+        raise ValueError("check predicate keys must be non-empty text")
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate check predicate key in decorator")
 
     def deco(fn: CheckFn) -> CheckFn:
-        for k in keys:
-            if k in CHECK_REGISTRY:
-                raise ValueError(f"duplicate check predicate {k!r}")
-        for k in keys:
-            CHECK_REGISTRY[k] = fn
+        metadata_handler: Any = fn
+        metadata_handler.__ooptdd_check_keys__ = tuple(keys)
+        if strength is not None:
+            metadata_handler.__ooptdd_strength__ = strength
+        if event_names is not None:
+            metadata_handler.__ooptdd_event_names__ = event_names
         return fn
 
     return deco
 
 
-def unregister(key: str) -> CheckFn | None:
-    """Remove a check predicate (inverse of :func:`check`); returns the handler or None. Lets a
-    test drop a custom key it registered, and makes a built-in overridable (unregister then
-    re-register) — the duplicate-key guard in ``check`` otherwise forbids it."""
-    return CHECK_REGISTRY.pop(key, None)
+def checks_from(*handlers: CheckFn) -> Mapping[str, CheckFn]:
+    """Create an immutable provider mapping from metadata-only decorated handlers."""
+    result: dict[str, CheckFn] = {}
+    for handler in handlers:
+        keys = getattr(handler, "__ooptdd_check_keys__", ())
+        if not keys:
+            raise ValueError(f"check handler {handler!r} has no @check metadata")
+        for key in keys:
+            if key in result:
+                raise ValueError(f"duplicate check predicate {key!r}")
+            result[key] = handler
+    return MappingProxyType(result)
+
+
+def compose_check_registry(
+    *providers: Mapping[str, CheckFn],
+    base: Mapping[str, CheckFn] | None = None,
+) -> CheckRegistry:
+    """Compose immutable predicate mappings, rejecting ambiguous ownership."""
+    combined = dict(core_check_registry() if base is None else base)
+    for provider in providers:
+        for key, handler in provider.items():
+            if not isinstance(key, str) or not key or not callable(handler):
+                raise TypeError("check registries require non-empty string keys and callables")
+            if key in combined:
+                raise ValueError(f"duplicate check predicate {key!r}")
+            combined[key] = handler
+    return CheckRegistry(combined)
 
 
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -233,8 +295,8 @@ def load_gate(path: str, *, cid: str | None = None) -> dict:
     import yaml  # PyYAML (declared dependency)
 
     # UTF-8 explicitly — a gate spec is YAML, and YAML is UTF-8 by specification.
-    # Reading it through the locale codec breaks every non-ASCII spec on a
-    # non-UTF-8 machine (cp949 on Korean Windows, measured 2026-08-07).
+    # Reading it through the locale codec breaks non-ASCII specs on systems
+    # whose locale encoding is not UTF-8.
     with open(path, encoding="utf-8") as fh:
         try:
             spec = yaml.safe_load(fh) or {}
@@ -262,7 +324,7 @@ def _label(chk: dict) -> str:
 
 
 def _truthy(v) -> bool:
-    return str(v).strip().lower() in {"1", "true", "yes", "on"} if v is not None else False
+    return str(v).strip().lower() in TRUE_VALUES if v is not None else False
 
 
 def _finite_gate_number(
@@ -370,6 +432,65 @@ def _check_duration(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)  # universal field threshold (kernel DurationMonitor)
 
 
+_AGGREGATES: Mapping[str, Callable[[list[float]], float]] = MappingProxyType(
+    {
+        "sum": sum,
+        "max": max,
+        "min": min,
+        "avg": lambda values: sum(values) / len(values),
+    }
+)
+
+
+@check("aggregate", strength="threshold")
+def _check_aggregate(events: list, rule: dict, ctx: CheckCtx) -> dict:
+    """Apply a numeric rollup to one field across matching structured events."""
+
+    spec = rule["aggregate"]
+    if not isinstance(spec, dict):
+        raise ValueError("aggregate requires a dict: {fn, attr, target, [event, op]}")
+    fn = spec.get("fn", "sum")
+    if fn not in _AGGREGATES:
+        raise ValueError(f"aggregate fn must be one of {sorted(_AGGREGATES)}: {fn!r}")
+    if "attr" not in spec or "target" not in spec:
+        raise ValueError("aggregate requires `attr:` and `target:`")
+    attr = spec["attr"]
+    event_name = spec.get("event")
+    values: list[float] = []
+    for event in events:
+        if event_name is not None and event.get("event") != event_name:
+            continue
+        value = event.get(attr)
+        if isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if math.isfinite(value):
+            values.append(value)
+    op = _norm_op(spec.get("op", "<="))
+    if op not in _OPS:
+        raise ValueError(f"unknown op {spec.get('op', '<=')!r}; one of {sorted(_OPS)}")
+    target = _finite_gate_number(spec["target"], "aggregate target")
+    base = {
+        "label": f"aggregate:{fn}({attr})",
+        "aggregate": fn,
+        "attr": attr,
+        "op": op,
+        "target": target,
+        "n": len(values),
+        "charged": bool(values),
+    }
+    if not values:
+        value = 0.0 if fn == "sum" else None
+        passed = bool(_OPS[op](0.0, target)) if fn == "sum" else False
+        return {**base, "value": value, "passed": passed, "reason": "aggregate_no_values"}
+    value = _AGGREGATES[fn](values)
+    return {**base, "value": value, "passed": bool(_OPS[op](value, target))}
+
+
 @check("external")
 def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The independent-oracle check: assert against an external fact (ctx.probe), NOT the system's
@@ -406,14 +527,11 @@ def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     if want is None:
         passed = value is not None  # the external fact merely has to EXIST
     elif op in ("==", "!="):
-        tolerance = _exact_external_number(
-            spec.get("tol", 0.0), "external tolerance"
-        )
+        tolerance = _exact_external_number(spec.get("tol", 0.0), "external tolerance")
         if tolerance < 0:
             raise ValueError("external tolerance must be >= 0")
         numeric_pair = all(
-            isinstance(item, int | float | Decimal | Fraction)
-            and not isinstance(item, bool)
+            isinstance(item, int | float | Decimal | Fraction) and not isinstance(item, bool)
             for item in (value, want)
         )
         if op == "!=":
@@ -440,6 +558,33 @@ def _check_external(events: list, rule: dict, ctx: CheckCtx) -> dict:
     }
 
 
+_CORE_CHECK_REGISTRY = CheckRegistry(
+    {
+        "absent": _check_absent,
+        "heartbeat": _check_heartbeat,
+        "must_order": _check_must_order,
+        "present": _check_present,
+        "ratioMetric": _check_ratio,
+        "conforms": _check_conforms,
+        "invariant": _check_invariant,
+        "metamorphic": _check_metamorphic,
+        "duration": _check_duration,
+        "aggregate": _check_aggregate,
+        "external": _check_external,
+    }
+)
+
+# Compatibility name retained as an immutable view. It cannot be registered into,
+# cleared, or otherwise changed by imports or tests.
+CHECK_REGISTRY = _CORE_CHECK_REGISTRY
+
+
+def core_check_registry() -> Mapping[str, CheckFn]:
+    """Return the immutable built-in registry, independent of compatibility mutations."""
+
+    return _CORE_CHECK_REGISTRY
+
+
 def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
     """The default check (no predicate keyword): a :class:`CountMonitor` over the rule's
     event/where compared with op/target. The documented fallback when no registered
@@ -447,19 +592,22 @@ def _eval_count(events: list, rule: dict, ctx: CheckCtx) -> dict:
     return _run(rule, events, ctx)
 
 
-_CANONICAL_GATE_HANDLERS = frozenset({
-    _check_absent,
-    _check_heartbeat,
-    _check_must_order,
-    _check_present,
-    _check_ratio,
-    _check_conforms,
-    _check_invariant,
-    _check_metamorphic,
-    _check_duration,
-    _check_external,
-    _eval_count,
-})
+_CANONICAL_GATE_HANDLERS = frozenset(
+    {
+        _check_absent,
+        _check_heartbeat,
+        _check_must_order,
+        _check_present,
+        _check_ratio,
+        _check_conforms,
+        _check_invariant,
+        _check_metamorphic,
+        _check_duration,
+        _check_aggregate,
+        _check_external,
+        _eval_count,
+    }
+)
 
 
 def _detect_check_key(
@@ -468,7 +616,8 @@ def _detect_check_key(
 ) -> str | None:
     """The registry key for ``rule`` (``None`` -> the default count check). Built-in keys
     win in historical order; an externally-registered custom key is matched after."""
-    return _kernel_detect_check_key(rule, registry or CHECK_REGISTRY.snapshot())
+    handlers = core_check_registry() if registry is None else registry
+    return _kernel_detect_check_key(rule, handlers)
 
 
 # ---- strength / scope signal (honesty, not an oracle) ----------------------- #
@@ -477,7 +626,7 @@ def _detect_check_key(
 # power (from the rule alone), so a gate can self-report HOW HARD it asserted — an all
 # `existence-only` gate proved tokens were emitted, pinned no field, ordered nothing, forbade
 # nothing. Higher strength is still author-vs-author (the `where` value descends from the same
-# mental model) — a harder self-check, NOT an external oracle (see METHODOLOGY "log-free zones").
+# mental model) — a harder self-check, not an external oracle.
 def _strength(
     rule: dict,
     registry: Mapping[str, CheckFn] | None = None,
@@ -486,17 +635,21 @@ def _strength(
     """Discriminating-power class of a check (pure, total over every registry key + the default
     count). Low→high: existence-only < bounded < value-pinned/ordered/forbid/threshold <
     ratio/liveness/conformance."""
-    return _kernel_strength(
-        rule,
-        registry or CHECK_REGISTRY.snapshot(),
-        strength_by_key or _STRENGTH_BY_KEY,
-    )
+    handlers = core_check_registry() if registry is None else registry
+    strengths = dict(check_strengths(handlers))
+    if strength_by_key is not None:
+        strengths.update(strength_by_key)
+    return _kernel_strength(rule, handlers, strengths)
 
 
-def _rule_event_names(rule: dict) -> set[str]:
+def _rule_event_names(
+    rule: dict,
+    registry: Mapping[str, CheckFn] | None = None,
+) -> set[str]:
     """Event names a single gate rule asserts on, best-effort across every check shape — used to
     measure how much of the OBSERVED stream the gate actually names (the closed-world signal)."""
-    return _kernel_rule_event_names(rule)
+    handlers = core_check_registry() if registry is None else registry
+    return _kernel_rule_event_names(rule, handlers)
 
 
 def _check_charged(chk: dict) -> bool:
@@ -506,11 +659,16 @@ def _check_charged(chk: dict) -> bool:
     return _kernel_check_charged(chk)
 
 
-def _resolve_cid(spec: dict, environ: Mapping[str, str] | None = None) -> str:
+def _resolve_cid(
+    spec: Mapping[str, object],
+    environ: Mapping[str, str] | None = None,
+    *,
+    env_keys: EnvironmentKeys = DEFAULT_ENV_KEYS,
+) -> str:
     if spec.get("cid"):
         return str(spec["cid"])
-    env = spec.get("cid_env", "OOPTDD_CID")
-    cid = (os.environ if environ is None else environ).get(env)
+    env = str(spec.get("cid_env", env_keys.cid))
+    cid = ({} if environ is None else environ).get(env)
     if not cid:
         raise ValueError(f"gate needs a cid: set `cid:` in the spec or export {env}")
     return cid
@@ -519,21 +677,42 @@ def _resolve_cid(spec: dict, environ: Mapping[str, str] | None = None) -> str:
 def resolve_gate_policy(
     spec: Mapping[str, object],
     environ: Mapping[str, str] | None = None,
+    *,
+    env_keys: EnvironmentKeys = DEFAULT_ENV_KEYS,
 ) -> GatePolicy:
-    """Resolve legacy env defaults once, at the imperative shell boundary."""
+    """Purely resolve spec policy over an explicit environment snapshot.
 
-    values = os.environ if environ is None else environ
+    Omitting ``environ`` means no environment overrides. Outer adapters
+    capture ambient state once at their composition boundary and pass it here.
+    """
 
-    def flag(spec_key: str, env_key: str) -> bool:
+    values = {} if environ is None else environ
+
+    def flag(spec_key: str, env_attr: str) -> bool:
         declared = spec.get(spec_key)
-        return bool(declared) if declared is not None else _truthy(values.get(env_key))
+        env_key = getattr(env_keys, env_attr)
+        if declared is None:
+            return _truthy(values.get(env_key))
+        if isinstance(declared, bool):
+            return declared
+        if isinstance(declared, str):
+            normalized = declared.strip().lower()
+            if normalized in TRUE_VALUES:
+                return True
+            if normalized in FALSE_VALUES:
+                return False
+            raise ValueError(
+                f"{spec_key} must be a boolean or one of "
+                f"{sorted(TRUE_VALUES | FALSE_VALUES)}, got {declared!r}"
+            )
+        return bool(declared)
 
     return GatePolicy(
-        forbid_errors=flag("forbid_errors", "OOPTDD_FORBID_ERRORS"),
-        require_corroboration=flag("require_corroboration", "OOPTDD_REQUIRE_CORROBORATION"),
-        require_signature=flag("require_signature", "OOPTDD_REQUIRE_SIGNATURE"),
-        signing_key=values.get("OOPTDD_SIGNING_KEY"),
-        require_independent_store=flag("require_independent_store", "OOPTDD_REQUIRE_INDEPENDENT"),
+        forbid_errors=flag("forbid_errors", "forbid_errors"),
+        require_corroboration=flag("require_corroboration", "require_corroboration"),
+        require_signature=flag("require_signature", "require_signature"),
+        signing_key=values.get(env_keys.signing_key),
+        require_independent_store=flag("require_independent_store", "require_independent_store"),
     )
 
 
@@ -551,7 +730,8 @@ def _capture_external_observations(
     observations: dict[int, ExternalObservation] = {}
     for index, rule in enumerate(expand_rules(spec, policy)):
         key = _kernel_detect_check_key(rule, handlers)
-        handler = handlers.get(key or "__count__")
+        dispatch_key = "__count__" if key is None else key
+        handler = handlers.get(dispatch_key)
         if handler is not _check_external:
             continue
         external = rule.get("external")
@@ -592,9 +772,10 @@ def _capture_custom_check_results(
     captured: dict[int, Mapping[str, object]] = {}
     for index, rule in enumerate(rules):
         key = _kernel_detect_check_key(rule, evaluation.registry)
-        handler = evaluation.registry.get(key or "__count__")
+        dispatch_key = "__count__" if key is None else key
+        handler = evaluation.registry.get(dispatch_key)
         if handler is None:
-            raise ValueError(f"no check handler registered for {key or '__count__'!r}")
+            raise ValueError(f"no check handler registered for {dispatch_key!r}")
         if any(handler is canonical for canonical in _CANONICAL_GATE_HANDLERS):
             continue
         context = CheckCtx(
@@ -630,6 +811,11 @@ def evaluate(
     clock: Clock | None = None,
     probe=None,
     cid: str | None = None,
+    policy: GatePolicy | None = None,
+    registry: Mapping[str, CheckFn] | None = None,
+    strength_by_key: Mapping[str, str] | None = None,
+    environ: Mapping[str, str] | None = None,
+    env_keys: EnvironmentKeys = DEFAULT_ENV_KEYS,
 ) -> dict:
     """Run a gate spec once: read the backend, then judge the events.
 
@@ -645,11 +831,13 @@ def evaluate(
 
     The readback window comes from ``lookback_s`` (arg) else the spec's ``timeWindow``
     (OpenSLO rolling window) else the backend default. ``clock`` (a :class:`Clock`) is
-    injectable so the window is deterministic under test; it defaults to the system clock.
+    injectable so the window can be driven deterministically; it defaults to the system clock.
     This function owns the *read*; :func:`evaluate_events` owns the *judgement* and is the
     seam the arrival-poller (:func:`ooptdd.engine.verify.verify_gate`) reuses per poll.
     """
-    cid = cid if cid is not None else _resolve_cid(spec)  # kwarg overrides spec cid/cid_env
+    cid = (
+        cid if cid is not None else _resolve_cid(spec, environ, env_keys=env_keys)
+    )  # kwarg overrides spec cid/cid_env
     if ontology is None and spec.get("ontology"):
         from ..domain.ontology import Ontology  # file-first; offline, no KG dependency
 
@@ -681,12 +869,17 @@ def evaluate(
         emit_independent=backend_caps(backend).independent,
         # a sampled store cannot prove cross-event causal claims — evidence_tier caps on it
         emit_sampled=backend_caps(backend).samples,
+        policy=policy,
+        registry=registry,
+        strength_by_key=strength_by_key,
+        environ=environ,
+        env_keys=env_keys,
     )
 
 
 def evaluate_events(
     spec: dict,
-    events: list[dict],
+    events: Sequence[Mapping[str, Any]],
     *,
     reachable: bool,
     complete: bool = True,
@@ -702,6 +895,7 @@ def evaluate_events(
     strength_by_key: Mapping[str, str] | None = None,
     external_observations: Mapping[int, ExternalObservation] | None = None,
     environ: Mapping[str, str] | None = None,
+    env_keys: EnvironmentKeys = DEFAULT_ENV_KEYS,
 ) -> dict:
     """Judge fetched events through a closed, immutable functional-core input.
 
@@ -711,14 +905,24 @@ def evaluate_events(
     """
 
     captured_spec = thaw_value(freeze_value(spec))
-    captured_events = thaw_value(freeze_value(events))
-    if not isinstance(captured_spec, dict) or not isinstance(captured_events, list):
-        raise TypeError("gate spec must be an object and events must be a list")
-    resolved_cid = cid if cid is not None else _resolve_cid(captured_spec, environ)
-    resolved_policy = policy or resolve_gate_policy(captured_spec, environ)
-    handlers = dict(CHECK_REGISTRY.snapshot() if registry is None else registry)
+    if isinstance(events, str | bytes) or not isinstance(events, Sequence):
+        raise TypeError("gate events must be a sequence of mappings")
+    captured_events = [thaw_value(freeze_value(event)) for event in events]
+    if not isinstance(captured_spec, dict) or any(
+        not isinstance(event, dict) for event in captured_events
+    ):
+        raise TypeError("gate spec and every event must be mappings")
+    resolved_cid = (
+        cid if cid is not None else _resolve_cid(captured_spec, environ, env_keys=env_keys)
+    )
+    resolved_policy = (
+        resolve_gate_policy(captured_spec, environ, env_keys=env_keys) if policy is None else policy
+    )
+    handlers = dict(core_check_registry() if registry is None else registry)
     handlers.setdefault("__count__", _eval_count)
-    strengths = dict(_STRENGTH_BY_KEY if strength_by_key is None else strength_by_key)
+    strengths = dict(check_strengths(handlers))
+    if strength_by_key is not None:
+        strengths.update(strength_by_key)
     observations = (
         _capture_external_observations(
             captured_spec,
@@ -805,9 +1009,14 @@ def green_banner(result: dict) -> str:
     return line
 
 
-def lint_spec(spec: dict) -> list[dict]:
-    """Static, offline strength audit of a gate spec — the "pseudo-tested gate" detector, run
-    BEFORE any events, so a vacuously-satisfiable gate is caught at author time, not after a green
+def lint_spec(
+    spec: dict,
+    *,
+    registry: Mapping[str, CheckFn] | None = None,
+    strength_by_key: Mapping[str, str] | None = None,
+) -> list[dict]:
+    """Static, offline strength audit of a gate spec. It runs before event evaluation,
+    so a vacuously satisfiable gate is caught before a green
     run. Pure. Returns findings ``[{code, severity, label, message}]`` (``high`` = vacuous/blocking,
     ``medium`` = weak):
 
@@ -871,7 +1080,7 @@ def lint_spec(spec: dict) -> list[dict]:
                 }
             )
             continue
-        if _strength(r) == "existence-only":
+        if _strength(r, registry, strength_by_key) == "existence-only":
             out.append(
                 {
                     "code": "VAC3",
@@ -885,15 +1094,20 @@ def lint_spec(spec: dict) -> list[dict]:
     return out
 
 
-def strength_fingerprint(spec: dict) -> dict:
+def strength_fingerprint(
+    spec: dict,
+    *,
+    registry: Mapping[str, CheckFn] | None = None,
+    strength_by_key: Mapping[str, str] | None = None,
+) -> dict:
     """A scalar + profile summary of a gate's discriminating power, computed from the spec alone
     (pure). It is the basis for catching a *weakening* — dropping a `where`, marking a check
-    optional/pending, lowering a `threshold` — as a strength REGRESSION the way CI catches a
-    coverage drop, which directly counters the agent-loop's incentive to win by weakening the gate.
+    optional/pending, lowering a `threshold` — as a strength regression analogous to a
+    coverage drop. This prevents callers from obtaining success by weakening the gate.
     A quorum `threshold < 1` scales the score down (it licenses dropping expectations)."""
     rules = list(spec.get("expect", []))
     gating = [r for r in rules if not r.get("optional") and not r.get("pending")]
-    strengths = [_strength(r) for r in gating]
+    strengths = [_strength(r, registry, strength_by_key) for r in gating]
     raw_threshold = spec.get("threshold")
     threshold = 1.0 if raw_threshold is None else _gate_threshold(raw_threshold)
     raw = sum(_STRENGTH_RANK.get(s, 1) for s in strengths)
@@ -905,7 +1119,7 @@ def strength_fingerprint(spec: dict) -> dict:
         # Enforcement posture (spec-declared, pure): the negative/provenance wings that DON'T
         # show up in `expect` strength. Disabling any of these — or WIDENING the allow_errors
         # allowlist — weakens the gate without moving the strength score, so compare_strength
-        # must diff them; this closes the hole where an agent flips `require_signature: true`
+        # must diff them; this closes the hole where a caller flips `require_signature: true`
         # to false (or drops the key) for an unchanged fingerprint.
         "enforcement": {
             "require_signature": bool(spec.get("require_signature")),
@@ -919,7 +1133,7 @@ def strength_fingerprint(spec: dict) -> dict:
 def compare_strength(baseline: dict, current: dict) -> dict:
     """Did ``current`` get WEAKER than ``baseline``? Returns ``{weakened, regressions[], ...}`` —
     a non-empty ``regressions`` list (fewer gating checks, a lower score/threshold, or a stronger
-    check class that disappeared) is a strength regression to fail in CI."""
+    check class that disappeared) is a strength regression to report."""
     regs: list[str] = []
     if current["gating"] < baseline["gating"]:
         regs.append(f"gating checks dropped {baseline['gating']} -> {current['gating']}")
@@ -960,8 +1174,8 @@ def compare_strength(baseline: dict, current: dict) -> dict:
     }
 
 
-#: The assertion-strength ladder (LakatoTree element ``elem-ooptdd-assert-strength-ladder``),
-#: low→high. Unlike per-check ``_strength`` (one rule's discriminating power), this grades a whole
+#: The assertion-strength ladder, low to high. Unlike per-check ``_strength``
+#: (one rule's discriminating power), this grades a whole
 #: VERDICT by the strongest *kind of evidence* it actually mustered.
 EVIDENCE_TIERS = ("local_pass", "emitted", "arrived", "queryable_causal", "external_verdict")
 
@@ -1013,26 +1227,20 @@ def evidence_tier(result: dict) -> str:
     return "emitted"
 
 
-def can_i_deploy(results: list[dict]) -> dict:
-    """Pact ``can-i-deploy`` for ooptdd: may we ship, given a set of gate results?
+def combine_results(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Pure domain-neutral aggregation of independent contract results."""
 
-    Yes iff every gate was reachable, complete, and ``ok``. ``pending`` checks never block
-    (that is their purpose). A gate that was reachable-but-RED is a hard blocker; one that
-    was unreachable OR read incompletely (truncated) is inconclusive — an INFRA hold, not a
-    clean pass. Returns ``{deployable, blockers:[cid], inconclusive:[cid], pending:{cid:[..]}}``.
-    """
-
-    def _incomplete(r: dict) -> bool:
+    def _incomplete(r: Mapping[str, Any]) -> bool:
         return not r["reachable"] or not r.get("complete", True)
 
-    blockers = [
+    failed = [
         r["cid"] for r in results if r["reachable"] and r.get("complete", True) and not r["ok"]
     ]
     inconclusive = [r["cid"] for r in results if _incomplete(r)]
     pending = {r["cid"]: r["pending_failed"] for r in results if r.get("pending_failed")}
     return {
-        "deployable": not blockers and not inconclusive,
-        "blockers": blockers,
+        "ok": not failed and not inconclusive,
+        "failed": failed,
         "inconclusive": inconclusive,
         "pending": pending,
     }

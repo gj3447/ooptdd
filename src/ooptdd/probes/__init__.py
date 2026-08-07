@@ -18,16 +18,21 @@ CRUCIAL honesty: a probe only counts as *corroboration* (clears ``single_authori
 service / filesystem than the one the system wrote its trace to. A probe re-reading the system's
 own store is relocation, not independence, and must declare ``separate_source=False``.
 """
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from importlib.metadata import EntryPoint
+from types import MappingProxyType
 
 from ..domain.ports import ExternalProbe, ProbeResult
 
-_BUILTINS = {
-    "file": "ooptdd.probes.file:FileProbe",
-    "http": "ooptdd.probes.http:HttpProbe",
-}
+_BUILTINS: Mapping[str, object] = MappingProxyType(
+    {
+        "file": "ooptdd.probes.file:FileProbe",
+        "http": "ooptdd.probes.http:HttpProbe",
+    }
+)
 _ENTRY_POINT_GROUP = "ooptdd.probes"
 
 
@@ -36,10 +41,11 @@ class CallableProbe:
 
     ``value is None`` means the fact is absent; a raised exception means the source was unreachable
     (``reachable=False`` → inconclusive, never a strict fail). Declare ``separate_source`` honestly:
-    True only if ``fn`` reads a source genuinely independent of the system's trace store.
+    True only if ``fn`` reads a source genuinely independent of the system's trace store. It
+    defaults to False so omission cannot accidentally promote evidence to corroboration.
     """
 
-    def __init__(self, fn, *, separate_source: bool = True):
+    def __init__(self, fn, *, separate_source: bool = False):
         self._fn = fn
         self._separate = separate_source
 
@@ -64,8 +70,12 @@ class ProbeRegistry:
     """Name → ExternalProbe driver registry: built-ins + the ``ooptdd.probes`` entry-point group,
     with in-code ``register``/``unregister`` — mirrors :class:`~ooptdd.backends.BackendRegistry`."""
 
-    def __init__(self, builtins: dict | None = None, *,
-                 entry_point_group: str = _ENTRY_POINT_GROUP):
+    def __init__(
+        self,
+        builtins: Mapping[str, object] | None = None,
+        *,
+        entry_point_group: str = _ENTRY_POINT_GROUP,
+    ):
         self._registered: dict[str, object] = dict(builtins if builtins is not None else _BUILTINS)
         self._entry_point_group = entry_point_group
 
@@ -95,16 +105,27 @@ class ProbeRegistry:
         )
 
 
-#: The process-wide registry the module-level helper delegates to.
-default_registry = ProbeRegistry()
+def get_probe(
+    name: str,
+    *,
+    registry: ProbeRegistry | None = None,
+    **options,
+) -> ExternalProbe:
+    """Resolve a probe without consulting shared mutable process state.
 
+    Callers that need in-code drivers own and inject a :class:`ProbeRegistry`.
+    Otherwise a fresh catalog of immutable built-ins plus discovered entry points is
+    used for this resolution.
+    """
 
-def get_probe(name: str, **options) -> ExternalProbe:
-    """Return a configured probe instance ("file" | "http" | an ``ooptdd.probes`` entry point)."""
-    return default_registry.resolve(name, **options)
+    resolver = ProbeRegistry() if registry is None else registry
+    return resolver.resolve(name, **options)
 
 
 __all__ = [
-    "ExternalProbe", "ProbeResult", "CallableProbe",
-    "ProbeRegistry", "default_registry", "get_probe",
+    "ExternalProbe",
+    "ProbeResult",
+    "CallableProbe",
+    "ProbeRegistry",
+    "get_probe",
 ]

@@ -1,10 +1,10 @@
 """Optional receipt canary — make ooptdd's ABSENCE a hard error, not a silent skip.
 
-By design ooptdd is fail-open: the pytest plugin only auto-loads if importable, and receipt
-tests guard themselves with ``pytest.importorskip("ooptdd...")``. So a missing vendored copy, a
-fail-open CI install, or a ``.venv`` rebuilt without ooptdd turns EVERY receipt into a SKIP —
-and a lane that skipped every receipt reports green having verified nothing. There is no way,
-out of the box, to say "no, this lane MUST have receipts."
+By design the pytest adapter is opt-in (for example, ``-p ooptdd.plugin``), and receipt tests
+may guard themselves with ``pytest.importorskip("ooptdd...")``. So a missing installation, an
+adapter omitted from CI, or a ``.venv`` rebuilt without ooptdd can turn every guarded receipt
+into a SKIP — and a lane that skipped every receipt reports green having verified nothing.
+There is no way, out of the box, to say "no, this lane MUST have receipts."
 
 This is that way. Copy it next to your receipts (or merge the body into an existing
 ``conftest.py``). It is a no-op unless ``OOPTDD_REQUIRED`` is set, so it is safe to commit in
@@ -16,6 +16,7 @@ every environment; set the env only on the lanes that must not skip:
 When set and any named module is not importable, this aborts collection with a loud error
 instead of letting the run skip to green. Pure stdlib, offline.
 """
+
 import importlib
 import os
 

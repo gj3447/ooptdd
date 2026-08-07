@@ -82,7 +82,7 @@ exists (mutation report uses it); add serializers:
 **Acceptance:** golden-file tests per format; JUnit output validated against the
 schema consumed by GitHub's test summary.
 
-## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd.integrations`), HARDENED 2026-07-23
+## 4. Compose with eval platforms, don't compete — ✅ LANDED 2026-07-22 (`ooptdd-genai`), HARDENED 2026-07-23
 
 Acceptance status: deepeval bridge verified against REAL deepeval v4.0.7
 (evaluate() loop end-to-end) and now pinned as its own hosted-CI integration
@@ -93,7 +93,7 @@ ooptdd should not rebuild them ("What not to do") but currently offers no bridge
 so users must choose.
 
 **Fix — three thin, import-guarded adapters (zero new hard deps):**
-- `ooptdd.integrations.deepeval`: a DeepEval custom metric (`ArrivalMetric`)
+- `ooptdd_genai.integrations.deepeval_metric`: a DeepEval custom metric (`ArrivalMetric`)
   whose `measure()` runs an ooptdd gate — LLM-judge metrics and arrival proof
   in one DeepEval test case.
 - promptfoo: a documented `defaultTest.assert` command hook that shells

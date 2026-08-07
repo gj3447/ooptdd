@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Run and emit the deterministic Tier-0 arrival benchmark."""
+
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-from ooptdd.benchmark import (
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ooptdd_mutation.benchmarks.tier0 import (  # noqa: E402
     DEFAULT_FIXTURE_DIR,
     canonical_json,
     render_benchmark_junit,

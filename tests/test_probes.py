@@ -5,6 +5,7 @@ FileProbe / HttpProbe are reference adapters to genuinely-independent sources, a
 entry-point makes them pluggable like backends. The payoff: a probe corroborates a
 require_corroboration gate, so a green can mean more than the system agreeing with itself.
 """
+
 import json
 
 from ooptdd.domain.ports import ExternalProbe
@@ -21,9 +22,17 @@ def test_callable_probe_wraps_a_function():
     assert r.reachable and r.value == 42 and r.separate_source is True
 
 
+def test_callable_probe_does_not_assume_a_separate_source():
+    result = CallableProbe(lambda kind, selector, cid: 42).probe("x", {}, "c")
+
+    assert result.reachable is True
+    assert result.separate_source is False
+
+
 def test_callable_probe_exception_is_unreachable_not_a_crash():
     def boom(kind, sel, cid):
         raise RuntimeError("source down")
+
     assert CallableProbe(boom).probe("x", {}, "c").reachable is False
 
 
@@ -57,6 +66,7 @@ def test_http_probe_with_injected_opener():
 
     def boom(req, timeout):
         raise OSError("service down")
+
     assert HttpProbe(opener=boom).probe("http", "http://svc/x", "c").reachable is False
 
 
@@ -76,19 +86,41 @@ def test_get_probe_resolves_a_builtin(tmp_path):
     assert isinstance(get_probe("file", root=str(tmp_path)), ExternalProbe)
 
 
-def test_file_probe_corroborates_a_require_corroboration_gate(tmp_path, monkeypatch):
+def test_file_probe_corroborates_a_require_corroboration_gate(tmp_path):
     # the end-to-end answer: write/pick an adapter, point an external: check at it via a selector,
     # and it CORROBORATES a self-consistency-only gate — no per-call custom plumbing.
     (tmp_path / "ledger.json").write_text(json.dumps({"charged": 42}))
-    monkeypatch.setenv("OOPTDD_REQUIRE_CORROBORATION", "1")
-    spec = {"expect": [{"external": {"kind": "file",
-                                     "selector": {"path": "ledger.json", "json": "charged"},
-                                     "want": 42}}]}
-    res = evaluate_events(spec, [], reachable=True, complete=True, cid="c",
-                          probe=get_probe("file", root=str(tmp_path)))
+    environment = {"OOPTDD_REQUIRE_CORROBORATION": "1"}
+    spec = {
+        "expect": [
+            {
+                "external": {
+                    "kind": "file",
+                    "selector": {"path": "ledger.json", "json": "charged"},
+                    "want": 42,
+                }
+            }
+        ]
+    }
+    res = evaluate_events(
+        spec,
+        [],
+        reachable=True,
+        complete=True,
+        cid="c",
+        probe=get_probe("file", root=str(tmp_path)),
+        environ=environment,
+    )
     assert res["ok"] is True and res["oracle"]["corroborated"] == 1
     # the ledger disagreeing with the claim -> RED, from the TERRITORY
     (tmp_path / "ledger.json").write_text(json.dumps({"charged": 7}))
-    res2 = evaluate_events(spec, [], reachable=True, complete=True, cid="c",
-                           probe=get_probe("file", root=str(tmp_path)))
+    res2 = evaluate_events(
+        spec,
+        [],
+        reachable=True,
+        complete=True,
+        cid="c",
+        probe=get_probe("file", root=str(tmp_path)),
+        environ=environment,
+    )
     assert res2["ok"] is False

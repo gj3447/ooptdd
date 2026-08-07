@@ -6,6 +6,7 @@ the generic :func:`fetch_all_pages` walks cursors to completion. The ENGINE's li
 read path is untouched: a spec with neither limit nor cursor delegates to the
 existing read-to-completion ``query()`` byte-identically (pinned here).
 """
+
 from __future__ import annotations
 
 import json
@@ -28,8 +29,10 @@ class PagedOpener:
         q = body["query"]
         self.requests.append(q)
         start, size = q.get("from", 0), q["size"]
-        hits = [{"cycle_id": "c", "event": f"e{i}", "_timestamp": 1_000 + i}
-                for i in range(start, min(start + size, self.total))]
+        hits = [
+            {"cid": "c", "event": f"e{i}", "_timestamp": 1_000 + i}
+            for i in range(start, min(start + size, self.total))
+        ]
         payload = json.dumps({"hits": hits}).encode()
 
         class R:
@@ -54,7 +57,15 @@ def oo(monkeypatch):
 
     def make(total, **kw):
         opener = PagedOpener(total)
-        return OpenObserveBackend(stream="s", org="o", opener=opener, **kw), opener
+        return OpenObserveBackend(
+            stream="s",
+            org="o",
+            base_url="http://oo:5080",
+            environment={"OOPTDD_OO_PASSWORD": "pw"},
+            opener=opener,
+            **kw,
+        ), opener
+
     return make
 
 

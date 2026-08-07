@@ -1,7 +1,7 @@
 """pytest plugin — ship every test outcome and assert it arrived.
 
-Registered via the ``pytest11`` entry point, so ``pip install ooptdd`` is enough;
-no conftest wiring required. Behaviour:
+This adapter is opt-in. Load it explicitly with ``-p ooptdd.plugin`` or declare
+``pytest_plugins = ("ooptdd.plugin",)`` in the consuming suite. Behaviour:
 
 * **Off is truly off.** When disabled the hooks return immediately — byte-for-byte
   identical run (a property the test suite checks).
@@ -15,95 +15,171 @@ no conftest wiring required. Behaviour:
   defaults to ``warn``; only opt-in ``strict`` can fail the build, and only on a
   *real* miss (never on an unreachable store).
 
-Config: ``[tool.ooptdd]`` in pyproject (see :mod:`ooptdd.config`), env overrides,
-or the ini keys ``ooptdd_backend`` / ``ooptdd_service`` / ``ooptdd_verify`` /
-``ooptdd_enabled`` / ``ooptdd_cid_env``.
+Framework config lives in ``[tool.ooptdd]``. Adapter-only policy lives in
+``[tool.ooptdd.adapters.pytest]`` or the corresponding environment and ini keys.
 """
+
 from __future__ import annotations
 
-import os
 import uuid
+from collections.abc import Mapping
+from types import MappingProxyType
 
 import pytest
 
-from .backends import get_backend, memory_reset
-from .config import Settings, from_mapping, load_pyproject
-from .engine.verify import session_finish
+from .adapters.pytest import (
+    PytestAdapterSettings,
+    PytestEnvironmentKeys,
+    build_session_start,
+    session_finish,
+)
+from .backends import MemoryBackend, MemoryStore, memory_reset
+from .bootstrap import Runtime, compose_runtime
+from .config import SETTING_DEFINITIONS, load_pyproject, resolve_signing_settings
+from .domain.settings import DEFAULT_CID_ENV, DEFAULT_ENV_KEYS, FrameworkSettings
+
+_PYTEST_SETTING_HELP: Mapping[str, str] = MappingProxyType(
+    {
+        "verify": "build policy: off|warn|strict",
+        "enabled": "adapter activation: auto|1|0",
+        "cid_env": "environment variable holding the correlation id",
+    }
+)
+_PYTEST_ENV_KEYS = PytestEnvironmentKeys()
+
+
+class OOPTDDPytestHooks:
+    """Explicit composition seam for consumers of the opt-in pytest adapter."""
+
+    @pytest.hookspec(firstresult=True)
+    def pytest_ooptdd_runtime(self, config, runtime: Runtime) -> Runtime | None:
+        """Return a replacement immutable runtime before extensions are activated.
+
+        Implementations may inject backend registries or extension providers without
+        mutating process-global framework state. Returning ``None`` keeps the supplied
+        runtime.
+        """
+
+
+def pytest_addhooks(pluginmanager):
+    """Register the adapter-owned runtime composition hook."""
+
+    pluginmanager.add_hookspecs(OOPTDDPytestHooks)
+
+
+def _ini_name(field: str) -> str:
+    """Map generic setting names onto this adapter's configuration namespace."""
+
+    return f"ooptdd_{field}"
 
 
 @pytest.fixture
 def ooptdd_memory_reset():
-    """Clear the process-global in-memory store around a test — the reset half of the setup
-    consumers used to hand-roll. Opt-in (request it); NOT autouse, so a consumer that manages its
-    own store lifecycle is never surprised by a hidden reset."""
-    memory_reset()
-    yield
-    memory_reset()
+    """Yield an isolated in-memory backend and clear only its explicitly owned store."""
+
+    store = MemoryStore()
+    backend = MemoryBackend(store=store)
+    yield backend
+    memory_reset(store)
 
 
 @pytest.fixture
-def ooptdd_cid(monkeypatch, ooptdd_memory_reset):
-    """A unique correlation id for this test, also exported as ``OOPTDD_CID`` so a gate spec using
-    ``cid_env`` resolves to it — replaces the ``monkeypatch.setenv('OOPTDD_CID', …)`` + manual
-    store-reset dance. Depends on the reset fixture, so requesting a cid also isolates the store."""
+def ooptdd_cid(monkeypatch, ooptdd_memory_reset, request):
+    """A unique id exported through the runtime's resolved ``cid_env`` setting."""
     cid = f"test-{uuid.uuid4().hex[:12]}"
-    monkeypatch.setenv("OOPTDD_CID", cid)
+    adapter = getattr(request.config, "_ooptdd_adapter_settings", PytestAdapterSettings())
+    cid_env = adapter.cid_env
+    monkeypatch.setenv(cid_env, cid)
     return cid
 
 
 def pytest_addoption(parser):
     group = parser.getgroup("ooptdd", "logs-as-spec test verification")
-    group.addoption("--ooptdd", action="store_true", default=False,
-                    help="force-enable ooptdd for this run")
-    group.addoption("--no-ooptdd", action="store_true", default=False,
-                    help="force-disable ooptdd for this run")
-    for key, help_ in [
-        ("ooptdd_backend", "backend name (memory|openobserve|otel|<entrypoint>)"),
-        ("ooptdd_service", "service name stamped on events"),
-        ("ooptdd_verify", "verify mode: off|warn|strict"),
-        ("ooptdd_enabled", "auto|1|0"),
-        ("ooptdd_cid_env", "env var holding the correlation id"),
-        ("ooptdd_retries", "arrival-poll attempts (int, default 4)"),
-        ("ooptdd_confirm_rounds", "anti-flap confirm re-reads after a green (int, default 0)"),
-        ("ooptdd_delay", "initial arrival-poll delay in seconds (float, default 1.0)"),
-        ("ooptdd_backoff", "arrival-poll backoff multiplier (float, default 2.0)"),
-    ]:
-        parser.addini(key, help=help_, default=None)
+    group.addoption(
+        "--ooptdd", action="store_true", default=False, help="force-enable ooptdd for this run"
+    )
+    group.addoption(
+        "--no-ooptdd", action="store_true", default=False, help="force-disable ooptdd for this run"
+    )
+    for definition in SETTING_DEFINITIONS:
+        parser.addini(_ini_name(definition.field), help=definition.help, default=None)
+    for field, help_text in _PYTEST_SETTING_HELP.items():
+        parser.addini(_ini_name(field), help=help_text, default=None)
 
 
-def _settings_from_config(config) -> Settings:
-    table: dict = {}
-    for ini, field_ in [
-        ("ooptdd_backend", "backend"),
-        ("ooptdd_service", "service"),
-        ("ooptdd_verify", "verify"),
-        ("ooptdd_enabled", "enabled"),
-        ("ooptdd_cid_env", "cid_env"),
-        ("ooptdd_retries", "retries"),
-        ("ooptdd_confirm_rounds", "confirm_rounds"),
-        ("ooptdd_delay", "delay"),
-        ("ooptdd_backoff", "backoff"),
-    ]:
-        val = config.getini(ini)
-        if val:
-            table[field_] = val
-    pj = {}
-    if getattr(config, "rootpath", None) is not None:
-        pj = load_pyproject(str(config.rootpath / "pyproject.toml"))
-    s = from_mapping({**pj, **table})
+def _resolve_adapter_settings(project, environment, overrides) -> PytestAdapterSettings:
+    adapter_table = project.get("adapters", {}).get("pytest", {})
+    if not isinstance(adapter_table, dict):
+        raise TypeError("[tool.ooptdd.adapters.pytest] must be a table")
+    values = {
+        "verify": "warn",
+        "enabled": "auto",
+        "cid_env": DEFAULT_CID_ENV,
+        **adapter_table,
+    }
+    for field in _PYTEST_SETTING_HELP:
+        env_name = getattr(_PYTEST_ENV_KEYS, field)
+        if env_name in environment:
+            values[field] = environment[env_name]
+    values.update(overrides)
+    unknown = sorted(set(values) - set(_PYTEST_SETTING_HELP))
+    if unknown:
+        raise ValueError(f"unknown pytest adapter setting(s): {unknown}")
+    return PytestAdapterSettings(**values)
+
+
+def _runtime_from_config(config) -> Runtime:
+    framework_overrides = {}
+    for definition in SETTING_DEFINITIONS:
+        value = config.getini(_ini_name(definition.field))
+        if value not in (None, ""):
+            framework_overrides[definition.field] = value
+    adapter_overrides = {}
+    for field in _PYTEST_SETTING_HELP:
+        value = config.getini(_ini_name(field))
+        if value not in (None, ""):
+            adapter_overrides[field] = value
     if config.getoption("--ooptdd"):
-        s.enabled = "1"
+        adapter_overrides["enabled"] = "1"
     if config.getoption("--no-ooptdd"):
-        s.enabled = "0"
-    return s
+        adapter_overrides["enabled"] = "0"
+    project_path = (
+        config.rootpath / "pyproject.toml"
+        if getattr(config, "rootpath", None) is not None
+        else "pyproject.toml"
+    )
+    project = load_pyproject(str(project_path))
+    runtime = compose_runtime(project=project, overrides=framework_overrides)
+    replacement = config.hook.pytest_ooptdd_runtime(config=config, runtime=runtime)
+    if replacement is not None:
+        if not isinstance(replacement, Runtime):
+            raise TypeError("pytest_ooptdd_runtime must return Runtime or None")
+        runtime = replacement
+    runtime = runtime.activate_extensions()
+    config._ooptdd_adapter_settings = _resolve_adapter_settings(
+        project, runtime.environment, adapter_overrides
+    )
+    return runtime
+
+
+def _settings_from_config(config) -> FrameworkSettings:
+    """Compatibility view retained for consumers that exercised this helper."""
+
+    return _runtime_from_config(config).settings
 
 
 def pytest_configure(config):
-    s = _settings_from_config(config)
+    runtime = _runtime_from_config(config)
+    s = runtime.settings
+    adapter = config._ooptdd_adapter_settings
+    config._ooptdd_runtime = runtime
     config._ooptdd_settings = s
     config._ooptdd_reports = []
-    config._ooptdd_active = s.is_enabled()
-    config._ooptdd_cid = os.getenv(s.cid_env) or f"pytest-{uuid.uuid4().hex[:12]}"
+    config._ooptdd_active = adapter.is_enabled(s.backend)
+    config._ooptdd_cid = (
+        runtime.environment.get(adapter.cid_env) or f"pytest-{uuid.uuid4().hex[:12]}"
+    )
+    config._ooptdd_backend = None
     if config._ooptdd_active:
         # Register the report collector only when active so "off is truly off" (no hook
         # registered at all when disabled). It collects via pytest_runtest_logreport — see
@@ -145,6 +221,16 @@ def _is_xdist_controller(config) -> bool:
     return not hasattr(config, "workerinput")
 
 
+def _backend_from_config(config):
+    """Construct at most one backend for a pytest controller session."""
+
+    backend = getattr(config, "_ooptdd_backend", None)
+    if backend is None:
+        backend = config._ooptdd_runtime.backend()
+        config._ooptdd_backend = backend
+    return backend
+
+
 def _resolve_require_signature(env_value: str | None, signing_key: str | None) -> bool:
     """Enforce-if-keyed — close the "keyed verifier still greenlights an unsigned receipt"
     footgun. ``OOPTDD_SIGNING_KEY`` and ``OOPTDD_REQUIRE_SIGNATURE`` used to be independent, so
@@ -155,9 +241,12 @@ def _resolve_require_signature(env_value: str | None, signing_key: str | None) -
     ``0``/``false``/``no``/``off`` opts OUT even with a key; any other value opts IN even
     without a local key (verifier side). Keyless + no explicit choice stays lenient, so
     zero-config (the demo, this suite) is unbroken."""
-    if env_value is not None and env_value.strip():
-        return env_value.strip().lower() not in {"0", "false", "no", "off"}
-    return bool(signing_key)
+    environment = {}
+    if env_value is not None:
+        environment[DEFAULT_ENV_KEYS.require_signature] = env_value
+    if signing_key is not None:
+        environment[DEFAULT_ENV_KEYS.signing_key] = signing_key
+    return resolve_signing_settings(environment).require_signature
 
 
 def pytest_collection_finish(session):
@@ -170,14 +259,16 @@ def pytest_collection_finish(session):
     config = session.config
     if not getattr(config, "_ooptdd_active", False) or not _is_xdist_controller(config):
         return
-    s: Settings = config._ooptdd_settings
+    s: FrameworkSettings = config._ooptdd_settings
     try:
-        from .domain.model import build_session_start
-
-        backend = get_backend(s.backend, service=s.service, **s.backend_options)
-        backend.ship([build_session_start(
-            config._ooptdd_cid, service=s.service, expected_total=len(session.items)
-        )])
+        backend = _backend_from_config(config)
+        backend.ship(
+            [
+                build_session_start(
+                    config._ooptdd_cid, service=s.service, expected_total=len(session.items)
+                )
+            ]
+        )
     except Exception as exc:  # noqa: BLE001 — heartbeat is best-effort, never gates collection
         # Surface the swallow (it changes what a later 'summary lost' diagnosis can conclude) —
         # but never re-raise into collection.
@@ -193,31 +284,27 @@ def pytest_sessionfinish(session, exitstatus):
     reports = getattr(config, "_ooptdd_reports", [])
     if not reports:
         return
-    s: Settings = config._ooptdd_settings
+    runtime: Runtime = config._ooptdd_runtime
+    s = runtime.settings
+    adapter = config._ooptdd_adapter_settings
     try:
-        backend = get_backend(s.backend, service=s.service, **s.backend_options)
+        backend = _backend_from_config(config)
     except Exception as exc:
         _emit(config, [f"backend init failed ({exc}); skipping (build unaffected)"])
         return
     # signing key is CI-only: read from env, never config/code. Absent -> unsigned no-op.
-    signing_key = os.getenv("OOPTDD_SIGNING_KEY")
+    signing_key = runtime.signing.key
     result = session_finish(
         backend,
         reports,
         config._ooptdd_cid,
         service=s.service,
-        mode=s.mode,
-        retries=s.retries,
-        delay=s.delay,
-        backoff=s.backoff,
-        confirm_rounds=s.confirm_rounds,
-        confirm_delay_s=s.confirm_delay_s,
+        mode=adapter.verify,
+        polling=s.polling,
         signing_key=signing_key,
         # enforce-if-keyed: a configured key makes unsigned receipts a failure by default,
         # unless OOPTDD_REQUIRE_SIGNATURE explicitly opts out (and keyless stays lenient).
-        require_signature=_resolve_require_signature(
-            os.getenv("OOPTDD_REQUIRE_SIGNATURE"), signing_key
-        ),
+        require_signature=runtime.signing.require_signature,
     )
     _emit(config, result["messages"])
     if result["fail_build"] and exitstatus == 0:

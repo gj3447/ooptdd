@@ -96,15 +96,11 @@ def _snapshot_registries(
 ) -> tuple[Mapping[str, CheckFn], Mapping[str, str]]:
     handlers = dict(registry)
     if not all(
-        isinstance(key, str) and key and callable(handler)
-        for key, handler in handlers.items()
+        isinstance(key, str) and key and callable(handler) for key, handler in handlers.items()
     ):
         raise ValueError("gate evaluation handlers must map non-empty text to callables")
     strengths = dict(strength_by_key)
-    if not all(
-        isinstance(key, str) and isinstance(value, str)
-        for key, value in strengths.items()
-    ):
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in strengths.items()):
         raise TypeError("gate strength registry must map strings to strings")
     return MappingProxyType(handlers), MappingProxyType(strengths)
 
@@ -136,7 +132,7 @@ class GatePolicy:
     forbid_errors: bool = False
     require_corroboration: bool = False
     require_signature: bool = False
-    signing_key: str | None = None
+    signing_key: str | None = field(default=None, repr=False)
     require_independent_store: bool = False
 
     def __post_init__(self) -> None:
@@ -195,9 +191,7 @@ class GateEvaluation:
 
     def __post_init__(self) -> None:
         _validate_gate_evaluation_shape(self)
-        handlers, strengths = _snapshot_registries(
-            self.registry, self.strength_by_key
-        )
+        handlers, strengths = _snapshot_registries(self.registry, self.strength_by_key)
         object.__setattr__(self, "spec", freeze_value(self.spec))
         object.__setattr__(self, "events", tuple(freeze_value(event) for event in self.events))
         object.__setattr__(self, "registry", handlers)

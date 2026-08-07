@@ -1,12 +1,11 @@
 """Backend conformance kit — one shared contract every Backend driver must satisfy.
 
-``pip install``-ing a third-party driver (registered under the ``ooptdd.backends`` entry
-point) is only safe if the driver actually honours the port's contract: ship-then-query
+Third-party drivers are safe to compose only when they honour the port's contract:
+ship-then-query
 round-trips, whole rows come back (so gate ``where:`` filters see real fields), each event
 carries a ``_timestamp``, the correlation id is bound safely (a cid with quotes/specials
 round-trips and never breaks or injects), and a normal read reports ``complete``. This module
-gives driver authors a single function to assert all of that against a store they can write
-to — and ooptdd self-tests it against the reference :class:`~ooptdd.backends.memory.MemoryBackend`.
+gives driver authors one function to assert all of that against a writable store.
 
 Usage (in a driver's own test suite)::
 
@@ -14,16 +13,10 @@ Usage (in a driver's own test suite)::
     def test_my_driver_conforms():
         assert_backend_conforms(lambda: MyBackend(...))   # raises AssertionError on any gap
 
-It lives in the adapter layer (it drives a concrete backend and runs the engine's gate over
-the result), so it never widens the engine's dependency surface.
-
-This function IS the contract — the mock (MemoryBackend) and the real drivers are judged by
-this same callable, never by parallel hand-written expectations that could drift apart. The
-parity claim and its arrival-asserted receipt live in tests/test_contract_mock_parity_receipt.py.
-
-# KG: contract-mock-parity-receipt-2026-07-22 (계약 정본: mock/실물이 같은 함수로 검사됨 —
-#     clause 어휘 roundtrip/whole_row/timestamp/complete/gate/cid-injection, 영수증은 positive log)
+It lives in the adapter layer: it drives a concrete backend and evaluates the returned
+rows without widening the engine's dependency surface.
 """
+
 from __future__ import annotations
 
 import time
@@ -31,7 +24,7 @@ from collections.abc import Callable
 
 from ..domain.model import correlation_keys
 from ..domain.ports import Backend, backend_caps
-from ..engine.gate import evaluate
+from ..engine.gate import evaluate_events
 
 #: A factory returning a *fresh, write-and-read* backend bound to whatever store the author
 #: wants exercised (the in-memory default, or a real OpenObserve/ClickHouse/… via env/opener).
@@ -41,15 +34,11 @@ BackendFactory = Callable[[], Backend]
 def _read_window_us() -> tuple[int, int]:
     """Read bounds for the kit's just-shipped fixtures: (now-24h, now+1h) in µs.
 
-    NOT (0, 10**19): both extremes are mock-only fictions a real store rejects —
+    Extreme synthetic bounds are avoided because some stores reject them:
     10**19 exceeds i64::MAX (~9.22e18) and start_time=0 is an "invalid time range"
-    on OpenObserve. Found by the live-store parity wing
-    (# KG: contract-mock-parity-receipt-2026-07-22): the in-memory mock accepted the
-    absurd bounds, the real store 400'd — exactly the drift class this kit exists
-    to catch, caught in the kit itself."""
+    on some query APIs."""
     now = time.time()
     return int((now - 86400) * 1_000_000), int((now + 3600) * 1_000_000)
-
 
 
 def assert_backend_conforms(make_backend: BackendFactory, *, cid: str | None = None) -> None:
@@ -63,9 +52,8 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str | None = N
 
     ``cid`` defaults to a per-call unique value. A FIXED default silently created a
     non-idempotence trap against a PERSISTENT store (jsonl/OO): a second run in the same
-    24h window read back stale fixtures and failed clause 2 with the misleading message
-    "whole-row passthrough lost the verdict field" (grill MEDIUM-6). Pass an explicit cid
-    only if your store is ephemeral per call.
+    24h window can read stale fixtures and fail the whole-row assertion. Pass an explicit
+    cid only if your store is ephemeral per call.
 
     Known gap (documented, not yet asserted): the kit reads back by the driver's own cid
     query and does not independently exercise time-window filtering, so a driver that
@@ -73,14 +61,12 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str | None = N
     own suite.
     """
     import uuid
+
     cid = cid or f"ooptdd-conf-{uuid.uuid4().hex[:12]}"
     backend = make_backend()
     # 1. ship → query round-trip: every shipped event for the cid comes back.
-    # Envelope-contract fixtures: carry the cid under EVERY correlation alias
-    # (correlation_keys: cid ≡ correlation_id ≡ cycle_id). Shipping bare {"cid": ...}
-    # violated the envelope contract — the in-memory mock tolerated it, but a real
-    # store's readback (OO: WHERE cycle_id = ...) 400s on the missing column. Found
-    # by the live parity wing (# KG: contract-mock-parity-receipt-2026-07-22).
+    # Carry the identifier under every supported correlation alias so drivers with a
+    # fixed indexed alias are exercised under the same envelope contract.
     events = [
         {**correlation_keys(cid), "event": "alpha", "verdict": "PASS", "n": 1},
         {**correlation_keys(cid), "event": "alpha", "verdict": "NG", "n": 2},
@@ -103,11 +89,20 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str | None = N
     # 4. completeness: a normal, in-window read reports complete (a full answer).
     assert getattr(res, "complete", True) is True, "a complete read must report complete=True"
 
-    # 5. the gate runs over the rows like any backend (the whole portability point).
-    gate = evaluate(backend, {"cid": cid, "expect": [
-        {"event": "alpha", "where": {"verdict": "NG"}, "op": "==", "count": 1},
-        {"present": [{"event": "beta"}]},
-    ]})
+    # 5. the evaluator consumes the rows through the same backend port.
+    gate = evaluate_events(
+        {
+            "cid": cid,
+            "expect": [
+                {"event": "alpha", "where": {"verdict": "NG"}, "op": "==", "count": 1},
+                {"present": [{"event": "beta"}]},
+            ],
+        },
+        [dict(event) for event in got],
+        reachable=res.reachable,
+        complete=res.complete,
+        cid=cid,
+    )
     assert gate["ok"], f"gate over conformant rows should pass, got {gate}"
 
     # 6. injection-safe cid binding: a cid with quotes/specials round-trips, never breaks.
@@ -116,8 +111,9 @@ def assert_backend_conforms(make_backend: BackendFactory, *, cid: str | None = N
     b2.ship([{**correlation_keys(nasty), "event": "safe", "marker": "yes"}])
     r2 = b2.query(nasty, since_us=since_us, until_us=until_us)
     assert r2.reachable, "a cid with special characters must still query cleanly"
-    assert any(e.get("marker") == "yes" for e in r2.events), \
+    assert any(e.get("marker") == "yes" for e in r2.events), (
         "a cid with quotes/specials must round-trip (cid binding must be escaped/parameterized)"
+    )
 
 
 #: A factory for write-only conformance: returns ``(backend, capture)`` where ``backend`` is a
@@ -154,21 +150,25 @@ def assert_writeonly_backend_conforms(
 
     # 1. export fidelity: the capture sink received every shipped event.
     recs = list(getattr(capture, "records", []))
-    assert len(recs) >= len(events), \
+    assert len(recs) >= len(events), (
         f"write-only export dropped events: shipped {len(events)}, captured {len(recs)}"
+    )
 
     # 2. payload fidelity: arbitrary fields survive the wire format (so a reader can filter).
-    assert any(r.get("event") == "beta" and r.get("verdict") == "NG" for r in recs), \
+    assert any(r.get("event") == "beta" and r.get("verdict") == "NG" for r in recs), (
         "write-only export lost an event field (whole-row fidelity)"
+    )
 
     # 3. honestly write-only: caps must say so (callers that read positively skip it loudly).
     caps = backend_caps(backend)
-    assert caps.write_only is True, \
+    assert caps.write_only is True, (
         "a write-only conformance target must report caps.write_only=True (queryable=False)"
+    )
 
     # 4. the read side is honest: query is inconclusive (reachable=False), never a silent absent.
     # A write-only driver that returns reachable=True would let `strict` read a false ⊥ off it.
     wo_since, wo_until = _read_window_us()
     res = backend.query(cid, since_us=wo_since, until_us=wo_until)
-    assert res.reachable is False, \
+    assert res.reachable is False, (
         "a write-only backend's query must be inconclusive (reachable=False), never a silent absent"
+    )

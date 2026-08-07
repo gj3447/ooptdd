@@ -5,6 +5,7 @@ OTLP driver actually ships under the *current* opentelemetry-sdk — the silent 
 write-only conformance gap (R4) used to hide (the LogRecord import + emit API moved between SDK
 releases, and nothing exercised the driver to catch it).
 """
+
 import pytest
 
 pytest.importorskip("opentelemetry.sdk._logs")

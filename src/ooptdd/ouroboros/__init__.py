@@ -1,31 +1,9 @@
-"""Ouroboros: a bounded, evidence-preserving OOPTDD generation protocol.
+"""Generic, deterministic, bounded workflow kernel.
 
-The public surface is deliberately namespaced as ``ooptdd.ouroboros`` so generic terms
-such as ``step`` and ``Phase`` do not collide with the mature gate API.
+Domain workflows are explicit opt-in profiles. Importing this package does not load
+any profile or adapter.
 """
 
-from .completion import (
-    AuthenticatedGateCompletionPolicy,
-    AuthorityVerdict,
-    CompletionAssessment,
-    ResolvedGateEvidence,
-    assess_authenticated_gate_completion,
-    parse_and_validate_artifact_bytes,
-    required_gate_artifacts,
-    validate_gate_artifact_binding,
-)
-from .completion_io import (
-    GateEvidenceAuthority,
-    GateEvidenceResolver,
-    resolve_and_assess_authenticated_gate_completion,
-)
-from .gate_adapter import (
-    GATE_EVIDENCE_VERSION,
-    OUROBOROS_GATE_EVIDENCE_SCHEMA,
-    GateEvidenceBundle,
-    adapt_gate_verification,
-    validate_gate_evidence,
-)
 from .identity import (
     CANONICALIZATION,
     MAX_INTEROPERABLE_INTEGER,
@@ -37,100 +15,52 @@ from .identity import (
     receipt_content_digest,
 )
 from .model import (
-    PROTOCOL_VERSION,
-    RECEIPT_VERSION,
-    CycleIdentity,
-    CycleSnapshot,
-    Disposition,
-    EffectClass,
-    EffectIntent,
-    EffectKind,
-    EventKind,
-    EventRecord,
-    EvidenceTier,
-    FindingDisposition,
-    InterruptReason,
-    MaterialLock,
-    MonitorVerdict,
-    ObservationVerdict,
-    OracleBoundary,
-    Phase,
+    CompletionEvidence,
+    CompletionPolicy,
+    PayloadValidator,
     ProtocolBudget,
+    ProtocolDefinition,
     ProtocolEvent,
-    RunEvidence,
-    RunOutcome,
-    RunRole,
+    ProtocolSnapshot,
+    RecoveryPolicy,
+    RevisionIdentity,
+    TransitionRecord,
     TransitionResult,
+    TransitionRule,
 )
-from .ports import EffectResult, EffectSink, ReceiptStore, SnapshotStore
-from .reducer import step
-from .schema import (
-    LEGACY_RECEIPT_VERSION,
-    OUROBOROS_RECEIPT_SCHEMA,
-    receipt_from_snapshot,
-    successor_from_receipt,
-    upcast_v1_receipt,
-    validate_receipt,
-)
+from .ports import PolicyEvaluator, ReceiptStore, SnapshotStore
+from .receipt import ProtocolReceipt, parse_receipt, receipt_from_snapshot, validate_receipt
+from .reducer import advance, start_successor, step
 
-__all__ = [
+__all__ = (
     "CANONICALIZATION",
-    "AuthenticatedGateCompletionPolicy",
-    "GATE_EVIDENCE_VERSION",
-    "LEGACY_RECEIPT_VERSION",
     "MAX_INTEROPERABLE_INTEGER",
-    "OUROBOROS_RECEIPT_SCHEMA",
-    "OUROBOROS_GATE_EVIDENCE_SCHEMA",
-    "PROTOCOL_VERSION",
-    "RECEIPT_VERSION",
-    "CycleIdentity",
-    "CycleSnapshot",
+    "CompletionPolicy",
+    "CompletionEvidence",
     "Digest",
-    "AuthorityVerdict",
-    "CompletionAssessment",
-    "Disposition",
-    "EffectClass",
-    "EffectIntent",
-    "EffectKind",
-    "EffectResult",
-    "EffectSink",
-    "EventKind",
-    "EventRecord",
-    "EvidenceTier",
-    "FindingDisposition",
-    "GateEvidenceBundle",
-    "GateEvidenceAuthority",
-    "GateEvidenceResolver",
-    "InterruptReason",
-    "MaterialLock",
-    "MonitorVerdict",
-    "ObservationVerdict",
-    "OracleBoundary",
-    "Phase",
+    "PayloadValidator",
+    "PolicyEvaluator",
     "ProtocolBudget",
+    "ProtocolDefinition",
     "ProtocolEvent",
+    "ProtocolReceipt",
+    "ProtocolSnapshot",
+    "RecoveryPolicy",
     "ReceiptStore",
-    "ResolvedGateEvidence",
-    "RunEvidence",
-    "RunOutcome",
-    "RunRole",
+    "RevisionIdentity",
     "SnapshotStore",
+    "TransitionRecord",
     "TransitionResult",
-    "adapt_gate_verification",
-    "assess_authenticated_gate_completion",
+    "TransitionRule",
+    "advance",
     "canonical_json_bytes",
     "digest_json",
     "digest_raw",
     "raw_sha256",
     "receipt_content_digest",
+    "parse_receipt",
     "receipt_from_snapshot",
-    "parse_and_validate_artifact_bytes",
-    "required_gate_artifacts",
-    "validate_gate_artifact_binding",
-    "resolve_and_assess_authenticated_gate_completion",
-    "successor_from_receipt",
+    "start_successor",
     "step",
-    "upcast_v1_receipt",
     "validate_receipt",
-    "validate_gate_evidence",
-]
+)

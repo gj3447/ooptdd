@@ -177,13 +177,16 @@ def _scope(
     gating: list[JsonMap],
     events: list[JsonMap],
     rules: list[JsonMap],
+    registry: Mapping[str, CheckFn],
 ) -> JsonMap:
     observed = {
         event_name
         for event in events
         if isinstance((event_name := event.get("event")), str) and event_name
     }
-    asserted = set().union(*(rule_event_names(rule) for rule in rules)) if rules else set()
+    asserted = (
+        set().union(*(rule_event_names(rule, registry) for rule in rules)) if rules else set()
+    )
     named = observed & asserted
     charged = sum(1 for check in gating if check.get("charged"))
     return {
@@ -273,7 +276,7 @@ def _build_result(
         "cid": source.cid,
         "checks": checks,
         "oracle": _oracle(evaluation, gating, corroborated),
-        "scope": _scope(checks, gating, thawed_events, rules),
+        "scope": _scope(checks, gating, thawed_events, rules, evaluation.registry),
         "optional_failed": [
             label(check) for check in checks if check["optional"] and not check["passed"]
         ],

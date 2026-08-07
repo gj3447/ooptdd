@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Deterministic L_IDE fitness gate for OOPTDD's functional/SOLID boundary.
 
-The checker is deliberately stdlib-only. It falsifies violations of declared import direction,
-configured direct-effect boundaries, syntactically frozen dataclass bindings, shared mutable
-module state, and explicit size ratchets. It does not prove semantic purity or SOLID.
+The checker is deliberately stdlib-only. It falsifies violations of declared module coverage,
+import direction, direct-effect and configuration boundaries, syntactically frozen dataclass
+bindings, shared mutable module state, generic-core vocabulary boundaries, and explicit size
+ratchets. It does not prove semantic purity or SOLID.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +42,25 @@ class ContractError(ValueError):
     """The machine-readable contract is malformed or internally inconsistent."""
 
 
+def _require_exact_fields(
+    value: object,
+    expected: set[str],
+    context: str,
+    *,
+    optional: set[str] | None = None,
+) -> dict[str, Any]:
+    """Return an object only when its schema is explicit and typo-proof."""
+
+    if not isinstance(value, dict):
+        raise ContractError(f"{context} must be an object")
+    optional = optional or set()
+    missing = sorted(expected - optional - set(value))
+    unknown = sorted(set(value) - expected)
+    if missing or unknown:
+        raise ContractError(f"{context} fields are invalid; missing={missing}, unknown={unknown}")
+    return value
+
+
 @dataclass(frozen=True, order=True)
 class Violation:
     rule_id: str
@@ -65,6 +86,7 @@ class ModuleInfo:
     name: str
     path: Path
     relative_path: str
+    source: str
     tree: ast.Module
 
 
@@ -73,8 +95,6 @@ def load_contract(path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ContractError(f"cannot read contract {path}: {error}") from error
-    if not isinstance(value, dict):
-        raise ContractError("contract root must be an object")
     required = {
         "schema_version",
         "harness_tier",
@@ -82,16 +102,17 @@ def load_contract(path: Path) -> dict[str, Any]:
         "package",
         "claim",
         "purity_scope",
+        "fail_on_unclassified_modules",
         "layers",
         "pure_modules",
         "pure_boundary",
         "package_root_import_allowlist",
+        "configuration_boundary",
+        "edge_vocabulary_boundary",
         "responsibility_budgets",
         "require_budget_for_each_pure_module",
     }
-    missing = sorted(required - set(value))
-    if missing:
-        raise ContractError(f"contract missing fields: {missing}")
+    value = _require_exact_fields(value, required, "contract")
     if value["schema_version"] != "ooptdd-functional-solid-contract/v1":
         raise ContractError("unsupported contract schema_version")
     if value["harness_tier"] != "L_IDE":
@@ -102,13 +123,28 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ContractError(
             "purity_scope must be 'direct-module-syntax-only'; transitive purity is not checked"
         )
+    if not isinstance(value["fail_on_unclassified_modules"], bool):
+        raise ContractError("fail_on_unclassified_modules must be a boolean")
     for field in ("source_root", "package"):
         if not isinstance(value[field], str) or not value[field]:
             raise ContractError(f"{field} must be a non-empty string")
+    source_root = Path(value["source_root"])
+    if source_root.is_absolute() or ".." in source_root.parts:
+        raise ContractError("source_root must be a repository-relative path without '..'")
+    if not all(part.isidentifier() for part in value["package"].split(".")):
+        raise ContractError("package must be a dotted Python identifier")
     if not isinstance(value["layers"], list) or not value["layers"]:
         raise ContractError("layers must be a non-empty array")
-    if not all(isinstance(layer, dict) for layer in value["layers"]):
-        raise ContractError("every layer must be an object")
+    layer_fields = {"name", "exact_modules", "module_prefixes", "may_depend_on", "default"}
+    value["layers"] = [
+        _require_exact_fields(
+            layer,
+            layer_fields,
+            f"layers[{index}]",
+            optional={"default"},
+        )
+        for index, layer in enumerate(value["layers"])
+    ]
     defaults = [layer for layer in value["layers"] if layer.get("default") is True]
     if len(defaults) != 1:
         raise ContractError("exactly one layer must declare default=true")
@@ -119,11 +155,15 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ContractError("layer names must be unique non-empty strings")
     known = set(names)
     for layer in value["layers"]:
+        if "default" in layer and not isinstance(layer["default"], bool):
+            raise ContractError(f"layer {layer['name']!r} default must be a boolean")
         for field in ("exact_modules", "module_prefixes", "may_depend_on"):
             if not isinstance(layer.get(field), list) or not all(
                 isinstance(item, str) and item for item in layer[field]
             ):
                 raise ContractError(f"layer {layer['name']!r} has invalid {field}")
+            if len(layer[field]) != len(set(layer[field])):
+                raise ContractError(f"layer {layer['name']!r} has duplicate {field}")
         unknown = set(layer["may_depend_on"]) - known
         if unknown:
             raise ContractError(
@@ -132,6 +172,10 @@ def load_contract(path: Path) -> dict[str, Any]:
     exact_owners: dict[str, str] = {}
     for layer in value["layers"]:
         for module in layer["exact_modules"]:
+            if module != value["package"] and not module.startswith(value["package"] + "."):
+                raise ContractError(
+                    f"exact module {module!r} does not belong to package {value['package']!r}"
+                )
             previous = exact_owners.setdefault(module, layer["name"])
             if previous != layer["name"]:
                 raise ContractError(
@@ -158,9 +202,22 @@ def load_contract(path: Path) -> dict[str, Any]:
         isinstance(item, str) and item for item in value["package_root_import_allowlist"]
     ):
         raise ContractError("package_root_import_allowlist must contain non-empty strings")
-    boundary = value["pure_boundary"]
-    if not isinstance(boundary, dict):
-        raise ContractError("pure_boundary must be an object")
+    if len(value["package_root_import_allowlist"]) != len(
+        set(value["package_root_import_allowlist"])
+    ):
+        raise ContractError("package_root_import_allowlist must be unique")
+    boundary = _require_exact_fields(
+        value["pure_boundary"],
+        {
+            "forbidden_import_roots",
+            "forbidden_calls",
+            "allowed_imports_by_module",
+            "require_frozen_dataclasses",
+            "forbid_global_nonlocal",
+            "forbid_module_global_mutation",
+        },
+        "pure_boundary",
+    )
     for field in ("forbidden_import_roots", "forbidden_calls"):
         if not isinstance(boundary.get(field), list) or not all(
             isinstance(item, str) and item for item in boundary[field]
@@ -185,20 +242,151 @@ def load_contract(path: Path) -> dict[str, Any]:
     ):
         if not isinstance(boundary.get(field), bool):
             raise ContractError(f"pure_boundary.{field} must be a boolean")
+    configuration = _require_exact_fields(
+        value["configuration_boundary"],
+        {
+            "environment_key_owner",
+            "environment_key_patterns",
+            "ambient_environment_modules",
+        },
+        "configuration_boundary",
+    )
+    owner = configuration.get("environment_key_owner")
+    if not isinstance(owner, str) or not owner:
+        raise ContractError("configuration_boundary.environment_key_owner must be text")
+    patterns = configuration.get("environment_key_patterns")
+    if (
+        not isinstance(patterns, list)
+        or not patterns
+        or not all(isinstance(pattern, str) and pattern for pattern in patterns)
+    ):
+        raise ContractError("configuration_boundary.environment_key_patterns must contain patterns")
+    try:
+        for pattern in patterns:
+            re.compile(pattern)
+    except re.error as error:
+        raise ContractError(f"invalid environment-key pattern: {error}") from error
+    readers = configuration.get("ambient_environment_modules")
+    if not isinstance(readers, list) or not all(
+        isinstance(module, str) and module for module in readers
+    ):
+        raise ContractError(
+            "configuration_boundary.ambient_environment_modules must contain modules"
+        )
+    if len(readers) != len(set(readers)):
+        raise ContractError("ambient_environment_modules must be unique")
+    vocabulary = value["edge_vocabulary_boundary"]
+    expected_vocabulary_fields = {
+        "forbidden_layers",
+        "patterns",
+        "scan_comments_and_docstrings",
+    }
+    unknown_vocabulary_fields = set(vocabulary) - expected_vocabulary_fields
+    missing_vocabulary_fields = expected_vocabulary_fields - set(vocabulary)
+    if unknown_vocabulary_fields or missing_vocabulary_fields:
+        raise ContractError(
+            "edge_vocabulary_boundary fields must be exactly "
+            f"{sorted(expected_vocabulary_fields)}; "
+            f"missing={sorted(missing_vocabulary_fields)}, "
+            f"unknown={sorted(unknown_vocabulary_fields)}"
+        )
+    forbidden_layers = vocabulary["forbidden_layers"]
+    if (
+        not isinstance(forbidden_layers, list)
+        or not forbidden_layers
+        or not all(isinstance(layer, str) and layer for layer in forbidden_layers)
+        or len(forbidden_layers) != len(set(forbidden_layers))
+    ):
+        raise ContractError(
+            "edge_vocabulary_boundary.forbidden_layers must contain unique layer names"
+        )
+    unknown_forbidden_layers = set(forbidden_layers) - known
+    if unknown_forbidden_layers:
+        raise ContractError(
+            "edge_vocabulary_boundary.forbidden_layers names unknown layers "
+            f"{sorted(unknown_forbidden_layers)}"
+        )
+    vocabulary_patterns = vocabulary["patterns"]
+    if not isinstance(vocabulary_patterns, list) or not vocabulary_patterns:
+        raise ContractError("edge_vocabulary_boundary.patterns must be a non-empty array")
+    pattern_ids: list[str] = []
+    for index, pattern in enumerate(vocabulary_patterns):
+        pattern = _require_exact_fields(
+            pattern,
+            {"id", "regex", "forbidden_layers"},
+            f"edge_vocabulary_boundary.patterns[{index}]",
+            optional={"forbidden_layers"},
+        )
+        pattern_id = pattern["id"]
+        regex = pattern["regex"]
+        if not isinstance(pattern_id, str) or not pattern_id:
+            raise ContractError("edge-vocabulary pattern id must be non-empty text")
+        if not isinstance(regex, str) or not regex:
+            raise ContractError(f"edge-vocabulary pattern {pattern_id!r} needs a non-empty regex")
+        try:
+            re.compile(regex)
+        except re.error as error:
+            raise ContractError(
+                f"invalid edge-vocabulary pattern {pattern_id!r}: {error}"
+            ) from error
+        pattern_layers = pattern.get("forbidden_layers", forbidden_layers)
+        if (
+            not isinstance(pattern_layers, list)
+            or not pattern_layers
+            or not all(isinstance(layer, str) and layer for layer in pattern_layers)
+            or len(pattern_layers) != len(set(pattern_layers))
+        ):
+            raise ContractError(
+                f"edge-vocabulary pattern {pattern_id!r} forbidden_layers must "
+                "contain unique layer names"
+            )
+        unknown_pattern_layers = set(pattern_layers) - known
+        if unknown_pattern_layers:
+            raise ContractError(
+                f"edge-vocabulary pattern {pattern_id!r} names unknown layers "
+                f"{sorted(unknown_pattern_layers)}"
+            )
+        pattern_ids.append(pattern_id)
+    if len(pattern_ids) != len(set(pattern_ids)):
+        raise ContractError("edge-vocabulary pattern ids must be unique")
+    if not isinstance(vocabulary["scan_comments_and_docstrings"], bool):
+        raise ContractError(
+            "edge_vocabulary_boundary.scan_comments_and_docstrings must be a boolean"
+        )
     budgets = value["responsibility_budgets"]
     if not isinstance(budgets, list):
         raise ContractError("responsibility_budgets must be an array")
     budget_paths: list[str] = []
     for budget in budgets:
-        if not isinstance(budget, dict) or not isinstance(budget.get("path"), str):
+        budget = _require_exact_fields(
+            budget,
+            {
+                "path",
+                "classification",
+                "max_physical_lines",
+                "max_function_lines",
+                "max_function_parameters",
+            },
+            "responsibility budget",
+        )
+        if not isinstance(budget["path"], str) or not budget["path"]:
             raise ContractError("every responsibility budget needs a path")
+        budget_path = Path(budget["path"])
+        if budget_path.is_absolute() or ".." in budget_path.parts:
+            raise ContractError(
+                f"budget {budget['path']!r} must be a repository-relative path without '..'"
+            )
         if budget.get("classification") not in {"pure_module", "non_pure_debt"}:
             raise ContractError(
                 f"budget {budget['path']!r} needs classification pure_module or non_pure_debt"
             )
         budget_paths.append(budget["path"])
         for field in ("max_physical_lines", "max_function_lines", "max_function_parameters"):
-            if not isinstance(budget.get(field), int) or budget[field] < 0:
+            if (
+                not isinstance(budget.get(field), int)
+                or isinstance(budget[field], bool)
+                or budget[field] < 0
+            ):
                 raise ContractError(f"budget {budget['path']!r} has invalid {field}")
     if len(budget_paths) != len(set(budget_paths)):
         raise ContractError("responsibility budget paths must be unique")
@@ -232,10 +420,17 @@ def _discover(repo_root: Path, contract: dict[str, Any]) -> dict[str, ModuleInfo
             parts = parts[:-1]
         name = ".".join(parts)
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
         except (OSError, SyntaxError) as error:
             raise ContractError(f"cannot parse {path}: {error}") from error
-        modules[name] = ModuleInfo(name, path, path.relative_to(repo_root).as_posix(), tree)
+        modules[name] = ModuleInfo(
+            name,
+            path,
+            path.relative_to(repo_root).as_posix(),
+            source,
+            tree,
+        )
     return modules
 
 
@@ -332,6 +527,18 @@ def _layer_of(module: str, layers: list[dict[str, Any]]) -> str:
     if matches:
         return max(matches)[1]
     return next(layer["name"] for layer in layers if layer.get("default") is True)
+
+
+def _is_explicitly_layered(module: str, layers: list[dict[str, Any]]) -> bool:
+    """Whether a module has an exact, reviewed assignment.
+
+    Prefixes may route already-reviewed imports to a dependency layer, but they must
+    never classify future files automatically.  Otherwise adding ``engine/leaky.py``
+    under a broad ``engine`` prefix would silently bypass the fail-closed coverage
+    policy that FA000 claims to enforce.
+    """
+
+    return any(module in layer["exact_modules"] for layer in layers)
 
 
 def _is_pure(module: str, pure_modules: set[str]) -> bool:
@@ -667,6 +874,60 @@ def _function_parameter_count(node: ast.FunctionDef | ast.AsyncFunctionDef) -> i
     )
 
 
+def _is_docstring_constant(node: ast.Constant) -> bool:
+    """Return true only for the leading string expression of a lexical scope."""
+
+    expression = getattr(node, "parent", None)
+    scope = getattr(expression, "parent", None)
+    if not isinstance(expression, ast.Expr) or expression.value is not node:
+        return False
+    if not isinstance(
+        scope,
+        (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+    ):
+        return False
+    return bool(scope.body) and scope.body[0] is expression
+
+
+def _os_aliases(tree: ast.Module) -> set[str]:
+    aliases = {"os"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            aliases.update(alias.asname or alias.name for alias in node.names if alias.name == "os")
+    return aliases
+
+
+def _semantic_lexemes(tree: ast.Module) -> list[tuple[int, str]]:
+    """Return source-bearing Python lexemes while excluding comments and docstrings."""
+
+    fragments: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 1)
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and not _is_docstring_constant(node)
+        ):
+            fragments.append((line, node.value))
+        elif isinstance(node, ast.Name):
+            fragments.append((line, node.id))
+        elif isinstance(node, ast.Attribute):
+            fragments.append((line, node.attr))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            fragments.append((line, node.name))
+        elif isinstance(node, ast.arg):
+            fragments.append((line, node.arg))
+        elif isinstance(node, ast.alias):
+            fragments.append((line, node.name))
+            if node.asname:
+                fragments.append((line, node.asname))
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            fragments.append((line, node.module))
+        elif isinstance(node, ast.keyword) and node.arg:
+            fragments.append((line, node.arg))
+    return fragments
+
+
 def check_repository(repo_root: Path, contract: dict[str, Any]) -> list[Violation]:
     repo_root = repo_root.resolve()
     modules = _discover(repo_root, contract)
@@ -675,6 +936,38 @@ def check_repository(repo_root: Path, contract: dict[str, Any]) -> list[Violatio
     known = set(modules)
     adjacency = {name: _module_imports(info, known) for name, info in modules.items()}
     violations: list[Violation] = []
+
+    # FA000 — a default layer is a compatibility fallback, not a classification.
+    # Repositories that opt into fail-closed coverage must explicitly assign every
+    # discovered module so new code cannot silently inherit broad adapter permissions.
+    if contract.get("fail_on_unclassified_modules", False):
+        declared_modules = {
+            module for layer in contract["layers"] for module in layer["exact_modules"]
+        }
+        for name, info in sorted(modules.items()):
+            if not _is_explicitly_layered(name, contract["layers"]):
+                violations.append(
+                    Violation(
+                        "FA000",
+                        info.relative_path,
+                        1,
+                        name,
+                        "module is not explicitly assigned to an architecture layer",
+                        "Add the module to the narrowest reviewed exact_modules entry.",
+                    )
+                )
+        for name in sorted(declared_modules - set(modules)):
+            relative_path = f"{contract['source_root']}/{name.replace('.', '/')}.py"
+            violations.append(
+                Violation(
+                    "FA000",
+                    relative_path,
+                    1,
+                    name,
+                    "architecture layer declares a module that is not shipped",
+                    "Remove the stale exact_modules entry or restore the reviewed module.",
+                )
+            )
 
     # FA001 — no module import cycles.
     for cycle in _import_cycles(adjacency):
@@ -740,15 +1033,11 @@ def check_repository(repo_root: Path, contract: dict[str, Any]) -> list[Violatio
         tree = info.tree
 
         # FA003 — pure modules may not acquire ambient effects.
-        allowed_module_imports = set(
-            boundary["allowed_imports_by_module"].get(name, [])
-        )
+        allowed_module_imports = set(boundary["allowed_imports_by_module"].get(name, []))
         for node in ast.walk(tree):
             imported_names: list[tuple[str, str]] = []
             if isinstance(node, ast.Import):
-                imported_names = [
-                    (alias.name.split(".", 1)[0], alias.name) for alias in node.names
-                ]
+                imported_names = [(alias.name.split(".", 1)[0], alias.name) for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 imported_names = [
                     (
@@ -901,6 +1190,117 @@ def check_repository(repo_root: Path, contract: dict[str, Any]) -> list[Violatio
                             f"pure module calls mutator {node.func.attr!r} on module "
                             f"global {origin!r}",
                             "Use an immutable constant or return an updated value to the caller.",
+                        )
+                    )
+
+    # FA006 — environment keys have one owner and ambient reads stay at declared shells.
+    configuration = contract["configuration_boundary"]
+    key_owner = configuration["environment_key_owner"]
+    key_patterns = tuple(
+        re.compile(pattern) for pattern in configuration["environment_key_patterns"]
+    )
+    ambient_readers = set(configuration["ambient_environment_modules"])
+    if key_owner not in modules:
+        violations.append(
+            Violation(
+                "FA006",
+                f"{contract['source_root']}/{key_owner.replace('.', '/')}.py",
+                1,
+                key_owner,
+                "declared environment-key owner does not exist",
+                "Point environment_key_owner at the single settings value module.",
+            )
+        )
+    for name, info in sorted(modules.items()):
+        os_aliases = _os_aliases(info.tree)
+        for node in ast.walk(info.tree):
+            if (
+                name != key_owner
+                and isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and not _is_docstring_constant(node)
+                and any(pattern.fullmatch(node.value) for pattern in key_patterns)
+            ):
+                violations.append(
+                    Violation(
+                        "FA006",
+                        info.relative_path,
+                        node.lineno,
+                        node.value,
+                        "environment-key literal is declared outside its single owner",
+                        f"Reference the immutable key value from {key_owner}.",
+                    )
+                )
+            if name in ambient_readers:
+                continue
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in os_aliases
+                and node.attr in {"environ", "getenv", "putenv", "unsetenv"}
+            ):
+                violations.append(
+                    Violation(
+                        "FA006",
+                        info.relative_path,
+                        node.lineno,
+                        f"{node.value.id}.{node.attr}",
+                        "module acquires ambient environment outside a declared composition shell",
+                        "Capture the environment once in an approved adapter and inject a mapping.",
+                    )
+                )
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "os"
+                and any(
+                    alias.name in {"environ", "getenv", "putenv", "unsetenv"}
+                    for alias in node.names
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "FA006",
+                        info.relative_path,
+                        node.lineno,
+                        "os environment import",
+                        "module imports ambient environment access outside a declared shell",
+                        "Capture the environment once in an approved adapter and inject a mapping.",
+                    )
+                )
+
+    # FA007 — generic inward layers may not encode declared edge/profile vocabulary.
+    vocabulary = contract["edge_vocabulary_boundary"]
+    forbidden_vocabulary_layers = set(vocabulary["forbidden_layers"])
+    vocabulary_patterns = tuple(
+        (
+            item["id"],
+            re.compile(item["regex"]),
+            frozenset(item.get("forbidden_layers", forbidden_vocabulary_layers)),
+        )
+        for item in vocabulary["patterns"]
+    )
+    scan_full_source = vocabulary["scan_comments_and_docstrings"]
+    for name, info in sorted(modules.items()):
+        module_layer = _layer_of(name, layers)
+        fragments = (
+            list(enumerate(info.source.splitlines(), start=1))
+            if scan_full_source
+            else _semantic_lexemes(info.tree)
+        )
+        for line, fragment in fragments:
+            for pattern_id, pattern, pattern_layers in vocabulary_patterns:
+                if module_layer not in pattern_layers:
+                    continue
+                for match in pattern.finditer(fragment):
+                    violations.append(
+                        Violation(
+                            "FA007",
+                            info.relative_path,
+                            line,
+                            f"{pattern_id}:{match.group(0)}",
+                            "generic inward layer contains declared edge/profile vocabulary",
+                            "Move the specialized behavior and terminology to an explicit "
+                            "adapter, extension, or profile.",
                         )
                     )
 

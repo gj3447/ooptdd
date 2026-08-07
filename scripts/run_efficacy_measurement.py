@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
 """Run the prospectively locked Tier-0 positive/negative/restored sequence."""
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from run_lakatotree_trajectory_judge import measure_deepeval
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ooptdd.benchmark import (
-    DEFAULT_FIXTURE_DIR,
-    canonical_json,
-    render_benchmark_junit,
-    render_benchmark_markdown,
-    run_tier0_benchmark,
-    tier0_provenance,
-    validate_tier0_result,
-)
-from ooptdd.evidence_integrity import (
+from ooptdd_mutation.benchmarks.evidence_integrity import (  # noqa: E402
     EvidenceIntegrityError,
     expected_deepeval_mismatch,
     measurement_environment,
@@ -29,6 +23,16 @@ from ooptdd.evidence_integrity import (
     validate_measurement_lock,
     validate_registration_repository,
 )
+from ooptdd_mutation.benchmarks.tier0 import (  # noqa: E402
+    DEFAULT_FIXTURE_DIR,
+    canonical_json,
+    render_benchmark_junit,
+    render_benchmark_markdown,
+    run_tier0_benchmark,
+    tier0_provenance,
+    validate_tier0_result,
+)
+from run_lakatotree_trajectory_judge import measure_deepeval
 
 SCHEMA = "ooptdd-efficacy-measurement-sequence/v1"
 
@@ -95,10 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("measurement runtime does not match the frozen environment")
     head = _git(source_root, "rev-parse", "HEAD")
     dirty = bool(_git(source_root, "status", "--porcelain"))
-    if (
-        head != lock.get("candidate_git_head")
-        or dirty
-    ):
+    if head != lock.get("candidate_git_head") or dirty:
         raise SystemExit("candidate source binding mismatch or dirty worktree")
     if _sha256(args.preregistration) != lock.get("preregistration_sha256"):
         raise SystemExit("preregistration hash does not match the measurement lock")
@@ -171,9 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("positive/negative/restored oracle sequence did not hold")
     if canonical_json(positive) != canonical_json(restored):
         raise SystemExit("restored positive is not byte-identical to the first positive")
-    failed = [
-        row["id"] for row in negative["scenarios"] if row["oracle_match_rate"] != 1.0
-    ]
+    failed = [row["id"] for row in negative["scenarios"] if row["oracle_match_rate"] != 1.0]
     if failed != ["late-offender-confirm"]:
         raise SystemExit(f"negative control was not localized: {failed!r}")
 

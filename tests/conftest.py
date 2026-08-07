@@ -1,8 +1,6 @@
 import pytest
 
-from ooptdd.backends import memory_reset
-
-pytest_plugins = ["pytester"]
+pytest_plugins = ["pytester", "ooptdd.plugin"]
 
 # Ambient OOPTDD_* env that, if set, would leak into the tests. Running the suite with real-store
 # config (to dogfood the WHOLE suite against a real OpenObserve: OOPTDD_BACKEND=openobserve /
@@ -14,10 +12,19 @@ pytest_plugins = ["pytester"]
 # teardown, so a parallel real-store dogfood of the outer session (configured at session start)
 # is unaffected.
 _AMBIENT_OOPTDD_ENV = (
-    "OOPTDD_BACKEND", "OOPTDD_SERVICE", "OOPTDD_VERIFY", "OOPTDD_ENABLED", "OOPTDD_CID",
-    "OOPTDD_SIGNING_KEY", "OOPTDD_REQUIRE_SIGNATURE",
-    "OOPTDD_OO_URL", "OOPTDD_OO_USER", "OOPTDD_OO_PASSWORD", "OOPTDD_OO_ORG",
-    "OOPTDD_CH_URL", "OOPTDD_VL_URL",
+    "OOPTDD_BACKEND",
+    "OOPTDD_SERVICE",
+    "OOPTDD_VERIFY",
+    "OOPTDD_ENABLED",
+    "OOPTDD_CID",
+    "OOPTDD_SIGNING_KEY",
+    "OOPTDD_REQUIRE_SIGNATURE",
+    "OOPTDD_OO_URL",
+    "OOPTDD_OO_USER",
+    "OOPTDD_OO_PASSWORD",
+    "OOPTDD_OO_ORG",
+    "OOPTDD_CH_URL",
+    "OOPTDD_VL_URL",
 )
 
 
@@ -27,10 +34,3 @@ def _hermetic_env(monkeypatch):
     real-store config set (a full-suite dogfood). A test's own monkeypatch.setenv still wins."""
     for name in _AMBIENT_OOPTDD_ENV:
         monkeypatch.delenv(name, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def _clean_memory_store():
-    memory_reset()
-    yield
-    memory_reset()

@@ -1,4 +1,5 @@
 """Contract tests for the replayable LakatoTree trajectory qualification harness."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -53,8 +54,7 @@ def test_candidate_matrix_closes_all_preregistered_groups(tmp_path):
     assert result["metrics"]["unsafe_counterexample_detection_rate"] == 1.0
     assert result["metrics"]["failed_groups"] == []
     assert (
-        result["metrics"]["memory_readback_nonempty"]
-        == result["metrics"]["memory_readback_cases"]
+        result["metrics"]["memory_readback_nonempty"] == result["metrics"]["memory_readback_cases"]
     )
 
 

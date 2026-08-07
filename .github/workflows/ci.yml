@@ -27,14 +27,14 @@ jobs:
           "import ooptdd; import ooptdd.engine.gate; import ooptdd.ouroboros"
       - name: Functional architecture contract
         run: uv run --no-sync python scripts/check_functional_architecture.py
-      - name: Architecture, functional core, and completion canaries
+      - name: Architecture, functional core, and generic protocol canaries
         run: >-
           uv run --no-sync pytest -q
           tests/test_functional_architecture_harness.py
           tests/test_functional_gate_kernel.py
           tests/test_gate_scope.py
           tests/test_ontology.py
-          tests/test_ouroboros_completion.py
+          tests/test_ouroboros_generic_kernel.py
       - name: Package typing
         run: uv run --no-sync mypy src/ooptdd
       - name: Strict Ouroboros typing
@@ -42,7 +42,8 @@ jobs:
       - name: Lint maintained Python surfaces and architecture checker
         run: >-
           uv run --no-sync ruff check
-          src/ tests/ examples/ scripts/check_functional_architecture.py
+          src/ tests/ examples/ extensions/
+          scripts/check_functional_architecture.py
 
   test:
     runs-on: ${{ matrix.os }}
@@ -60,12 +61,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
       - name: Install
         # include the otel extra so the write-only OTLP conformance test runs (it importorskips
         # otel, so a dev-only install would silently skip the shipped driver's only coverage).
-        run: python -m pip install -e ".[dev,otel]"
+        run: >-
+          python -m pip install -e ".[dev,otel]"
+          -e ./extensions/ooptdd-mutation
+          -e ./extensions/ooptdd-trajectory
+          -e ./extensions/ooptdd-genai
       - name: Lint
-        run: ruff check src/ tests/ examples/
+        run: ruff check src/ tests/ examples/ extensions/
       - name: Test
         run: pytest -q
       - name: Agent-trajectory and verdict-export demos
@@ -83,6 +89,70 @@ jobs:
       - name: Backend matrix current (belt-and-braces for filtered pytest runs)
         run: python scripts/gen_backend_matrix.py --check
 
+  installed-extension-distributions:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: ooptdd-mutation
+            import-name: ooptdd_mutation
+          - distribution: ooptdd-trajectory
+            import-name: ooptdd_trajectory
+          - distribution: ooptdd-genai
+            import-name: ooptdd_genai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: astral-sh/setup-uv@v5
+      - name: Build base and extension wheels
+        shell: bash
+        run: |
+          uv build --wheel --out-dir dist/base .
+          for project in extensions/ooptdd-*; do
+            uv build --wheel --out-dir dist/extensions "$project"
+          done
+      - name: Install only built artifacts into a clean environment
+        shell: bash
+        env:
+          DISTRIBUTION: ${{ matrix.distribution }}
+        run: |
+          python -m venv .installed-extension
+          wheel_prefix="${DISTRIBUTION//-/_}"
+          extension_wheel=$(find dist/extensions -name "${wheel_prefix}-*.whl" -print -quit)
+          test -n "${extension_wheel}"
+          .installed-extension/bin/python -m pip install \
+            --find-links dist/extensions dist/base/*.whl "${extension_wheel}" mypy pytest
+      - name: Test installed metadata, imports, and typing
+        shell: bash
+        env:
+          DISTRIBUTION: ${{ matrix.distribution }}
+          IMPORT_NAME: ${{ matrix.import-name }}
+        run: |
+          .installed-extension/bin/python - <<'PY'
+          import importlib
+          import importlib.metadata
+          import os
+
+          module = importlib.import_module(os.environ["IMPORT_NAME"])
+          distribution = importlib.metadata.distribution(os.environ["DISTRIBUTION"])
+          assert distribution.requires
+          assert module.__file__
+          PY
+          printf 'import %s\n' "${IMPORT_NAME}" > /tmp/extension_typecheck.py
+          .installed-extension/bin/mypy --strict /tmp/extension_typecheck.py
+          if [ "${DISTRIBUTION}" = ooptdd-mutation ]; then
+            .installed-extension/bin/ooptdd-mutation --help
+          fi
+      - name: Run the extension suite against installed wheels
+        shell: bash
+        run: >-
+          .installed-extension/bin/python -m pytest -q -c /dev/null
+          -p no:cacheprovider
+          "$GITHUB_WORKSPACE/extensions/${{ matrix.distribution }}/tests"
+
   deepeval-integration:
     runs-on: ubuntu-latest
     steps:
@@ -93,7 +163,10 @@ jobs:
       - name: Install real DeepEval surface
         # Pin the API we actually verified; this is an integration canary, not a
         # hard runtime dependency of ooptdd.
-        run: python -m pip install -e ".[dev]" "deepeval==4.0.7"
+        run: >-
+          python -m pip install -e ".[dev]"
+          -e ./extensions/ooptdd-genai
+          "deepeval==4.0.7"
       - name: DeepEval custom-metric loop (real package, no LLM/API key)
         run: pytest -q examples/integrations/test_deepeval_arrival.py
 
@@ -105,7 +178,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: >-
+          python -m pip install -e ".[dev]"
+          -e ./extensions/ooptdd-trajectory
+          -e ./extensions/ooptdd-mutation
       - name: Positive run A and byte-identical replay B
         run: |
           mkdir -p /tmp/ooptdd-arrival-benchmark
@@ -170,8 +246,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install real DeepEval surface
-        run: python -m pip install -e ".[dev]" "deepeval==4.0.7"
+      - name: Install qualification dependencies
+        run: >-
+          python -m pip install -e ".[dev]"
+          -e ./extensions/ooptdd-trajectory
+          -e ./extensions/ooptdd-genai
+          -e ./extensions/ooptdd-mutation
+          "deepeval==4.0.7"
       - name: Expanded arrival-readback matrix and injected negative
         run: pytest -q tests/test_lakatotree_trajectory_programme.py
       - name: Held-out DeepEval safe / dangerous / corrupt probe

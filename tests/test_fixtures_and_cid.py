@@ -1,14 +1,18 @@
-"""A cid seam on evaluate()/load_gate() + shipped pytest fixtures (audit gap-18).
+"""A cid seam on evaluate()/load_gate() + opt-in pytest adapter fixtures.
 
 Consumers hand-rolled the same setup every receipt: monkeypatch OOPTDD_CID + reset the
-process-global memory store, because evaluate()/load_gate() had no cid= kwarg and the pytest11
-plugin shipped no fixtures. This pins the cid seam and the opt-in fixtures.
+memory store, because evaluate()/load_gate() had no cid= kwarg and the plugin shipped no
+fixtures. This pins the cid seam and fixtures exposed after explicit plugin activation.
 """
+
 import os
+from types import SimpleNamespace
 
 import pytest
 
-from ooptdd import MemoryBackend, evaluate, load_gate
+from ooptdd import evaluate, load_gate, plugin
+from ooptdd.adapters.pytest import PytestAdapterSettings
+from ooptdd.backends import MemoryBackend
 from ooptdd.domain.model import correlation_keys
 
 _EXPECT = [{"event": "a", "op": ">=", "count": 1}]
@@ -41,7 +45,7 @@ def test_load_gate_without_cid_keeps_the_spec_value(tmp_path):
     assert load_gate(str(p))["cid"] == "from-file"
 
 
-# ── the shipped fixtures (pytest11 plugin) — requesting them proves they exist + isolate ──
+# ── opt-in adapter fixtures — requesting them proves they exist + isolate ────────────────
 def test_ooptdd_cid_fixture_sets_env_and_round_trips(ooptdd_cid):
     assert os.getenv("OOPTDD_CID") == ooptdd_cid
     assert ooptdd_cid.startswith("test-")
@@ -50,7 +54,20 @@ def test_ooptdd_cid_fixture_sets_env_and_round_trips(ooptdd_cid):
     assert evaluate(b, {"expect": _EXPECT}, cid=ooptdd_cid)["ok"] is True
 
 
+def test_ooptdd_cid_fixture_uses_resolved_runtime_cid_env(monkeypatch):
+    request = SimpleNamespace(
+        config=SimpleNamespace(
+            _ooptdd_adapter_settings=PytestAdapterSettings(cid_env="MY_APP_TRACE_ID")
+        )
+    )
+
+    cid = plugin.ooptdd_cid.__wrapped__(monkeypatch, None, request)
+
+    assert os.getenv("MY_APP_TRACE_ID") == cid
+    assert os.getenv("OOPTDD_CID") != cid
+
+
 def test_memory_reset_fixture_starts_from_a_clean_store(ooptdd_memory_reset):
-    b = MemoryBackend()
-    # nothing shipped yet under this cid, and the reset ran before us -> a gate finds nothing.
-    assert evaluate(b, {"expect": _EXPECT}, cid="never-shipped")["ok"] is False
+    # The fixture owns and yields its backend; it does not manipulate hidden global state.
+    assert isinstance(ooptdd_memory_reset, MemoryBackend)
+    assert evaluate(ooptdd_memory_reset, {"expect": _EXPECT}, cid="never-shipped")["ok"] is False

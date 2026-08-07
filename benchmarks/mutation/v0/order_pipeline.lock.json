@@ -1,9 +1,0 @@
-{
- "schema": "ooptdd-mutation-lock/v1",
- "gate_spec_sha256": "9afefd4e0ff84922deeb2cfe493ca71d6022b7367f9c96b2931db3bc7e7289f3",
- "min_score": 0.8,
- "locked_at": "2026-07-27T19:05:00Z",
- "rationale": "a-priori threshold from docs/ci_mutation_gate.md canonical example (0.8), locked before any mutate run of this gate under front A3; events baseline = examples app process_order(items=3), committed alongside",
- "events_baseline": "benchmarks/mutation/v0/order_pipeline.baseline_events.json",
- "front": "POST_TIER1_ARC A3 winner-curse lock"
-}

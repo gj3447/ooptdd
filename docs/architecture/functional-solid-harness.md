@@ -11,29 +11,28 @@ opt-in by exact module name; a package prefix never opts in future files automat
 the machine-enforced `purity_scope` is `direct-module-syntax-only`.
 
 - the exact gate primitives, freeze/value/ontology objects, rules, and kernel modules plus
-  selected Ouroboros identity/model/port/reducer modules are the `pure_core`;
+  the generic Ouroboros identity/model/port/receipt/reducer modules are the `pure_core`;
 - `ooptdd.domain` owns inward abstractions;
-- `ouroboros.schema` and `ouroboros.gate_adapter` are inward deterministic validation/domain
-  modules. They are the `functional_domain`, but are deliberately not labelled mechanically
-  pure because `FA003` and `FA004` do not cover them;
-- the I/O-free `ouroboros.completion` module is the `application_core`. It delegates to those
-  functional-domain validators and is deliberately not labelled mechanically pure;
-- `ouroboros.completion_io`, package facades, other adapters, and the package API remain shells
-  that compose concrete behavior outward.
+- package facades, adapters, and the package API remain shells that compose concrete behavior
+  outward. Separately distributed extensions compose through `ooptdd.sdk`; importing the generic
+  protocol API does not load an external workflow distribution.
 
 A leaf module may import only the package-root symbols explicitly listed in
 `package_root_import_allowlist`; the current list contains only `__version__`. Every other
 package-root import is an outward edge. `FA001` separately rejects root/leaf import cycles.
 
-`scripts/check_functional_architecture.py` implements five deterministic checks:
+`scripts/check_functional_architecture.py` implements eight deterministic checks:
 
 | Rule | Constraint |
 |---|---|
+| `FA000` | every shipped module is explicitly assigned to a reviewed layer |
 | `FA001` | no package import cycles |
 | `FA002` | dependencies follow the declared layer graph |
 | `FA003` | opted-in modules avoid configured ambient imports/direct effect calls, except exact reviewed value-type imports |
 | `FA004` | dataclass bindings are syntactically frozen; mutable globals and detected shared-state mutations are forbidden |
 | `FA005` | every pure module has an explicit, non-growing per-path responsibility budget |
+| `FA006` | environment-key definitions have one owner and ambient reads stay in declared composition shells |
+| `FA007` | generic inward layers contain none of the contract-declared adapter/profile vocabulary |
 
 Run it from the repository root:
 
@@ -60,9 +59,11 @@ or all five SOLID principles. The effect check is deliberately limited to config
 and direct primitive names. FA003/FA004 are module-local and do not inspect the behavior of
 imported callees, so they are not a transitive-purity proof; capability behavior remains a
 semantic review concern. The canary
-suite shows that the declared checks can falsify planted cycles, outward dependencies, direct
-ambient effects, mutable declarations, shared mutations, and budget overflow. A below-budget
-comment-only fixture remains green, but an exact physical-line debt ratchet can reject comments.
+suite shows that the declared checks can falsify unclassified modules, planted cycles, outward
+dependencies, direct ambient effects, mutable declarations, shared mutations, scattered
+configuration, edge vocabulary, and budget overflow. FA007 scans comments and docstrings when
+the contract requests it; its precise regexes deliberately avoid broad words that also have
+legitimate generic meanings. An exact physical-line debt ratchet can still reject comments.
 
 The gate kernel accepts injected `CheckFn` callables. It gives each handler isolated value
 snapshots and validates the returned shape, but neither Python's type system nor this AST harness

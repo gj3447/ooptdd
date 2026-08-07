@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate frozen efficacy measurements and build verdict-free LakatoTree evidence."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,20 +10,17 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from ooptdd.benchmark import (
-    DEFAULT_FIXTURE_DIR,
-    canonical_json,
-    render_benchmark_junit,
-    render_benchmark_markdown,
-    validate_tier0_result,
-)
-from ooptdd.evidence_integrity import (
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ooptdd_mutation.benchmarks.evidence_integrity import (  # noqa: E402
     EvidenceIntegrityError,
     measurement_environment,
     prospective_git_receipt,
@@ -31,6 +29,13 @@ from ooptdd.evidence_integrity import (
     validate_deepeval_mismatch,
     validate_measurement_lock,
     validate_registration_repository,
+)
+from ooptdd_mutation.benchmarks.tier0 import (  # noqa: E402
+    DEFAULT_FIXTURE_DIR,
+    canonical_json,
+    render_benchmark_junit,
+    render_benchmark_markdown,
+    validate_tier0_result,
 )
 
 REPORT_SCHEMA = "ooptdd-efficacy-integrity-report/v1"
@@ -46,9 +51,7 @@ def _read(path: Path) -> dict:
 
 
 def _json_bytes(value: dict) -> bytes:
-    return (
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    ).encode("utf-8")
+    return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 def _write_new(path: Path, payload: bytes) -> None:
@@ -97,8 +100,11 @@ def _live_ci_receipt(
         raise EvidenceIntegrityError("GitHub jobs response is incomplete or malformed")
     if not isinstance(artifacts, list) or artifacts_response.get("total_count") != len(artifacts):
         raise EvidenceIntegrityError("GitHub artifacts response is incomplete or malformed")
-    qualification = [job for job in jobs if isinstance(job, dict)
-                     and job.get("name") == "lakatotree-qualification"]
+    qualification = [
+        job
+        for job in jobs
+        if isinstance(job, dict) and job.get("name") == "lakatotree-qualification"
+    ]
     retained = {
         name: [item for item in artifacts if isinstance(item, dict) and item.get("name") == name]
         for name in ("tier0-arrival-benchmark", "deepeval-heldout-v2")
@@ -109,7 +115,8 @@ def _live_ci_receipt(
         )
     steps = qualification[0].get("steps")
     assertion = [
-        step for step in (steps if isinstance(steps, list) else [])
+        step
+        for step in (steps if isinstance(steps, list) else [])
         if isinstance(step, dict)
         and step.get("name") == "Recompute and assert the DeepEval artifact"
     ]
@@ -124,14 +131,18 @@ def _live_ci_receipt(
         "head_sha": run.get("head_sha"),
         "conclusion": run.get("conclusion"),
         "html_url": run.get("html_url"),
-        "jobs": [{
-            "name": qualification[0].get("name"),
-            "conclusion": qualification[0].get("conclusion"),
-            "steps": [{
-                "name": assertion[0].get("name"),
-                "conclusion": assertion[0].get("conclusion"),
-            }],
-        }],
+        "jobs": [
+            {
+                "name": qualification[0].get("name"),
+                "conclusion": qualification[0].get("conclusion"),
+                "steps": [
+                    {
+                        "name": assertion[0].get("name"),
+                        "conclusion": assertion[0].get("conclusion"),
+                    }
+                ],
+            }
+        ],
         "artifacts": [
             {
                 "name": item[0].get("name"),
@@ -175,8 +186,11 @@ def _validate_ci_receipt(
     jobs = receipt.get("jobs")
     if not isinstance(jobs, list):
         raise EvidenceIntegrityError("CI receipt jobs must be a list")
-    qualification = [job for job in jobs if isinstance(job, dict)
-                     and job.get("name") == "lakatotree-qualification"]
+    qualification = [
+        job
+        for job in jobs
+        if isinstance(job, dict) and job.get("name") == "lakatotree-qualification"
+    ]
     if len(qualification) != 1 or qualification[0].get("conclusion") != "success":
         raise EvidenceIntegrityError("DeepEval qualification job did not succeed in CI")
     steps = qualification[0].get("steps")
@@ -192,8 +206,9 @@ def _validate_ci_receipt(
     artifacts = artifacts if isinstance(artifacts, list) else []
     digests = {}
     for name in ("tier0-arrival-benchmark", "deepeval-heldout-v2"):
-        matching = [item for item in artifacts if isinstance(item, dict)
-                    and item.get("name") == name]
+        matching = [
+            item for item in artifacts if isinstance(item, dict) and item.get("name") == name
+        ]
         if len(matching) != 1:
             raise EvidenceIntegrityError(f"Actions artifact is absent or ambiguous: {name}")
         digest = matching[0].get("digest")
@@ -235,9 +250,7 @@ def _artifact(
     if path.parent != output_dir.resolve():
         raise EvidenceIntegrityError("artifact path escapes the measurement directory")
     if expected_name is not None and path.name != expected_name:
-        raise EvidenceIntegrityError(
-            f"artifact name drift: {path.name!r} != {expected_name!r}"
-        )
+        raise EvidenceIntegrityError(f"artifact name drift: {path.name!r} != {expected_name!r}")
     if _sha256(path) != meta["sha256"]:
         raise EvidenceIntegrityError(f"artifact hash mismatch: {path.name}")
     return path
@@ -290,19 +303,15 @@ def main(argv: list[str] | None = None) -> int:
     sequence = _read(measurement_dir / "measurement-sequence.json")
     head = _git(source_root, "rev-parse", "HEAD")
     dirty = bool(_git(source_root, "status", "--porcelain"))
-    if (
-        head != lock.get("candidate_git_head")
-        or dirty
-    ):
+    if head != lock.get("candidate_git_head") or dirty:
         raise SystemExit("candidate source binding mismatch or dirty worktree")
     if sequence.get("schema") != "ooptdd-efficacy-measurement-sequence/v1":
         raise SystemExit("measurement sequence schema mismatch")
     if sequence.get("source") != {"git_head": head, "dirty": False}:
         raise SystemExit("measurement sequence source binding mismatch")
-    if (
-        sequence.get("environment") != lock.get("environment")
-        or measurement_environment() != lock.get("environment")
-    ):
+    if sequence.get("environment") != lock.get(
+        "environment"
+    ) or measurement_environment() != lock.get("environment"):
         raise SystemExit("measurement environment binding mismatch")
     if _sha256(args.lock) != sequence.get("measurement_lock_sha256"):
         raise SystemExit("measurement lock hash mismatch")
@@ -350,9 +359,9 @@ def main(argv: list[str] | None = None) -> int:
     validate_tier0_result(negative, fixture_dir=args.fixture_dir)
     validate_tier0_result(restored, fixture_dir=args.fixture_dir)
     for measurement, result in zip(measurements, (positive, negative, restored), strict=True):
-        json_path = _artifact(args.measurement_dir, measurement, expected_name=(
-            f"tier0-{measurement['role']}.json"
-        ))
+        json_path = _artifact(
+            args.measurement_dir, measurement, expected_name=(f"tier0-{measurement['role']}.json")
+        )
         junit_path = _artifact(
             args.measurement_dir,
             measurement,
@@ -412,8 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         or not deepeval_path.is_file()
         or _sha256(deepeval_path) != deepeval_meta["candidate"]["sha256"]
         or not deepeval_negative_path.is_file()
-        or _sha256(deepeval_negative_path)
-        != deepeval_meta["injected_mismatch"]["sha256"]
+        or _sha256(deepeval_negative_path) != deepeval_meta["injected_mismatch"]["sha256"]
     ):
         raise SystemExit("DeepEval measurement artifact hash mismatch")
     deepeval_probe = validate_deepeval_measurement(
@@ -467,8 +475,7 @@ def main(argv: list[str] | None = None) -> int:
             "resolved": _rejected(
                 lambda: validate_tier0_result(forged_binding, fixture_dir=args.fixture_dir)
             )
-            and sequence["benchmark_definition_sha256"]
-            == lock["benchmark_definition_sha256"],
+            and sequence["benchmark_definition_sha256"] == lock["benchmark_definition_sha256"],
             "evidence": {
                 "candidate_git_head": head,
                 "benchmark_definition_sha256": sequence["benchmark_definition_sha256"],
@@ -499,9 +506,9 @@ def main(argv: list[str] | None = None) -> int:
         "candidate_git_head": head,
         "observations": observations,
         "unresolved_evidence_integrity_gaps": unresolved,
-        "tier0_required_oracle_match_rate": positive["metrics"][
-            "required_oracle_match_rate"
-        ]["value"],
+        "tier0_required_oracle_match_rate": positive["metrics"]["required_oracle_match_rate"][
+            "value"
+        ],
         "negative_control_failures": negative_failures,
         "restored_byte_identical": True,
     }
@@ -531,9 +538,7 @@ def main(argv: list[str] | None = None) -> int:
             "value": unresolved,
             "unit": "count",
             "derived": {
-                "tier0_required_oracle_match_rate": integrity[
-                    "tier0_required_oracle_match_rate"
-                ]
+                "tier0_required_oracle_match_rate": integrity["tier0_required_oracle_match_rate"]
             },
             "primary_source_sha256": integrity_sha256,
             "novel_measurement": {
@@ -548,39 +553,92 @@ def main(argv: list[str] | None = None) -> int:
         "provenance": {
             "grounded": True,
             "inputs": [
-                {"name": "integrity-report", "source": args.integrity_output.name,
-                 "sha256": integrity_sha256},
-                {"name": "tier0-positive", "source": positive_path.name,
-                 "sha256": _sha256(positive_path)},
-                {"name": "tier0-positive-junit", "source": "tier0-positive.xml",
-                 "sha256": _sha256(args.measurement_dir / "tier0-positive.xml")},
-                {"name": "tier0-positive-markdown", "source": "tier0-positive.md",
-                 "sha256": _sha256(args.measurement_dir / "tier0-positive.md")},
-                {"name": "tier0-negative", "source": negative_path.name,
-                 "sha256": _sha256(negative_path)},
-                {"name": "tier0-negative-junit", "source": "tier0-negative.xml",
-                 "sha256": _sha256(args.measurement_dir / "tier0-negative.xml")},
-                {"name": "tier0-negative-markdown", "source": "tier0-negative.md",
-                 "sha256": _sha256(args.measurement_dir / "tier0-negative.md")},
-                {"name": "tier0-restored", "source": restored_path.name,
-                 "sha256": _sha256(restored_path)},
-                {"name": "tier0-restored-junit", "source": "tier0-restored.xml",
-                 "sha256": _sha256(args.measurement_dir / "tier0-restored.xml")},
-                {"name": "tier0-restored-markdown", "source": "tier0-restored.md",
-                 "sha256": _sha256(args.measurement_dir / "tier0-restored.md")},
-                {"name": "measurement-sequence", "source": "measurement-sequence.json",
-                 "sha256": _sha256(args.measurement_dir / "measurement-sequence.json")},
-                {"name": "deepeval-candidate", "source": deepeval_path.name,
-                 "sha256": _sha256(deepeval_path)},
-                {"name": "deepeval-injected-mismatch", "source": deepeval_negative_path.name,
-                 "sha256": _sha256(deepeval_negative_path)},
-                {"name": "measurement-lock", "source": args.lock.name,
-                 "sha256": _sha256(args.lock)},
-                {"name": "preregistration", "source": args.preregistration.name,
-                 "sha256": _sha256(args.preregistration)},
-                *([{"name": "github-actions-receipt", "source": args.ci_receipt.name,
-                    "sha256": _sha256(args.ci_receipt)}]
-                  if args.ci_receipt is not None else []),
+                {
+                    "name": "integrity-report",
+                    "source": args.integrity_output.name,
+                    "sha256": integrity_sha256,
+                },
+                {
+                    "name": "tier0-positive",
+                    "source": positive_path.name,
+                    "sha256": _sha256(positive_path),
+                },
+                {
+                    "name": "tier0-positive-junit",
+                    "source": "tier0-positive.xml",
+                    "sha256": _sha256(args.measurement_dir / "tier0-positive.xml"),
+                },
+                {
+                    "name": "tier0-positive-markdown",
+                    "source": "tier0-positive.md",
+                    "sha256": _sha256(args.measurement_dir / "tier0-positive.md"),
+                },
+                {
+                    "name": "tier0-negative",
+                    "source": negative_path.name,
+                    "sha256": _sha256(negative_path),
+                },
+                {
+                    "name": "tier0-negative-junit",
+                    "source": "tier0-negative.xml",
+                    "sha256": _sha256(args.measurement_dir / "tier0-negative.xml"),
+                },
+                {
+                    "name": "tier0-negative-markdown",
+                    "source": "tier0-negative.md",
+                    "sha256": _sha256(args.measurement_dir / "tier0-negative.md"),
+                },
+                {
+                    "name": "tier0-restored",
+                    "source": restored_path.name,
+                    "sha256": _sha256(restored_path),
+                },
+                {
+                    "name": "tier0-restored-junit",
+                    "source": "tier0-restored.xml",
+                    "sha256": _sha256(args.measurement_dir / "tier0-restored.xml"),
+                },
+                {
+                    "name": "tier0-restored-markdown",
+                    "source": "tier0-restored.md",
+                    "sha256": _sha256(args.measurement_dir / "tier0-restored.md"),
+                },
+                {
+                    "name": "measurement-sequence",
+                    "source": "measurement-sequence.json",
+                    "sha256": _sha256(args.measurement_dir / "measurement-sequence.json"),
+                },
+                {
+                    "name": "deepeval-candidate",
+                    "source": deepeval_path.name,
+                    "sha256": _sha256(deepeval_path),
+                },
+                {
+                    "name": "deepeval-injected-mismatch",
+                    "source": deepeval_negative_path.name,
+                    "sha256": _sha256(deepeval_negative_path),
+                },
+                {
+                    "name": "measurement-lock",
+                    "source": args.lock.name,
+                    "sha256": _sha256(args.lock),
+                },
+                {
+                    "name": "preregistration",
+                    "source": args.preregistration.name,
+                    "sha256": _sha256(args.preregistration),
+                },
+                *(
+                    [
+                        {
+                            "name": "github-actions-receipt",
+                            "source": args.ci_receipt.name,
+                            "sha256": _sha256(args.ci_receipt),
+                        }
+                    ]
+                    if args.ci_receipt is not None
+                    else []
+                ),
             ],
         },
         "harness": {
@@ -593,10 +651,17 @@ def main(argv: list[str] | None = None) -> int:
     bundle_inputs = [
         args.measurement_dir / name
         for name in (
-            "tier0-positive.json", "tier0-positive.xml", "tier0-positive.md",
-            "tier0-negative.json", "tier0-negative.xml", "tier0-negative.md",
-            "tier0-restored.json", "tier0-restored.xml", "tier0-restored.md",
-            "measurement-sequence.json", "deepeval-candidate.json",
+            "tier0-positive.json",
+            "tier0-positive.xml",
+            "tier0-positive.md",
+            "tier0-negative.json",
+            "tier0-negative.xml",
+            "tier0-negative.md",
+            "tier0-restored.json",
+            "tier0-restored.xml",
+            "tier0-restored.md",
+            "measurement-sequence.json",
+            "deepeval-candidate.json",
             "deepeval-injected-mismatch.json",
         )
     ] + [args.lock.resolve(), args.preregistration.resolve()]
@@ -606,10 +671,12 @@ def main(argv: list[str] | None = None) -> int:
     if len(names) != len(set(names)):
         raise SystemExit("bundle input basenames collide")
     args.bundle_dir.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(
-        prefix=f".{args.bundle_dir.name}.tmp-",
-        dir=args.bundle_dir.parent,
-    ))
+    temporary = Path(
+        tempfile.mkdtemp(
+            prefix=f".{args.bundle_dir.name}.tmp-",
+            dir=args.bundle_dir.parent,
+        )
+    )
     try:
         for source in bundle_inputs:
             _write_new(temporary / source.name, source.read_bytes())

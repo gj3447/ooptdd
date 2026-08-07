@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ooptdd-trajectory"
+version = "0.1.0"
+description = "Explicit agent-trajectory predicates for OOPTDD."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = ["ooptdd>=0.6,<0.7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ooptdd_trajectory"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/ooptdd_trajectory", "/README.md", "/pyproject.toml"]
+exclude = [
+  "/.ruff_cache/**",
+  "/.pytest_cache/**",
+  "/.mypy_cache/**",
+  "/**/__pycache__/**",
+  "/**/*.pyc",
+  "/**/*.pyo",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../../src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+check_untyped_defs = true
+python_version = "3.10"

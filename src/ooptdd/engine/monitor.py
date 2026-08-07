@@ -26,25 +26,36 @@ This module is the kernel: it owns the matching/ordering/comparison primitives. 
 gate layer (:mod:`ooptdd.gate`) compiles specs into monitors and re-exports the
 primitives for backward compatibility.
 """
+
 from __future__ import annotations
 
 import math
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 
 from .gate_primitives import _OP_ALIASES, _norm_op, stream_key  # noqa: F401
+from .gate_rules import validate_count_rule
 
 # ── three-valued LTL₃ verdict domain ────────────────────────────────────────────
-SAT = "sat"    # ⊤  settled true  — no extension can falsify
+SAT = "sat"  # ⊤  settled true  — no extension can falsify
 VIOL = "viol"  # ⊥  settled false — no extension can satisfy
 PEND = "pend"  # ?  undecided     — both outcomes still reachable
 
 # Symbolic comparison operators are native; the OpenSLO/Keptn word forms
 # (gte/gt/eq/lte/lt[/ne]) are accepted as aliases so a spec reads like an SLO objective.
-_OPS: dict[str, Callable[[float, float], bool]] = {
-    ">=": operator.ge, ">": operator.gt, "==": operator.eq,
-    "!=": operator.ne, "<=": operator.le, "<": operator.lt,
-}
+_OPS: Mapping[str, Callable[[float, float], bool]] = MappingProxyType(
+    {
+        ">=": operator.ge,
+        ">": operator.gt,
+        "==": operator.eq,
+        "!=": operator.ne,
+        "<=": operator.le,
+        "<": operator.lt,
+    }
+)
+
+
 def _want(rule: dict):
     """``target`` (OpenSLO) is an alias for ``count``; default 1."""
     if "target" in rule:
@@ -90,8 +101,12 @@ def _compare(op, actual, want) -> bool:
     sym = _norm_op(op)
     if sym in _OPS:
         if sym in (">=", ">", "<=", "<"):
-            if (isinstance(actual, bool) or not isinstance(actual, (int, float))
-                    or isinstance(want, bool) or not isinstance(want, (int, float))):
+            if (
+                isinstance(actual, bool)
+                or not isinstance(actual, (int, float))
+                or isinstance(want, bool)
+                or not isinstance(want, (int, float))
+            ):
                 return False
             return _OPS[sym](actual, want)
         return _OPS[sym](actual, want)
@@ -105,8 +120,10 @@ def _compare(op, actual, want) -> bool:
             return want not in actual
         except TypeError:
             return False
-    raise ValueError(f"unknown where op {op!r}; known: "
-                     f"{', '.join(sorted([*_OPS, *_OP_ALIASES, *_WHERE_EXTRA_OPS]))}")
+    raise ValueError(
+        f"unknown where op {op!r}; known: "
+        f"{', '.join(sorted([*_OPS, *_OP_ALIASES, *_WHERE_EXTRA_OPS]))}"
+    )
 
 
 def _matches(ev: dict, event: str | None, where: dict) -> bool:
@@ -116,9 +133,10 @@ def _matches(ev: dict, event: str | None, where: dict) -> bool:
     anything else is literal equality. ``event=None`` matches any name."""
     if event is not None and ev.get("event") != event:
         return False
-    return all(_compare(v["op"], ev.get(k), v.get("value")) if _is_op_dict(v)
-               else ev.get(k) == v
-               for k, v in where.items())
+    return all(
+        _compare(v["op"], ev.get(k), v.get("value")) if _is_op_dict(v) else ev.get(k) == v
+        for k, v in where.items()
+    )
 
 
 def _resolve_matcher(m: dict, indicators: dict) -> tuple[str | None, dict]:
@@ -144,6 +162,7 @@ def _brief(ev: dict) -> dict:
 
 
 # ── monitor automata ─────────────────────────────────────────────────────────── #
+
 
 class Monitor:
     """Base class. Subclasses implement :meth:`step` (consume one event, possibly
@@ -211,21 +230,26 @@ class CountMonitor(Monitor):
             self._latch(VIOL, idx)
 
     def collapse(self, reachable):
-        return self._stamp({
-            "event": self.event, "where": self.where, "op": self.op,
-            "want": self.want, "got": self.got,
-            "passed": reachable and _OPS[self.op](self.got, self.want),
-            # A count `got` is always >= 0, so several op/target combos can NEVER fail — a
-            # failure-incapable check. Flagged so the gate excludes it from `gating` (a
-            # tautology must not make a gate assert-anything) and lint can warn at author time.
-            # `>= n` (n<=0), `> n` (n<0: got>=0 > any negative), `!= n` (n<0: a count is never
-            # negative). Grill F4: `>-1` and `!=-1` slipped through the `>=`-only check.
-            "tautological": (
-                (self.op == ">=" and self.want <= 0)
-                or (self.op == ">" and self.want < 0)
-                or (self.op == "!=" and self.want < 0)
-            ),
-        })
+        return self._stamp(
+            {
+                "event": self.event,
+                "where": self.where,
+                "op": self.op,
+                "want": self.want,
+                "got": self.got,
+                "passed": reachable and _OPS[self.op](self.got, self.want),
+                # A count `got` is always >= 0, so several op/target combos can NEVER fail — a
+                # failure-incapable check. Flagged so the gate excludes it from `gating` (a
+                # tautology must not make a gate assert-anything) and lint can warn at author time.
+                # `>= n` (n<=0), `> n` (n<0: got>=0 > any negative), `!= n` (n<0: a count is never
+                # negative). Grill F4: `>-1` and `!=-1` slipped through the `>=`-only check.
+                "tautological": (
+                    (self.op == ">=" and self.want <= 0)
+                    or (self.op == ">" and self.want < 0)
+                    or (self.op == "!=" and self.want < 0)
+                ),
+            }
+        )
 
 
 class PresentMonitor(Monitor):
@@ -247,10 +271,13 @@ class PresentMonitor(Monitor):
 
     def collapse(self, reachable):
         missing = [lbl for lbl, hit in zip(self.labels, self._hit, strict=True) if not hit]
-        return self._stamp({
-            "present": self.labels, "missing": missing,
-            "passed": reachable and not missing,
-        })
+        return self._stamp(
+            {
+                "present": self.labels,
+                "missing": missing,
+                "passed": reachable and not missing,
+            }
+        )
 
 
 class AbsentMonitor(Monitor):
@@ -272,11 +299,14 @@ class AbsentMonitor(Monitor):
             self._latch(VIOL, idx)
 
     def collapse(self, reachable):
-        return self._stamp({
-            "absent": self.labels, "violations": len(self.offenders),
-            "offending": [_brief(o) for o in self.offenders[:5]],
-            "passed": reachable and not self.offenders,
-        })
+        return self._stamp(
+            {
+                "absent": self.labels,
+                "violations": len(self.offenders),
+                "offending": [_brief(o) for o in self.offenders[:5]],
+                "passed": reachable and not self.offenders,
+            }
+        )
 
 
 class DurationMonitor(Monitor):
@@ -309,21 +339,29 @@ class DurationMonitor(Monitor):
             return
         self.got += 1
         value = ev.get(self.field)
-        ok = (not isinstance(value, bool) and isinstance(value, (int, float))
-              and _OPS[self.op](value, self.target))
+        ok = (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and _OPS[self.op](value, self.target)
+        )
         if not ok:
             self.offenders.append(ev)
             self._latch(VIOL, idx)
 
     def collapse(self, reachable):
-        return self._stamp({
-            "duration": _matcher_label(self.event, self.where), "field": self.field,
-            "op": self.op, "target": self.target, "got": self.got,
-            "violations": len(self.offenders),
-            "offending": [_brief(o) for o in self.offenders[:5]],
-            "no_evidence": self.got == 0,
-            "passed": reachable and not self.offenders and self.got > 0,
-        })
+        return self._stamp(
+            {
+                "duration": _matcher_label(self.event, self.where),
+                "field": self.field,
+                "op": self.op,
+                "target": self.target,
+                "got": self.got,
+                "violations": len(self.offenders),
+                "offending": [_brief(o) for o in self.offenders[:5]],
+                "no_evidence": self.got == 0,
+                "passed": reachable and not self.offenders and self.got > 0,
+            }
+        )
 
 
 class OrderMonitor(Monitor):
@@ -342,8 +380,9 @@ class OrderMonitor(Monitor):
         dupes = [n for n in set(self.seq) if self.seq.count(n) > 1]
         if dupes:
             raise ValueError(
-                f"must_order/trajectory names must be distinct — {sorted(dupes)} repeated; "
-                "first-occurrence sequencing cannot express multiplicity")
+                f"must_order names must be distinct — {sorted(dupes)} repeated; "
+                "first-occurrence sequencing cannot express multiplicity"
+            )
         self.within_s = within_s
         # Concurrency window (ms): cross-node wall clocks cannot prove order tighter
         # than their skew, so a first-occurrence "inversion" whose timestamps sit
@@ -373,8 +412,7 @@ class OrderMonitor(Monitor):
         ea, eb = self._emits[name_a], self._emits[name_b]
         if ea is not None and eb is not None:
             return ea <= eb
-        if (self.tie_skew_ms is not None
-                and abs(ka[0] - kb[0]) <= self.tie_skew_ms * 1000):
+        if self.tie_skew_ms is not None and abs(ka[0] - kb[0]) <= self.tie_skew_ms * 1000:
             return True
         return ka <= kb
 
@@ -422,7 +460,9 @@ class OrderMonitor(Monitor):
         )
         gaps = self._gaps_exceeded() if ordered else []
         chk = {
-            "must_order": list(self.seq), "missing": missing, "ordered": ordered,
+            "must_order": list(self.seq),
+            "missing": missing,
+            "ordered": ordered,
             "firsts": dict(self.firsts),
             "passed": reachable and ordered and not gaps,
         }
@@ -479,22 +519,36 @@ class HeartbeatMonitor(Monitor):
 
     def collapse(self, reachable):
         if self.beats == 0:
-            return self._stamp({
-                "heartbeat": self.name, "every_s": self.every_s, "beats": 0,
-                "max_gap_s": None, "passed": False, "reason": "no_beat",
-            })
+            return self._stamp(
+                {
+                    "heartbeat": self.name,
+                    "every_s": self.every_s,
+                    "beats": 0,
+                    "max_gap_s": None,
+                    "passed": False,
+                    "reason": "no_beat",
+                }
+            )
         lead = trail = 0
         if self.edge_silence:
             # opt-in only: bound liveness by the stream's own span (beats>=1 ⇒ all set).
-            lead = (self.first_ts - self.stream_min_ts) if (
-                self.first_ts is not None and self.stream_min_ts is not None) else 0
-            trail = (self.stream_max_ts - self.last_ts) if (
-                self.stream_max_ts is not None and self.last_ts is not None) else 0
+            lead = (
+                (self.first_ts - self.stream_min_ts)
+                if (self.first_ts is not None and self.stream_min_ts is not None)
+                else 0
+            )
+            trail = (
+                (self.stream_max_ts - self.last_ts)
+                if (self.stream_max_ts is not None and self.last_ts is not None)
+                else 0
+            )
         edge_gap = max(lead, trail)
         effective = max(self.max_gap_us, edge_gap)
         ok = effective <= self.every_s * 1_000_000
         chk = {
-            "heartbeat": self.name, "every_s": self.every_s, "beats": self.beats,
+            "heartbeat": self.name,
+            "every_s": self.every_s,
+            "beats": self.beats,
             "max_gap_s": round(effective / 1_000_000, 6),
             "inter_beat_max_gap_s": round(self.max_gap_us / 1_000_000, 6),
             "passed": reachable and ok,
@@ -527,34 +581,56 @@ class RatioMonitor(Monitor):
 
     def collapse(self, reachable):
         if self.total == 0:
-            return self._stamp({
-                "ratio": "good/total", "good": self.good, "total": 0, "value": None,
-                "op": self.op, "want": self.want, "passed": False,
-                "reason": "ratio_total_zero",
-            })
+            return self._stamp(
+                {
+                    "ratio": "good/total",
+                    "good": self.good,
+                    "total": 0,
+                    "value": None,
+                    "op": self.op,
+                    "want": self.want,
+                    "passed": False,
+                    "reason": "ratio_total_zero",
+                }
+            )
         if self.good > self.total:
             # good must be a SUBSET of total; good>total means the good/total matchers
             # overlap or are misconfigured, and the ratio (>1) is meaningless — never a clean
             # pass, even if `>= 0.99` would accept it (grill F11).
-            return self._stamp({
-                "ratio": "good/total", "good": self.good, "total": self.total,
-                "value": self.good / self.total, "op": self.op, "want": self.want,
-                "passed": False, "reason": "ratio_good_exceeds_total",
-            })
+            return self._stamp(
+                {
+                    "ratio": "good/total",
+                    "good": self.good,
+                    "total": self.total,
+                    "value": self.good / self.total,
+                    "op": self.op,
+                    "want": self.want,
+                    "passed": False,
+                    "reason": "ratio_good_exceeds_total",
+                }
+            )
         value = self.good / self.total
-        return self._stamp({
-            "ratio": "good/total", "good": self.good, "total": self.total,
-            "value": value, "op": self.op, "want": self.want,
-            "passed": reachable and _OPS[self.op](value, self.want),
-        })
+        return self._stamp(
+            {
+                "ratio": "good/total",
+                "good": self.good,
+                "total": self.total,
+                "value": value,
+                "op": self.op,
+                "want": self.want,
+                "passed": reachable and _OPS[self.op](value, self.want),
+            }
+        )
 
 
-_REDUCERS: dict[str, Callable[[list[float]], float]] = {
-    "sum": sum,
-    "min": min,
-    "max": max,
-    "last": lambda values: values[-1],
-}
+_REDUCERS: Mapping[str, Callable[[list[float]], float]] = MappingProxyType(
+    {
+        "sum": sum,
+        "min": min,
+        "max": max,
+        "last": lambda values: values[-1],
+    }
+)
 
 
 class InvariantMonitor(Monitor):
@@ -606,9 +682,14 @@ class InvariantMonitor(Monitor):
         lv = self._reduce(self.l_reduce, self._l_vals, self._l_n)
         rv = self._reduce(self.r_reduce, self._r_vals, self._r_n)
         base = {
-            "invariant": (f"{self.l_reduce}({self.l_field or self.l_event}) {self.op} "
-                          f"{self.r_reduce}({self.r_field or self.r_event})"),
-            "left": lv, "right": rv, "op": self.op, "tol": self.tol,
+            "invariant": (
+                f"{self.l_reduce}({self.l_field or self.l_event}) {self.op} "
+                f"{self.r_reduce}({self.r_field or self.r_event})"
+            ),
+            "left": lv,
+            "right": rv,
+            "op": self.op,
+            "tol": self.tol,
         }
         if self._l_n == 0 or self._r_n == 0 or lv is None or rv is None:
             return self._stamp({**base, "passed": False, "reason": "invariant_no_evidence"})
@@ -654,8 +735,14 @@ class MetamorphicMonitor(Monitor):
 
     def collapse(self, reachable):
         av, bv = self._reduce(self._a_vals, self._a_n), self._reduce(self._b_vals, self._b_n)
-        base = {"metamorphic": self.relation, "relation": self.relation, "reduce": self.reduce,
-                "left": av, "right": bv, "tol": self.tol}
+        base = {
+            "metamorphic": self.relation,
+            "relation": self.relation,
+            "reduce": self.reduce,
+            "left": av,
+            "right": bv,
+            "tol": self.tol,
+        }
         if self.relation == "scaled":
             base["factor"] = self.factor
         if self._a_n == 0 or self._b_n == 0 or av is None or bv is None:
@@ -702,8 +789,13 @@ class ConformsMonitor(Monitor):
         if et is None:
             if self._cw and (self._scope_all or name == self.target):
                 self.unknown.append(name)
-                self.violations.append({"event": name, "index": idx,
-                                        "problems": ["unknown_event_type (closed-world drift)"]})
+                self.violations.append(
+                    {
+                        "event": name,
+                        "index": idx,
+                        "problems": ["unknown_event_type (closed-world drift)"],
+                    }
+                )
                 self._latch(VIOL, idx)
             return
         self.checked += 1
@@ -714,17 +806,31 @@ class ConformsMonitor(Monitor):
 
     def collapse(self, reachable):
         if self.ontology is None:
-            return self._stamp({
-                "conforms": self.target, "passed": False, "checked": 0,
-                "violations": [{"problems": ["ontology_not_loaded "
-                                "(set `ontology:` in the spec or pass ontology=)"]}],
-                "unknown": [],
-            })
-        return self._stamp({
-            "conforms": self.target, "passed": reachable and not self.violations,
-            "checked": self.checked, "violations": self.violations,
-            "unknown": self.unknown,
-        })
+            return self._stamp(
+                {
+                    "conforms": self.target,
+                    "passed": False,
+                    "checked": 0,
+                    "violations": [
+                        {
+                            "problems": [
+                                "ontology_not_loaded "
+                                "(set `ontology:` in the spec or pass ontology=)"
+                            ]
+                        }
+                    ],
+                    "unknown": [],
+                }
+            )
+        return self._stamp(
+            {
+                "conforms": self.target,
+                "passed": reachable and not self.violations,
+                "checked": self.checked,
+                "violations": self.violations,
+                "unknown": self.unknown,
+            }
+        )
 
 
 def run_monitor(monitor: Monitor, events: list[dict], reachable: bool) -> dict:
@@ -745,12 +851,14 @@ def run_monitor(monitor: Monitor, events: list[dict], reachable: bool) -> dict:
 # as it arrives) both go through compile_check, so they can never disagree. Built-in rule
 # vocabulary only — custom @check predicates are a gate-layer concern, not kernel monitors.
 
-def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
-                  allow: list | None = None) -> Monitor:
+
+def compile_check(
+    rule: dict, *, indicators: dict | None = None, ontology=None, allow: list | None = None
+) -> Monitor:
     """Compile one gate rule into its :class:`Monitor` (the automaton it denotes).
 
-    Detection mirrors the gate's historical key precedence (``forbid``→absent,
-    ``trajectory``→must_order); a rule with no predicate keyword is a count check.
+    Detection mirrors the gate's built-in key precedence (``forbid``→absent); a
+    rule with no predicate keyword is a count check.
     """
     indicators = indicators or {}
     if "absent" in rule or "forbid" in rule:
@@ -758,38 +866,58 @@ def compile_check(rule: dict, *, indicators: dict | None = None, ontology=None,
         matchers = raw if isinstance(raw, list) else [raw]
         return AbsentMonitor(matchers, indicators, allow=allow)
     if "heartbeat" in rule:
-        return HeartbeatMonitor(rule["heartbeat"], rule["every_s"],
-                                edge_silence=rule.get("edge_silence", False))
-    if "must_order" in rule or "trajectory" in rule:
-        seq = rule.get("must_order") or rule.get("trajectory")
-        return OrderMonitor(seq, within_s=rule.get("within_s"),
-                            tie_skew_ms=rule.get("tie_skew_ms"))
+        return HeartbeatMonitor(
+            rule["heartbeat"], rule["every_s"], edge_silence=rule.get("edge_silence", False)
+        )
+    if "must_order" in rule:
+        seq = rule["must_order"]
+        return OrderMonitor(seq, within_s=rule.get("within_s"), tie_skew_ms=rule.get("tie_skew_ms"))
     if "present" in rule:
         return PresentMonitor(rule["present"], indicators)
     if "ratioMetric" in rule:
         spec = rule["ratioMetric"]
-        return RatioMonitor(spec.get("good", {}), spec.get("total", {}),
-                            _norm_op(rule.get("op", ">=")), float(_want(rule)), indicators)
+        return RatioMonitor(
+            spec.get("good", {}),
+            spec.get("total", {}),
+            _norm_op(rule.get("op", ">=")),
+            float(_want(rule)),
+            indicators,
+        )
     if "conforms" in rule:
         return ConformsMonitor(rule["conforms"], ontology, closed_world=rule.get("closed_world"))
     if "invariant" in rule:
         spec = rule["invariant"]
-        return InvariantMonitor(spec.get("left", {}), spec.get("right", {}),
-                                _norm_op(spec.get("op", rule.get("op", "=="))),
-                                spec.get("tol", rule.get("tol", 0.0)), indicators)
+        return InvariantMonitor(
+            spec.get("left", {}),
+            spec.get("right", {}),
+            _norm_op(spec.get("op", rule.get("op", "=="))),
+            spec.get("tol", rule.get("tol", 0.0)),
+            indicators,
+        )
     if "metamorphic" in rule:
         spec = rule["metamorphic"]
         rel = spec.get("relation", "equal")
-        return MetamorphicMonitor(spec.get("a", {}), spec.get("b", {}),
-                                  "equal" if rel == "idempotent" else rel,
-                                  spec.get("reduce", "sum"), spec.get("field"),
-                                  spec.get("factor", 1.0), spec.get("tol", 0.0), indicators)
+        return MetamorphicMonitor(
+            spec.get("a", {}),
+            spec.get("b", {}),
+            "equal" if rel == "idempotent" else rel,
+            spec.get("reduce", "sum"),
+            spec.get("field"),
+            spec.get("factor", 1.0),
+            spec.get("tol", 0.0),
+            indicators,
+        )
     if "duration" in rule:
         spec = rule["duration"]
         event, where = _resolve_matcher(spec, indicators)
-        return DurationMonitor(event, where, spec.get("field"),
-                               _norm_op(spec.get("op", rule.get("op", "<="))),
-                               spec.get("target", rule.get("target")))
+        return DurationMonitor(
+            event,
+            where,
+            spec.get("field"),
+            _norm_op(spec.get("op", rule.get("op", "<="))),
+            spec.get("target", rule.get("target")),
+        )
+    validate_count_rule(rule)
     event, where = _resolve_matcher(rule, indicators)
     return CountMonitor(event, where, _norm_op(rule.get("op", ">=")), _num_target(rule))
 
@@ -808,10 +936,17 @@ class LiveMonitorSet:
         self._idx = 0
 
     @classmethod
-    def from_rules(cls, rules: list[dict], *, indicators: dict | None = None,
-                   ontology=None, allow: list | None = None) -> LiveMonitorSet:
-        return cls([compile_check(r, indicators=indicators, ontology=ontology, allow=allow)
-                    for r in rules])
+    def from_rules(
+        cls,
+        rules: list[dict],
+        *,
+        indicators: dict | None = None,
+        ontology=None,
+        allow: list | None = None,
+    ) -> LiveMonitorSet:
+        return cls(
+            [compile_check(r, indicators=indicators, ontology=ontology, allow=allow) for r in rules]
+        )
 
     def feed(self, ev: dict, idx: int | None = None) -> None:
         """Consume one event (auto-incrementing the stream index if not given)."""

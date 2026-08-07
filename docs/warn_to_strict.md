@@ -29,7 +29,7 @@ python examples/openobserve_demo/demo_silent_401.py  # the negative wing actuall
 
 The third line matters most: prove the gate can SEE a loss before trusting its
 silence. A verifier that has never caught a planted failure is uncorroborated
-(mutation-test your gates for the same reason: `ooptdd mutate --min-score`).
+(mutation-test your gates for the same reason: `ooptdd-mutation mutate --min-score`).
 
 ## Semantics that keep strict mode livable
 

@@ -12,10 +12,12 @@ Honesty rules carried into the formats:
   includes the re-verify command — so a reviewer can independently re-check
   (generator ≠ verifier extends to the human reading the report).
 """
+
 from __future__ import annotations
 
 import json
 import re
+from types import MappingProxyType
 from xml.sax.saxutils import escape, quoteattr
 
 from .engine.gate import _label
@@ -56,9 +58,12 @@ def _infra(result: dict) -> str | None:
 def _check_rows(result: dict):
     for chk in result.get("checks", []):
         label = _label(chk)
-        detail = {k: v for k, v in chk.items()
-                  if k != "passed" and (not isinstance(v, (dict, list))
-                                        or k in ("missing", "offenders", "reasons"))}
+        detail = {
+            k: v
+            for k, v in chk.items()
+            if k != "passed"
+            and (not isinstance(v, (dict, list)) or k in ("missing", "offenders", "reasons"))
+        }
         yield label, chk, detail
 
 
@@ -74,14 +79,15 @@ def _suite_level_red(result: dict) -> str | None:
     for flag in _SUITE_RED_FLAGS:
         if result.get(flag):
             return flag
-    if not any(not c.get("passed") and not c.get("optional") and not c.get("pending")
-               for c in result.get("checks", [])):
+    if not any(
+        not c.get("passed") and not c.get("optional") and not c.get("pending")
+        for c in result.get("checks", [])
+    ):
         return "gate red with no failing gating check (empty or threshold-mode miss)"
     return None
 
 
-def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
-                 inconclusive: str = "skipped") -> str:
+def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate", inconclusive: str = "skipped") -> str:
     """One <testcase> per check; gating failures are <failure>, INFRA is <skipped>,
     optional AND pending misses are <skipped> (surfaced, never red — pending checks
     are designed never to gate, so they must not fail the build via the report).
@@ -94,8 +100,7 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
     fail-closed for pipelines that must not let an unverified run scroll past
     (an <error> is an infra rung, still never a <failure>/falsified)."""
     if inconclusive not in ("skipped", "error"):
-        raise ValueError(f"junit inconclusive policy must be skipped|error, "
-                         f"got {inconclusive!r}")
+        raise ValueError(f"junit inconclusive policy must be skipped|error, got {inconclusive!r}")
     infra = _infra(result)
     cid_attr = quoteattr(_xsafe(result.get("cid")))
     cases, failures, skipped, errors = [], 0, 0, 0
@@ -104,12 +109,14 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
         body = ""
         if chk.get("inconclusive") and chk.get("passed"):
             skipped += 1
-            body = "<skipped message=\"INCONCLUSIVE: expected three-valued oracle outcome\"/>"
+            body = '<skipped message="INCONCLUSIVE: expected three-valued oracle outcome"/>'
         elif infra is not None:
             if inconclusive == "error":
                 errors += 1
-                body = (f"<error type=\"ooptdd.inconclusive\" "
-                        f"message={quoteattr('INCONCLUSIVE: ' + infra)}/>")
+                body = (
+                    f'<error type="ooptdd.inconclusive" '
+                    f"message={quoteattr('INCONCLUSIVE: ' + infra)}/>"
+                )
             else:
                 skipped += 1
                 body = f"<skipped message={quoteattr('INCONCLUSIVE: ' + infra)}/>"
@@ -118,8 +125,10 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
             if chk.get("optional") or chk.get("pending"):
                 kind = "optional" if chk.get("optional") else "pending"
                 skipped += 1
-                body = (f"<skipped message={quoteattr(kind + ' check missed (non-gating)')}>"
-                        f"{payload}</skipped>")
+                body = (
+                    f"<skipped message={quoteattr(kind + ' check missed (non-gating)')}>"
+                    f"{payload}</skipped>"
+                )
             elif result.get("ok"):
                 # threshold/quorum mode: the gate as a whole is GREEN, this miss was
                 # absorbed by the weighted score — a <failure> here would flip CI red
@@ -134,23 +143,31 @@ def to_junit_xml(result: dict, *, suite: str = "ooptdd.gate",
     suite_red = _suite_level_red(result)
     if suite_red is not None:
         failures += 1
-        cases.append(f"  <testcase classname={cid_attr} name=\"(gate)\">"
-                     f"<failure message={quoteattr('gate RED: ' + _xsafe(suite_red))}/></testcase>")
-    props = (f'  <properties>\n'
-             f'    <property name="cid" value={cid_attr}/>\n'
-             f'    <property name="backend" '
-             f'value={quoteattr(_xsafe(result.get("oracle", {}).get("emit_identity", "")))}/>\n'
-             f'  </properties>')
-    return ("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-            f"<testsuite name={quoteattr(suite)} tests=\"{len(cases)}\" "
-            f"failures=\"{failures}\" errors=\"{errors}\" skipped=\"{skipped}\">\n"
-            + props + "\n" + "\n".join(cases) + "\n</testsuite>\n")
+        cases.append(
+            f'  <testcase classname={cid_attr} name="(gate)">'
+            f"<failure message={quoteattr('gate RED: ' + _xsafe(suite_red))}/></testcase>"
+        )
+    props = (
+        f"  <properties>\n"
+        f'    <property name="cid" value={cid_attr}/>\n'
+        f'    <property name="backend" '
+        f"value={quoteattr(_xsafe(result.get('oracle', {}).get('emit_identity', '')))}/>\n"
+        f"  </properties>"
+    )
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<testsuite name={quoteattr(suite)} tests="{len(cases)}" '
+        f'failures="{failures}" errors="{errors}" skipped="{skipped}">\n'
+        + props
+        + "\n"
+        + "\n".join(cases)
+        + "\n</testsuite>\n"
+    )
 
 
 def to_markdown(result: dict) -> str:
     infra = _infra(result)
-    verdict = ("🟡 INCONCLUSIVE" if infra
-               else ("🟢 GREEN" if result.get("ok") else "🔴 RED"))
+    verdict = "🟡 INCONCLUSIVE" if infra else ("🟢 GREEN" if result.get("ok") else "🔴 RED")
     cid = result.get("cid")
     lines = [
         f"## ooptdd gate — {verdict}",
@@ -175,17 +192,29 @@ def to_markdown(result: dict) -> str:
             state = "⏭ absorbed (threshold)"
         else:
             state = "❌ fail"
-        brief = {k: v for k, v in detail.items()
-                 if k in ("got", "want", "score", "target", "missing", "offenders",
-                          "value", "violations", "reason", "verdict")}
+        brief = {
+            k: v
+            for k, v in detail.items()
+            if k
+            in (
+                "got",
+                "want",
+                "score",
+                "target",
+                "missing",
+                "offenders",
+                "value",
+                "violations",
+                "reason",
+                "verdict",
+            )
+        }
         # _mdcell, not escape(): `brief` can carry untrusted observed strings (e.g. an
         # offender tool name) whose raw `|`/newline would forge table cells/rows (MEDIUM-5).
         cell = _mdcell(json.dumps(brief, ensure_ascii=False, default=str)) if brief else ""
         lines.append(f"| `{_mdcell(label)}` | {state} | {cell} |")
-    lines += ["",
-              f"Re-verify independently: `ooptdd verify {cid} --backend <your-backend>`",
-              ""]
+    lines += ["", f"Re-verify independently: `ooptdd verify {cid} --backend <your-backend>`", ""]
     return "\n".join(lines)
 
 
-RENDERERS = {"junit": to_junit_xml, "md": to_markdown}
+RENDERERS = MappingProxyType({"junit": to_junit_xml, "md": to_markdown})

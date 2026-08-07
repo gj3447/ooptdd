@@ -5,12 +5,15 @@ envelope (12+ near-identical copies across bhgman/omd/apt-engine/p333/ooptdd-loo
 was reachable only via the undocumented ooptdd.model shim, and service drift was not assertable by
 a gate. This pins build_event/Emitter at the root and the opt-in pin_service gate key.
 """
+
 import threading
 
-from ooptdd import MemoryBackend, evaluate, memory_reset
-from ooptdd.domain.model import ENVELOPE_SPEC_VERSION, build_session_start, correlation_keys
+from ooptdd import evaluate
+from ooptdd.adapters.pytest import build_session_start
+from ooptdd.backends import MemoryBackend, memory_reset
+from ooptdd.domain.model import ENVELOPE_SPEC_VERSION, correlation_keys
 
-_WIDE = dict(since_us=0, until_us=10 ** 19)
+_WIDE = dict(since_us=0, until_us=10**19)
 
 
 def _pin_spec(cid, pin="omd.tests"):
@@ -18,15 +21,16 @@ def _pin_spec(cid, pin="omd.tests"):
 
 
 # ── GUARD 1: defect-characterization — green before AND after ────────────────────────
-def test_correlation_keys_stays_exactly_three_aliases():
+def test_correlation_keys_stays_exactly_two_aliases():
     """build_event must LAYER on this primitive, never redefine it or leak spec_version in."""
-    assert correlation_keys("c") == {"cid": "c", "correlation_id": "c", "cycle_id": "c"}
+    assert correlation_keys("c") == {"cid": "c", "correlation_id": "c"}
 
 
 # ── GUARD 2: the fix flips red -> green (new symbols lazy-imported) ───────────────────
 def test_root_exports_the_emit_surface():
     import ooptdd
     from ooptdd.domain import model as d_model
+
     for name in ("build_event", "Emitter", "correlation_keys"):
         assert name in ooptdd.__all__ and hasattr(ooptdd, name)
     assert ooptdd.correlation_keys is d_model.correlation_keys  # no shadow copy
@@ -34,8 +38,10 @@ def test_root_exports_the_emit_surface():
 
 def test_build_event_shape_and_spec_version_consistency():
     from ooptdd import build_event
+
     ev = build_event("cid-1", "cycle", service="omd.tests", verdict="PASS")
-    assert ev["cid"] == ev["correlation_id"] == ev["cycle_id"] == "cid-1"
+    assert ev["cid"] == ev["correlation_id"] == "cid-1"
+    assert "cycle_id" not in ev
     assert ev["service"] == "omd.tests" and ev["event"] == "cycle"
     assert ev["verdict"] == "PASS"  # arbitrary attrs pass through
     # one spec_version value, identical to the existing builders (no inconsistent duplication)
@@ -44,6 +50,7 @@ def test_build_event_shape_and_spec_version_consistency():
 
 def test_emitter_ships_and_a_gate_is_green():
     from ooptdd import Emitter
+
     memory_reset()
     b = MemoryBackend()
     em = Emitter(b, service="omd.tests")
@@ -57,10 +64,11 @@ def test_emitter_ships_and_a_gate_is_green():
 
 def test_emitter_does_not_deadlock_under_concurrency():
     from ooptdd import Emitter
+
     memory_reset()
     b = MemoryBackend()
     em = Emitter(b, service="load.svc")
-    em.emit("tick", "seq")          # sequential double-emit: the lock must release and re-acquire
+    em.emit("tick", "seq")  # sequential double-emit: the lock must release and re-acquire
     em.emit("tick", "seq")
 
     def worker(i):
@@ -81,11 +89,12 @@ def test_emitter_does_not_deadlock_under_concurrency():
 # ── GUARD 3: pin_service — no-false-alarm + revert-proof ─────────────────────────────
 def _drifted_stream(cid, second_service=None, drop_service=False):
     from ooptdd import Emitter
+
     memory_reset()
     b = MemoryBackend()
     Emitter(b, service="omd.tests").emit("cycle", cid)
     if drop_service:
-        b.ship([{**correlation_keys(cid), "event": "cycle"}])           # no service key at all
+        b.ship([{**correlation_keys(cid), "event": "cycle"}])  # no service key at all
     else:
         Emitter(b, service=second_service or "omd.tests").emit("cycle", cid)
     return b

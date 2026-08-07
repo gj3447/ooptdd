@@ -8,22 +8,30 @@ This is the kernel and the verdict machinery:
 
 Dependency rule: ``engine`` imports only from ``engine``, ``domain`` (the ``Backend`` port,
 the event model/ontology), and the stdlib — never from a concrete adapter (a backend
-driver, the CLI, the pytest plugin). The architecture fitness test enforces this, so the
+driver, the CLI, or framework plugins). The architecture fitness test enforces this, so the
 evaluation logic stays runnable against any store and trivially unit-testable.
 """
-from . import trajectory  # noqa: E402,F401  registers tool_calls/forbidden_tools via @check
-from .gate import can_i_deploy, check, evaluate, load_gate
+
+from .gate import (
+    check,
+    checks_from,
+    combine_results,
+    compose_check_registry,
+    evaluate,
+    load_gate,
+)
 from .monitor import Monitor, run_monitor
-from .verify import session_finish, verify_policy, verify_trace
+from .verify import poll_until_present, verify_gate
 
 __all__ = [
     "evaluate",
-    "can_i_deploy",
+    "combine_results",
     "check",
+    "checks_from",
+    "compose_check_registry",
     "load_gate",
     "Monitor",
     "run_monitor",
-    "verify_trace",
-    "verify_policy",
-    "session_finish",
+    "poll_until_present",
+    "verify_gate",
 ]

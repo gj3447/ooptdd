@@ -10,6 +10,7 @@ tie-break on the network backends.
      in reversed server order passed a `must_order` gate vacuously. Each driver now stamps
      `_seq` = server return position, so the tie is broken exactly like memory/jsonl.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,7 +47,7 @@ def test_clickhouse_query_bounds_time_window_in_sql(monkeypatch):
         captured["url"] = req.full_url
         return _Resp(json.dumps({"data": []}).encode())
 
-    b = ClickHouseBackend(opener=opener)
+    b = ClickHouseBackend(base_url="http://ch.test:8123", opener=opener)
     b.query("c1", since_us=1000, until_us=9999)
     url = captured["url"]
     # the µs window is the only enforceable guard without a live server
@@ -64,12 +65,18 @@ def test_clickhouse_stamps_seq_and_catches_same_ts_inversion(monkeypatch):
     monkeypatch.setenv("OOPTDD_CH_URL", "http://ch.test:8123")
 
     def opener(req, timeout):
-        return _Resp(json.dumps({"data": [
-            {"data": json.dumps({"event": "b", "_timestamp": 5_000_000})},
-            {"data": json.dumps({"event": "a", "_timestamp": 5_000_000})},
-        ]}).encode())
+        return _Resp(
+            json.dumps(
+                {
+                    "data": [
+                        {"data": json.dumps({"event": "b", "_timestamp": 5_000_000})},
+                        {"data": json.dumps({"event": "a", "_timestamp": 5_000_000})},
+                    ]
+                }
+            ).encode()
+        )
 
-    b = ClickHouseBackend(opener=opener)
+    b = ClickHouseBackend(base_url="http://ch.test:8123", opener=opener)
     r = b.query("c1", since_us=0, until_us=10**19)
     assert [e["_seq"] for e in r.events] == [0, 1]
     # a must precede b, but b arrived first at an equal timestamp -> ordering violated
@@ -81,12 +88,20 @@ def test_openobserve_stamps_seq_and_catches_same_ts_inversion(monkeypatch):
     monkeypatch.setenv("OOPTDD_OO_PASSWORD", "x")
 
     def opener(req, timeout):
-        return _Resp(json.dumps({"hits": [
-            {"event": "b", "cycle_id": "c1", "_timestamp": 5_000_000},
-            {"event": "a", "cycle_id": "c1", "_timestamp": 5_000_000},
-        ]}).encode())
+        return _Resp(
+            json.dumps(
+                {
+                    "hits": [
+                        {"event": "b", "cid": "c1", "_timestamp": 5_000_000},
+                        {"event": "a", "cid": "c1", "_timestamp": 5_000_000},
+                    ]
+                }
+            ).encode()
+        )
 
-    b = OpenObserveBackend(opener=opener)
+    b = OpenObserveBackend(
+        base_url="http://oo.test:5080", environment={"OOPTDD_OO_PASSWORD": "x"}, opener=opener
+    )
     r = b.query("c1", since_us=0, until_us=10**19)
     assert [e["_seq"] for e in r.events] == [0, 1]
     assert evaluate(b, _MUST_ORDER)["ok"] is False
@@ -96,10 +111,10 @@ def test_victorialogs_stamps_seq_and_catches_same_ts_inversion(monkeypatch):
     monkeypatch.setenv("OOPTDD_VL_URL", "http://vl.test:9428")
 
     body = (
-        b'{"event":"b","cycle_id":"c1","_timestamp":5000000}\n'
-        b'{"event":"a","cycle_id":"c1","_timestamp":5000000}\n'
+        b'{"event":"b","cid":"c1","_timestamp":5000000}\n'
+        b'{"event":"a","cid":"c1","_timestamp":5000000}\n'
     )
-    b = VictoriaLogsBackend(opener=lambda req, timeout: _Resp(body))
+    b = VictoriaLogsBackend(base_url="http://vl.test:9428", opener=lambda req, timeout: _Resp(body))
     r = b.query("c1", since_us=0, until_us=10**19)
     assert [e["_seq"] for e in r.events] == [0, 1]
     assert evaluate(b, _MUST_ORDER)["ok"] is False

@@ -1,11 +1,13 @@
 # Public arrival-testing benchmark — specification (v0)
 
 **Status: TIER 0 IMPLEMENTED / FINAL MEASUREMENT PENDING; TIER 1 NOT
-MEASURED.** The deterministic runner, packaged frozen manifest/fixtures,
+MEASURED.** The repository-only deterministic runner and frozen fixtures,
 observation-first validator, JSON/JUnit/Markdown projections, and
 same-definition positive/negative/restored protocol now live in
-`src/ooptdd/benchmark.py`, `scripts/run_arrival_benchmark.py`, and
-`src/ooptdd/benchmark_fixtures/arrival/v0/`. The v0 manifest fixes 20
+`benchmarks/tier0.py`, `scripts/run_arrival_benchmark.py`, and
+`ooptdd_mutation/benchmarks/arrival/v0/` in the optional mutation distribution.
+These research artifacts are deliberately excluded
+from the installed `ooptdd` wheel. The v0 manifest fixes 20
 repetitions and seed `20260723`; each sample receives a unique seed-derived
 identity, while only scenarios with a meaningful factor vary that factor. Tier 0 remains mechanics-only, and code/CI
 wiring is not a final measurement artifact or an external-store arrival claim.
@@ -328,14 +330,14 @@ that could be pinned later:
   `query_visibility_delay_ms`, `samples`), `fetch_all_pages`.
 - `src/ooptdd/mutation.py` — `derive_mutations` (exclusion list),
   `mutation_report` (score, survivors, drop-all canary).
-- `src/ooptdd/benchmark.py` — deterministic scenarios, repeated reliability,
-  raw-sample rollup recomputation, packaged fixture/code-manifest binding, and
+- `benchmarks/tier0.py` — deterministic scenarios, repeated reliability,
+  raw-sample rollup recomputation, repository fixture/code-manifest binding, and
   report projections.
 - `scripts/run_arrival_benchmark.py` — Tier-0 CLI artifact emitter.
 - `scripts/run_efficacy_measurement.py` — prospectively locked
   positive/negative/restored sequence.
-- `src/ooptdd/benchmark_fixtures/arrival/v0/` — packaged, versioned manifest
-  and trajectory fixtures; explicit filesystem fixture roots remain supported.
+- `extensions/ooptdd-mutation/src/ooptdd_mutation/benchmarks/arrival/v0/` — versioned manifest and trajectory
+  fixtures; explicit filesystem fixture roots remain supported.
 - `src/ooptdd/cli.py` — `_exit` ladder, `_cmd_mutate` exit-2 rungs,
   `--report junit|md`, `--junit-inconclusive`.
 - `src/ooptdd/reports.py` — `to_junit_xml` (INFRA-never-failure, suite

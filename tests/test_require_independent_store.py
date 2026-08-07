@@ -5,6 +5,7 @@ to its own in-process store forges `ok=True` doing no work — and `caps.indepen
 was declared on every backend but never consulted in the verdict path. This flag
 promotes that signal to a verdict (see docs/THREAT_MODEL.md).
 """
+
 from ooptdd.backends.memory import MemoryBackend, reset
 from ooptdd.domain.ports import BackendCaps
 from ooptdd.engine.gate import evaluate, evaluate_events
@@ -69,34 +70,47 @@ def test_unknown_independence_never_invents_a_red():
     res = evaluate_events(
         _spec(require_independent_store=True),
         [{"event": "boot", "cid": CID, "_timestamp": 0}],
-        reachable=True, cid=CID, emit_independent=None)
+        reachable=True,
+        cid=CID,
+        emit_independent=None,
+    )
     assert res["ok"] and res["dependent_store"] is False
 
 
-def test_env_var_also_arms_it(monkeypatch):
-    monkeypatch.setenv("OOPTDD_REQUIRE_INDEPENDENT", "1")
+def test_captured_env_var_also_arms_it():
     reset()
     b = MemoryBackend()
     _ship(b)
-    assert not evaluate(b, _spec())["ok"]
+    assert not evaluate(
+        b,
+        _spec(),
+        environ={"OOPTDD_REQUIRE_INDEPENDENT": "1"},
+    )["ok"]
     reset()
 
 
 def test_corroboration_rescues_a_dependent_store():
     """The escape hatch the flag documents: a separate-source corroborated check makes
     even a non-independent store an honest pass."""
+
     class _Probe:
         def probe(self, kind, selector, cid):
             from ooptdd.domain.ports import ProbeResult
-            return ProbeResult(value=1, reachable=True, separate_source=True,
-                               derived_identity="external:ledger")
+
+            return ProbeResult(
+                value=1, reachable=True, separate_source=True, derived_identity="external:ledger"
+            )
+
     reset()
     b = MemoryBackend()
     _ship(b)
-    spec = _spec(require_independent_store=True, expect=[
-        {"event": "boot", "op": "gte", "target": 1},
-        {"external": {"kind": "row", "selector": {}, "want": 1}},
-    ])
+    spec = _spec(
+        require_independent_store=True,
+        expect=[
+            {"event": "boot", "op": "gte", "target": 1},
+            {"external": {"kind": "row", "selector": {}, "want": 1}},
+        ],
+    )
     res = evaluate(b, spec, probe=_Probe())
     assert res["oracle"]["corroborated"] >= 1
     assert res["dependent_store"] is False and res["ok"]

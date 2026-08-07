@@ -5,6 +5,7 @@ This is deliberately separate from the frozen v2 qualification harness: changing
 harness would invalidate its historical hash chain.  New CI invokes this validator on
 fresh artifacts and treats its exit status as the gate.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -12,7 +13,10 @@ import json
 import sys
 from pathlib import Path
 
-from ooptdd.evidence_integrity import (
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ooptdd_mutation.benchmarks.evidence_integrity import (  # noqa: E402
     EvidenceIntegrityError,
     sha256_file,
     validate_deepeval_measurement,

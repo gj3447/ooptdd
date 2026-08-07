@@ -4,6 +4,7 @@ Locks: parameterized injection-safe cid, SELECT * whole-row passthrough, `data`
 envelope unwrap (so gate `where`/counts see real fields), unreachable=False on
 missing config, and registry resolution incl. the `signoz` alias.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,12 +35,23 @@ def test_query_is_parameterized_and_unwraps_data(monkeypatch):
     def opener(req, timeout):
         captured["url"] = req.full_url
         # the envelope is carried in `data` as a JSON string (our ship format)
-        return _Resp(json.dumps({"data": [
-            {"cycle_id": "c1", "event": "cycle",
-             "data": json.dumps({"event": "cycle", "verdict": "NG", "_timestamp": 7})},
-        ]}).encode())
+        return _Resp(
+            json.dumps(
+                {
+                    "data": [
+                        {
+                            "cid": "c1",
+                            "event": "cycle",
+                            "data": json.dumps(
+                                {"event": "cycle", "verdict": "NG", "_timestamp": 7}
+                            ),
+                        },
+                    ]
+                }
+            ).encode()
+        )
 
-    b = ClickHouseBackend(opener=opener)
+    b = ClickHouseBackend(base_url="http://ch.test:8123", opener=opener)
     r = b.query("c1", since_us=0, until_us=10**18)
     assert r.reachable
     assert "{cid:String}" in captured["url"] or "%7Bcid%3AString%7D" in captured["url"]
@@ -56,11 +68,11 @@ def test_ship_emits_jsoneachrow(monkeypatch):
         captured["body"] = req.data.decode()
         return _Resp(b"")
 
-    b = ClickHouseBackend(opener=opener)
+    b = ClickHouseBackend(base_url="http://ch.test:8123", opener=opener)
     b.ship([{"event": "cycle", "cid": "c1", "verdict": "PASS"}])
-    assert captured["body"].startswith("INSERT INTO tests FORMAT JSONEachRow\n")
+    assert captured["body"].startswith("INSERT INTO events FORMAT JSONEachRow\n")
     row = json.loads(captured["body"].splitlines()[1])
-    assert row["cycle_id"] == "c1" and row["event"] == "cycle"
+    assert row["cid"] == "c1" and row["event"] == "cycle"
     assert json.loads(row["data"])["verdict"] == "PASS"
 
 
@@ -85,15 +97,31 @@ def test_gate_runs_over_clickhouse_rows(monkeypatch):
     monkeypatch.setenv("OOPTDD_CH_URL", "http://ch.test:8123")
 
     def opener(req, timeout):
-        return _Resp(json.dumps({"data": [
-            {"data": json.dumps({"event": "cycle", "verdict": "NG", "_timestamp": 1})},
-            {"data": json.dumps({"event": "cycle", "verdict": "PASS", "_timestamp": 2})},
-        ]}).encode())
+        return _Resp(
+            json.dumps(
+                {
+                    "data": [
+                        {"data": json.dumps({"event": "cycle", "verdict": "NG", "_timestamp": 1})},
+                        {
+                            "data": json.dumps(
+                                {"event": "cycle", "verdict": "PASS", "_timestamp": 2}
+                            )
+                        },
+                    ]
+                }
+            ).encode()
+        )
 
-    b = ClickHouseBackend(opener=opener)
-    res = evaluate(b, {"cid": "c1", "expect": [
-        {"event": "cycle", "where": {"verdict": "NG"}, "op": "eq", "target": 1},
-    ]})
+    b = ClickHouseBackend(base_url="http://ch.test:8123", opener=opener)
+    res = evaluate(
+        b,
+        {
+            "cid": "c1",
+            "expect": [
+                {"event": "cycle", "where": {"verdict": "NG"}, "op": "eq", "target": 1},
+            ],
+        },
+    )
     assert res["ok"] and res["checks"][0]["got"] == 1
 
 

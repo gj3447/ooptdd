@@ -5,25 +5,29 @@ LogsQL (``GET /select/logsql/query``). VictoriaLogs is Apache-2.0, schema-free, 
 filters arbitrary fields cheaply by correlation id — a clean fit for ooptdd's
 "fetch every event for this cid in a window" read pattern.
 
-Configuration is **environment-only** — no URL is ever baked into code (a published
-package must not ship someone's host). Required: ``OOPTDD_VL_URL``
-(e.g. ``http://<host>:9428``). Optional basic auth (VictoriaLogs is commonly run
-auth-less behind a proxy): ``OOPTDD_VL_USER`` / ``OOPTDD_VL_PASSWORD`` — only sent
-when a password is present. ``cycle_id`` is shipped as a stream field so the
-``cycle_id:=`` filter is index-cheap.
-
-From the ooptdd-oss prometheus cycle (A12, seed-ooptdd-backend-victorialogs-20260618).
+Configuration is supplied explicitly as constructor values or a captured environment
+mapping. The backend never reads the ambient process environment. ``cid`` is the
+default stream field used for efficient exact-match queries.
 """
+
 from __future__ import annotations
 
 import base64
 import json
-import os
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from datetime import datetime
 
-from .base import BackendCaps, QueryResult, _raise_for_status, classify_http_error
+from ..domain.settings import DEFAULT_ENV_KEYS, EnvironmentKeys
+from .base import (
+    BackendCaps,
+    QueryResult,
+    _raise_for_status,
+    classify_http_error,
+    sanitize_endpoint_identity,
+)
+from .settings import DEFAULT_BACKEND_SETTINGS, BackendSettings
 
 
 def _logsql_str(value: str) -> str:
@@ -62,60 +66,81 @@ class VictoriaLogsBackend:
     #: single LogsQL read; exact-field filter server-side, no paging loop.
     #: Blind window: ingested data becomes searchable within ~1s (docs), and the docs
     #: recommend POST /internal/force_flush for automated tests — see force_flush().
-    caps = BackendCaps(queryable=True, paginates=False, supports_where=True,
-                       query_visibility_delay_ms=1000)
-    default_lookback_s = 3600
-    default_future_buffer_s = 300  # +5 min: absorb receive-time / clock-skew race
+    caps = BackendCaps(
+        queryable=True,
+        paginates=False,
+        supports_where=True,
+        independent=True,
+        query_visibility_delay_ms=1000,
+    )
+    default_lookback_s = DEFAULT_BACKEND_SETTINGS.lookback_s
+    default_future_buffer_s = DEFAULT_BACKEND_SETTINGS.future_buffer_s
     queryable = True  # LogsQL read side over /select/logsql/query
 
     def __init__(
         self,
         *,
-        url_env: str = "OOPTDD_VL_URL",
-        user_env: str = "OOPTDD_VL_USER",
-        password_env: str = "OOPTDD_VL_PASSWORD",
-        stream_field: str = "cycle_id",
-        timeout: float = 15.0,
-        max_rows: int = 1_000_000,
+        base_url: str | None = None,
+        url_env: str | None = None,
+        user_env: str | None = None,
+        password_env: str | None = None,
+        stream_field: str = "cid",
+        timeout: float | None = None,
+        max_rows: int | None = None,
         opener=None,
-        **_ignored,
+        service: str | None = None,
+        environment: Mapping[str, str] | None = None,
+        env_keys: EnvironmentKeys = DEFAULT_ENV_KEYS,
+        settings: BackendSettings = DEFAULT_BACKEND_SETTINGS,
     ):
-        self.url_env = url_env
-        self.user_env = user_env
-        self.password_env = password_env
+        captured = {} if environment is None else dict(environment)
+        self.url_env = url_env or env_keys.victorialogs_url
+        self.user_env = user_env or env_keys.victorialogs_user
+        self.password_env = password_env or env_keys.victorialogs_password
+        self.base_url = (base_url or captured.get(self.url_env, "")).rstrip("/")
+        self._user = captured.get(self.user_env, "")
+        self._password = captured.get(self.password_env)
         self.stream_field = stream_field
-        self.timeout = timeout
+        self.service = service
+        if not isinstance(settings, BackendSettings):
+            raise TypeError("settings must be a BackendSettings value")
+        self.default_lookback_s = settings.lookback_s
+        self.default_future_buffer_s = settings.future_buffer_s
+        self.timeout = settings.timeout(timeout)
         # LogsQL streams all matches; this bounds how many we ingest so a pathological cid
         # can't OOM. Exceeding it surfaces complete=False rather than silently dropping rows.
-        self.max_rows = max_rows
+        self.max_rows = settings.row_limit(max_rows)
         # opener(request, timeout) injection lets tests exercise this driver offline.
         self._open = opener or (lambda req, timeout: urllib.request.urlopen(req, timeout=timeout))
 
     def _base(self) -> str:
-        base = os.getenv(self.url_env, "")
-        if not base:
+        if not self.base_url:
             raise ValueError(
                 f"{self.url_env} is required for the victorialogs backend "
                 f"(e.g. {self.url_env}=http://<host>:9428). No baked default."
             )
-        return base.rstrip("/")
+        return self.base_url
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/x-ndjson"}
-        pw = os.environ.get(self.password_env)
-        if pw:  # auth is optional — VictoriaLogs is often run without it
-            user = os.getenv(self.user_env, "")
-            headers["Authorization"] = "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
+        if self._password:  # auth is optional — VictoriaLogs is often run without it
+            headers["Authorization"] = (
+                "Basic " + base64.b64encode(f"{self._user}:{self._password}".encode()).decode()
+            )
         return headers
+
+    def identity(self) -> str:
+        return sanitize_endpoint_identity(self.base_url) if self.base_url else type(self).__name__
 
     def ship(self, events: list[dict]) -> None:
         if not events:
             return
         base = self._base()
-        # JSON lines; cycle_id becomes a stream field (cheap to filter), event becomes _msg.
+        # JSON lines; cid becomes a stream field and event becomes _msg.
         body = "\n".join(json.dumps(e) for e in events).encode()
         params = urllib.parse.urlencode(
-            {"_stream_fields": self.stream_field, "_msg_field": "event"})
+            {"_stream_fields": self.stream_field, "_msg_field": "event"}
+        )
         req = urllib.request.Request(
             f"{base}/insert/jsonline?{params}",
             data=body,
@@ -130,10 +155,13 @@ class VictoriaLogsBackend:
         just-ingested data searchable in automated tests. Best-effort: the poller treats a
         failure as "not flushed", never as a verdict."""
         req = urllib.request.Request(
-            f"{self._base()}/internal/force_flush", data=b"", method="POST",
+            f"{self._base()}/internal/force_flush",
+            data=b"",
+            method="POST",
             headers=self._headers(),
         )
         with self._open(req, timeout=self.timeout) as r:
+            _raise_for_status(r)
             getattr(r, "read", lambda: b"")()
         return True
 
@@ -146,19 +174,23 @@ class VictoriaLogsBackend:
         if spec.cursor is not None:
             raise ValueError(
                 "victorialogs has no paging cursor (LogsQL streams all matches); "
-                "use limit-only query_spec, or the read-to-completion query()")
+                "use limit-only query_spec, or the read-to-completion query()"
+            )
         if spec.limit is None:
-            return self.query(spec.cid, since_us=spec.window.since_us,
-                              until_us=spec.window.until_us)
-        return self._read(spec.cid, spec.window.since_us, spec.window.until_us,
-                          limit=int(spec.limit))
+            return self.query(
+                spec.cid, since_us=spec.window.since_us, until_us=spec.window.until_us
+            )
+        return self._read(
+            spec.cid, spec.window.since_us, spec.window.until_us, limit=int(spec.limit)
+        )
 
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         """Read to completion (the legacy two-method contract, unchanged)."""
         return self._read(cid, since_us, until_us)
 
-    def _read(self, cid: str, since_us: int, until_us: int,
-              limit: int | None = None) -> QueryResult:
+    def _read(
+        self, cid: str, since_us: int, until_us: int, limit: int | None = None
+    ) -> QueryResult:
         try:
             base = self._base()
         except ValueError as exc:
@@ -169,21 +201,29 @@ class VictoriaLogsBackend:
         logsql = f'{self.stream_field}:="{_logsql_str(cid)}"'
         if limit is not None:
             logsql += f" | limit {int(limit)}"  # LogsQL pipe: the only bound it offers
-        params = urllib.parse.urlencode({
-            "query": logsql,
-            "start": f"{since_us / 1_000_000:.6f}",
-            "end": f"{until_us / 1_000_000:.6f}",
-        })
+        params = urllib.parse.urlencode(
+            {
+                "query": logsql,
+                "start": f"{since_us / 1_000_000:.6f}",
+                "end": f"{until_us / 1_000_000:.6f}",
+            }
+        )
         headers = {k: v for k, v in self._headers().items() if k == "Authorization"}
         req = urllib.request.Request(
-            f"{base}/select/logsql/query?{params}", method="GET", headers=headers)
+            f"{base}/select/logsql/query?{params}", method="GET", headers=headers
+        )
         try:
             with self._open(req, timeout=self.timeout) as r:
+                _raise_for_status(r)
                 payload = r.read().decode()
         except Exception as exc:
             kind, retry_after = classify_http_error(exc)
-            return QueryResult(reachable=False, error=f"{type(exc).__name__}: {exc}",
-                               error_kind=kind, retry_after_s=retry_after)
+            return QueryResult(
+                reachable=False,
+                error=f"{type(exc).__name__}: {exc}",
+                error_kind=kind,
+                retry_after_s=retry_after,
+            )
         events: list[dict] = []
         complete = True
         for line in payload.splitlines():
@@ -193,7 +233,19 @@ class VictoriaLogsBackend:
             try:
                 row = json.loads(line)
             except ValueError:
-                continue  # skip a malformed row rather than fail the whole read
+                return QueryResult(
+                    reachable=True,
+                    events=events,
+                    complete=False,
+                    error="ValueError: VictoriaLogs response contains malformed JSON",
+                )
+            if not isinstance(row, dict):
+                return QueryResult(
+                    reachable=True,
+                    events=events,
+                    complete=False,
+                    error="ValueError: VictoriaLogs response rows must be objects",
+                )
             if "_timestamp" not in row:
                 ts = _parse_time_us(row.get("_time"))
                 if ts is not None:

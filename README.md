@@ -1,279 +1,173 @@
 # ooptdd
 
-**Logs and traces as the test specification — and the ground truth.**
+`ooptdd` is an importable event-contract framework. It evaluates arbitrary
+structured event streams against explicit contracts and can verify that expected
+events actually arrived in a queryable store.
 
-> `ooptdd` = *oo positive-TDD* (also written **LTDD**, log-based TDD). A pytest
-> plugin and a methodology for testing what your system **actually emitted**,
-> read back from an external store, instead of trusting a return value — or an
-> AI agent's "done!".
+The base package does not prescribe TDD, pytest, an agent workflow, or a domain
+vocabulary. Applications choose their own lifecycle, event schema, backend,
+policy, and extension providers.
+
+## Install
+
+The project is not published to PyPI yet. Install it from a checkout or path
+dependency:
 
 ```bash
-# Not on PyPI yet — install from a sibling checkout, a path dependency, or vendor it:
-uv pip install -e ../ooptdd          # editable; auto-registers as a pytest plugin, zero config
-# pyproject:  [tool.uv.sources]  ooptdd = { path = "../ooptdd", editable = true }
-# vendor:     python ../ooptdd/scripts/vendor_ooptdd.py <your-repo>
-# (once published to PyPI:  pip install ooptdd)
+uv pip install -e path/to/ooptdd
+# Once published: pip install ooptdd
 ```
 
----
+The install provides the `ooptdd` Python package and CLI. It does not
+automatically modify pytest runs or register domain-specific checks.
 
-## The problem in one screen
-
-A function returns `{"status": "ok"}`. The logs say `shipped OK`. CI is green.
-But the events never landed in your store — a silent `401` dropped ingest and
-nobody noticed for 22 hours. A return-value test is **green and blind**.
-
-ooptdd refuses to believe the self-report. It reads the store back and
-*positively asserts* the events arrived. (That incident is reproducible:
-`examples/openobserve_demo/` replays it — and its two honest neighbors,
-PRESENT and INCONCLUSIVE — against a real OpenObserve in under a minute.)
+## Minimal library use
 
 ```python
-from ooptdd import MemoryBackend, evaluate, load_gate
-from app import process_order            # your code
+from ooptdd import evaluate
+from ooptdd.backends import MemoryBackend
 
-def test_order_is_actually_processed():
-    backend = MemoryBackend()            # swap for OpenObserve/OTLP in prod
-    result = process_order(backend, cid="order-42", items=3)
+backend = MemoryBackend()
+backend.ship([
+    {"cid": "order-42", "event": "order.accepted"},
+    {"cid": "order-42", "event": "order.completed", "status": "ok"},
+])
 
-    assert result["status"] == "ok"      # the self-report (could be a lie)
+contract = {
+    "cid": "order-42",
+    "expect": [
+        {"event": "order.accepted", "op": ">=", "count": 1},
+        {
+            "event": "order.completed",
+            "where": {"status": "ok"},
+            "op": "==",
+            "count": 1,
+        },
+    ],
+}
 
-    gate = evaluate(backend, load_gate("gates/order_pipeline.yaml"))
-    assert gate["ok"]                    # the truth: the events arrived
+result = evaluate(backend, contract)
+assert result["ok"], result["checks"]
 ```
 
-Flip the backend to "drops everything" and the self-report still says `ok` — but
-the gate goes **RED**. That is the bug a normal test can't see. Run the live
-demo:
+The contract vocabulary operates on ordinary mappings. It is not tied to test
+reports, GenAI telemetry, or a particular business domain.
 
-```
-pytest examples/test_order_pipeline.py -s
-```
+## What the core provides
 
-## Why it's different
+- A deterministic event-contract kernel and three-valued verdicts:
+  `present`, `absent`, and `inconclusive`.
+- Immutable runtime and gate policies captured at an application boundary.
+- Backend ports plus memory, JSONL, OpenObserve, ClickHouse, VictoriaLogs, and
+  write-only OTLP adapters.
+- Bounded polling with backoff, visibility windows, confirmation rounds, and
+  injected clock/sleeper ports.
+- Custom check, backend, probe, and ontology seams.
+- An experimental, deterministic Ouroboros protocol under
+  `ooptdd.ouroboros`; it is a generic bounded evidence protocol, not a runner or
+  development methodology.
 
-The cycle is TDD, re-pointed at observability:
-
-| phase | ooptdd |
-|---|---|
-| **Red** | write the expected event-trace spec (a YAML gate). It fails — nothing emits it yet. |
-| **Green** | the code emits structured events; a verifier **polls the store and asserts they arrived**. |
-| **Refactor** | the same event contract still holds — *golden-trace regression*. |
-
-**"Positive"** is the load-bearing word: `ship()` returning without an exception
-is a *claim*, not proof. A separate verifier reads the store back. The verdict is
-three-valued on purpose (LTL3):
-
-- `present` — the trace was observed (✅)
-- `absent` — the store answered, but the record never came (⊥, **silent loss**)
-- `inconclusive` — we couldn't reach the store at all (?, *never* fails the build)
-
-That last distinction is why ooptdd doesn't turn a network blip into a flaky
-test.
-
-## Ouroboros protocol (experimental)
-
-`ooptdd.ouroboros` has a deterministic functional core for cycling through an initial
-RED, readback-tier GREEN, isolated negative challenge, restoration, re-GREEN, and total
-finding disposition. Explicit port-based shells resolve snapshots, effects, receipts, and
-authenticated gate evidence around that core. It adds strict material/run identity,
-mutation-safe interruption, bounded ordinary progress and generation depth,
-generational lineage, and a replay-validated receipt v2 with an unkeyed
-change-detection hash.
-The typed gate adapter derives per-check aggregation and evidence tier from a
-bounded-final `verify_gate` result. Only non-optional, non-pending, non-tautological
-checks can promote that tier; weighted gates require finite non-negative weights, a
-positive total gating weight, and a threshold in `(0, 1]`. Neither the adapter nor the
-kernel authenticates the producing authority. There is no daemon or persistence layer.
-Historical receipt v1 documents upcast only to an explicit `incomplete` draft; missing
-proof is never inferred. The exact functional-core boundary and its CI-enforced limits are
-documented in the [functional/SOLID architecture harness](docs/architecture/functional-solid-harness.md).
-
-See the [theory and contract](docs/ouroboros.md). The API remains experimental while
-independent production consumers and a durable runner are still absent.
-
-## Where it sits
-
-|  | self-report trusted | outcome verified |
-|---|---|---|
-| **static / design-time** | type checks, schemas | contract testing (Pact) |
-| **dynamic / runtime** | plain unit asserts, `caplog` | **ooptdd** |
-
-It's runtime verification (LTL3 / Dwyer property patterns) wearing TDD clothes,
-with a practical async-ingest model on top. Closest neighbours —
-`pytest-opentelemetry` (exports spans, trusts the backend), Tracetest (UI-first,
-post-hoc), Langfuse-style evals (post-hoc agent traces). None combine
-**spec-first Red + arrival polling + silent-loss detection + generator≠verifier +
-pytest-native + gate-as-YAML**. That cell is ooptdd's.
-
-## Backends (portability)
-
-Write is portable (OTLP); **query is not** — LogQL/TraceQL/SQL/ES-DSL all differ,
-so backends declare what they support honestly, as typed `BackendCaps` on the
-driver class. The full capability matrix is **generated from those declarations**
-(`docs/backends.md`, pinned by a test — a hand-written matrix would itself be an
-uncorroborated claim).
-
-The split that matters — which backend proves what:
-
-- **`memory` / `jsonl` prove gate *mechanics*** — zero infra, great for TDD and
-  this repo's own tests, but the judge lives in the same process / same host
-  file: a green there does not prove arrival.
-- **`openobserve` (reference) / `clickhouse` / `signoz` / `victorialogs` are
-  designed to prove *arrival*** — an independent, queryable store the system
-  under test cannot rewrite in memory. Production-grade ooptdd means one of
-  these. Corroboration status: `openobserve` is live-verified in this repo;
-  the other three currently pass driver tests against mocked responses only
-  (see `docs/backends.md`).
-- **`otel` proves portable *writing* only** — OTLP has no read side; pair it
-  with a queryable store.
-
-Community drivers plug in via the `ooptdd.backends` entry point.
-
-Configure in `pyproject.toml` (secrets stay in the environment, never here):
-
-```toml
-[tool.ooptdd]
-backend = "openobserve"
-service = "myapp.tests"
-verify  = "warn"          # off | warn | strict
-```
-
-```bash
-# the openobserve backend reads these from the env only:
-export OOPTDD_OO_URL=http://your-host:5080
-export OOPTDD_OO_PASSWORD=…
-```
-
-## Plugin + CLI
-
-Once installed, every `pytest` run ships its outcomes and asserts arrival
-(`warn` by default — observation never overrides your verdict; opt into `strict`
-to fail CI on a real silent loss). It is **xdist-safe** (ships once from the
-controller) and a **true no-op when disabled** (`--no-ooptdd`).
-
-```bash
-ooptdd verify <cid> --backend openobserve   # manual re-check, exit 0/1/2
-ooptdd gate gates/order_pipeline.yaml        # evaluate a gate spec
-```
-
-## Agent trajectories: DeepEval quality + Phoenix visibility + arrival proof
-
-ooptdd absorbs only the deterministic part of agent evaluation. DeepEval or
-Phoenix remains the judge for task quality, plan quality, and argument
-reasonableness; ooptdd independently checks that the claimed tool trajectory
-actually arrived in the store.
-
-```yaml
-cid: agent-run-42
-expect:
-  - tool_calls:
-      expected: [plan, search, write]
-      match: ordered                 # subset | ordered | exact
-  - forbidden_tool_calls:
-      - name: shell
-        args:
-          command:
-            non_empty: true
-            contains_any: ["rm -rf", "git reset --hard"]
-  - aggregate:
-      fn: sum
-      attr: gen_ai.usage.output_tokens
-      op: lte
-      target: 50000
-```
-
-`make_arrival_metric(...)` adds the gate as a deterministic DeepEval custom
-metric beside its LLM-judge metrics. `phoenix_annotation_payload(...)` publishes
-the same three-valued verdict as a Phoenix `CODE` annotation; its stable
-`identifier` makes retries update instead of duplicate, and
-`post_phoenix_annotations(..., sync=True)` supports immediate CI readback. See
-[`examples/test_agent_trajectory.py`](examples/test_agent_trajectory.py) and
-[`examples/integrations/`](examples/integrations/); CI runs the public trajectory
-and verdict-export demos on every supported Python/OS combination.
-
-The deterministic mechanics benchmark exercises silent loss, bounded lag,
-late offenders, outage honesty, independent-source demotion/corroboration, and
-non-vacuous trajectory mutation. It emits canonical JSON plus JUnit/Markdown:
-
-```bash
-python scripts/run_arrival_benchmark.py --tier 0 --seed 20260723 \
-  --repetitions 20 --output /tmp/ooptdd-tier0.json \
-  --junit-out /tmp/ooptdd-tier0.xml --markdown-out /tmp/ooptdd-tier0.md
-```
-
-Tier 0 proves deterministic gate mechanics, not external-store arrival. The
-evidence contract, competitors absorbed, papers, exclusions, and Tier-1 plan
-are in the [PROM 24 efficacy report](docs/research/prom24_ooptdd_efficacy_20260723/INDEX.md).
-
-## Extending: custom check-predicates & ontology presets
-
-Two registration seams let you grow the vocabulary **without editing the core**
-(a string-keyed single-dispatch registry — the pluggy/hypothesis pattern):
+`ship()` succeeding is only a delivery claim. `verify_gate()` queries the backend
+and distinguishes a clean miss from infrastructure that could not be observed:
 
 ```python
-from ooptdd import check                     # the gate check-predicate seam
+from ooptdd import verify_gate
 
-@check("spike")                              # a new gate keyword, registered from your conftest
-def _spike(events, rule, ctx):
-    n = sum(1 for e in events if e.get("event") == rule["spike"])
-    return {"spike": rule["spike"], "got": n, "passed": ctx.reachable and n >= 1}
-# now `expect: [{spike: boom}]` dispatches to your handler — evaluate() is untouched
+verdict = verify_gate(backend, "order-42", contract, retries=3, delay=0.1)
 ```
+
+For real arrival evidence, use a queryable store outside the emitting process.
+Memory and JSONL are useful for deterministic mechanics but do not establish an
+independent authority. See [the threat model](docs/THREAT_MODEL.md).
+
+## Configuration and embedding
+
+Applications may use the immutable composition boundary:
 
 ```python
-from ooptdd import Ontology                  # the preset-ontology seam (dependency-inverted)
-Ontology.register_preset("my_vocab", my_ontology_factory)   # in your module
-Ontology.builtin("my_vocab")                 # resolves it; built-ins (e.g. "gen_ai") self-register on `import ooptdd`
+from ooptdd.sdk import compose_runtime
+
+runtime = compose_runtime(
+    project={"backend": "memory", "retries": 3},
+    environment={},
+    overrides={"delay": 0.1},
+)
+backend = runtime.backend()
 ```
 
-A duplicate predicate key raises at registration (loud, not silent). Presets require
-importing the `ooptdd` package (which wires the shipped built-ins), not just a submodule.
+Resolution is deterministic:
 
-## Verification
+```
+defaults < project mapping < captured environment < explicit overrides
+```
 
-The current checkout was re-run on 2026-07-23:
+Backend-specific values belong under `backend_options`. Secrets remain in the
+captured environment and are kept separate from ordinary settings.
+
+## Optional adapters and extensions
+
+### pytest adapter
+
+The pytest integration ships in `ooptdd.plugin`, but it is opt-in and is not a
+package entry point. Install the adapter dependency and activate it explicitly:
 
 ```bash
-uv run --extra dev pytest -q
-# 718 passed, 3 skipped
-# [ooptdd] OK arrival confirmed (session 718/720, outcomes=2159, 1 attempt)
+uv pip install -e 'path/to/ooptdd[pytest]'
+pytest -p ooptdd.plugin
 ```
 
-The suite uses the configured `memory` backend and dogfoods the plugin's arrival
-readback. This receipt covers the local self-test path; it is not evidence for
-long-horizon production operation or every external backend.
+Projects may instead add `pytest_plugins = ["ooptdd.plugin"]` to their own
+`conftest.py`. The plugin is one consumer of the framework; pytest outcome names
+are not part of the generic gate kernel.
 
-## Status & honesty
+### Domain extensions
 
-`0.5.0`, extracted from internal harnesses (a service monorepo, a research
-harness, and a PyQt field application) where the core has run in anger. No long-horizon (6-month+) operational data
-yet. Hard **log-free zones** — do *not* use ooptdd for: precise numeric
-regression (use snapshots/metrology), security redaction, or µs-scale concurrency
-races. See [`METHODOLOGY.md`](METHODOLOGY.md) for the full theory, the 7
-principles, the 6 pitfalls, and [`docs/research/`](docs/research/) for the
-prior-art / competition / design study behind this repo.
+Optional trajectory checks ship in the `ooptdd-trajectory` distribution. GenAI
+event helpers, semantic conventions, and evaluation-platform bridges ship in
+`ooptdd-genai`. Mutation analysis and its opinionated bounded-cycle profile ship in
+`ooptdd-mutation`. None is a dependency of the base package, and importing an extension
+is inert with respect to the gate registry. Install only the distribution you need and
+inject predicate providers explicitly:
 
-**What a GREEN gate proves — and doesn't.** ooptdd robustly catches *silent
-loss* (an event that should have been emitted but wasn't / was dropped). It does
-**not**, by itself, prove an untrusted SUT did honest work: the SUT is the
-emitter, so against a malicious process the anti-forgery layers reduce to
-self-consistency. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) states the
-boundary precisely and shows how to gate an untrusted agent (independent store
-via `require_independent_store`, gatekeeper-pinned gate, out-of-band
-corroboration).
+```python
+from ooptdd.sdk import compose_runtime
+from ooptdd_genai import execute_tool_event, gen_ai_ontology
+from ooptdd_trajectory import ooptdd_checks
 
-## Related projects
+runtime = compose_runtime(
+    project={"extensions": ["trajectory"]},
+    environment={},
+    extension_providers={"trajectory": ooptdd_checks},
+).activate_extensions()
+result = runtime.evaluate(backend, spec)
+```
 
-- [`ooptdd-loop`](https://github.com/gj3447/ooptdd-loop) — the
-  **application layer** built on this library: an agent-driven, positive-TDD
-  *requirements loop* (declare requirements as trace gates + a Longinus binding,
-  run until the events actually arrive **and** the binding points at real
-  emitting source). It also carries the **KG-native I/O** (coverage & Longinus
-  drift as graph queries) and an **MCP server** for driving the loop as agent
-  tools. The dependency is one-way (`ooptdd-loop` → `ooptdd`); this library stays
-  unaware of it and is what downstream consumers vendor.
+Third-party backends can register through the `ooptdd.backends` entry-point
+group. Embedders inject third-party named predicate providers through
+`compose_runtime(extension_providers={...})`; names absent from that immutable
+catalog fail closed. The `@ooptdd.check(...)` decorator attaches metadata only;
+compose decorated checks explicitly with `checks_from(...)` or a runtime registry.
+Custom probes implement the small
+`ExternalProbe` port.
+
+## CLI
+
+The CLI is another adapter over the same library:
+
+```bash
+ooptdd gate gates/order.yaml
+ooptdd verify order-42 --backend openobserve
+```
+
+## Repository-only research
+
+`benchmarks/`, `scripts/`, `docs/research/`, and frozen research fixtures belong
+to this source repository. They measure and document the framework; they are not
+installed as `ooptdd` modules and are not included in the wheel.
+
+See [Quickstart](docs/quickstart.md), [semantics and design notes](SEMANTICS.md),
+[backend capabilities](docs/backends.md), and [Ouroboros](docs/ouroboros.md).
 
 ## License
 
-AGPL-3.0-or-later. See [`LICENSE`](LICENSE).
+AGPL-3.0-or-later. See [LICENSE](LICENSE).

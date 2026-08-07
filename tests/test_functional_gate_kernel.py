@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import copy
 import inspect
-import subprocess
-import sys
 from dataclasses import FrozenInstanceError, replace
 from datetime import date
 from decimal import Decimal
@@ -82,39 +80,6 @@ def _external_verdict(value, want, **external_fields):
             external_observations={0: ExternalObservation(reachable=True, value=value)},
         )
     ).as_dict()
-
-
-def test_clean_package_import_keeps_trajectory_strength_registry_immutable():
-    program = """
-import ooptdd
-from ooptdd.engine import trajectory
-from ooptdd.engine.gate_rules import _STRENGTH_BY_KEY
-
-expected = {
-    "tool_calls": "value-pinned",
-    "forbidden_tools": "forbid",
-    "forbidden_tool_calls": "forbid",
-    "aggregate": "threshold",
-}
-before = dict(_STRENGTH_BY_KEY)
-assert all(_STRENGTH_BY_KEY[key] == value for key, value in expected.items())
-try:
-    _STRENGTH_BY_KEY["trajectory_test"] = "value-pinned"
-except TypeError:
-    pass
-else:
-    raise AssertionError("trajectory strength registry accepted mutation")
-assert dict(_STRENGTH_BY_KEY) == before
-"""
-
-    completed = subprocess.run(
-        [sys.executable, "-c", program],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_capture_snapshots_spec_events_and_registry_before_judgement():
@@ -422,7 +387,7 @@ def test_external_observation_nested_payload_is_captured_deeply():
     assert verdict["checks"][0]["value"] == {"row": {"amounts": [40, 2]}}
 
 
-def test_gate_evaluation_snapshots_a_real_ontology_before_source_mutation():
+def test_ontology_values_are_immutable_and_gate_evaluation_remains_stable():
     event_type = EventType(
         name="payment",
         required=["amount"],
@@ -436,10 +401,14 @@ def test_gate_evaluation_snapshots_a_real_ontology_before_source_mutation():
         ontology=ontology,
     )
 
-    event_type.required.append("currency")
-    event_type.constraints["amount"]["min"] = 10
-    ontology.types.clear()
-    ontology.closed_world = False
+    with pytest.raises(AttributeError):
+        event_type.required.append("currency")
+    with pytest.raises(TypeError):
+        event_type.constraints["amount"]["min"] = 10
+    with pytest.raises(AttributeError):
+        ontology.types.clear()
+    with pytest.raises(FrozenInstanceError):
+        ontology.closed_world = False
 
     verdict = judge_events(evaluation).as_dict()
     assert verdict["ok"] is True
@@ -473,35 +442,27 @@ def test_ontology_capture_rejects_custom_validation_or_lookup_semantics():
         )
 
     patched = EventType("payment")
-    patched.validate = lambda event: ["patched"]  # type: ignore[method-assign]
-    with pytest.raises(TypeError, match="custom validation semantics"):
-        _evaluation(
-            {"expect": [{"conforms": "payment"}]},
-            [{"event": "payment"}],
-            ontology=Ontology(types={"payment": patched}),
-        )
+    with pytest.raises(FrozenInstanceError):
+        patched.validate = lambda event: ["patched"]  # type: ignore[method-assign]
 
 
 def test_inherited_stock_event_type_and_enum_messages_survive_capture():
     class InheritedEventType(EventType):
         pass
 
-    event_type = InheritedEventType(
-        "state", constraints={"value": {"enum": ["ready", "done"]}}
-    )
+    event_type = InheritedEventType("state", constraints={"value": {"enum": ["ready", "done"]}})
     event = {"event": "state", "value": "invalid"}
     snapshot = OntologySnapshot.capture(Ontology(types={"state": event_type}))
 
     assert snapshot.get("state") is not None
     assert snapshot.get("state").validate(event) == event_type.validate(event)
 
-    nested = EventType(
-        "nested", constraints={"value": {"enum": [["ready", "done"]]}}
-    )
+    nested = EventType("nested", constraints={"value": {"enum": [["ready", "done"]]}})
     nested_snapshot = OntologySnapshot.capture(Ontology(types={"nested": nested}))
-    assert nested_snapshot.get("nested").validate(
-        {"event": "nested", "value": ["ready", "done"]}
-    ) == []
+    assert (
+        nested_snapshot.get("nested").validate({"event": "nested", "value": ["ready", "done"]})
+        == []
+    )
 
 
 @pytest.mark.parametrize(

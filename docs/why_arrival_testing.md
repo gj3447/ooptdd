@@ -137,7 +137,7 @@ the verdict semantics carry the prefix-ness:
 
 malabi had two verdicts and chose the wrong one when blind. ooptdd's verdict
 lattice is three-valued (LTL₃ — see
-[`METHODOLOGY.md`](../METHODOLOGY.md) "What three-valued precisely means"),
+[`SEMANTICS.md`](../SEMANTICS.md) "What three-valued precisely means"),
 and the build policy enforces the honesty:
 
 - `verify_policy` maps `inconclusive` to a warning with `fail_build: False` —

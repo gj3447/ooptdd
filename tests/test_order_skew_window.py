@@ -8,9 +8,10 @@ store's `_seq` is SERVER PAGE ORDER, not emit order. The verified rule, per pair
    within N ms -> the pair is CONCURRENT, not an inversion (never a false RED);
 3. else the existing composite `(ts, _seq)` comparison stands.
 
-memory/jsonl ship paths stamp `_emit_seq` themselves (their ship order IS emit
-order); SUTs on network backends stamp it in their own envelopes to opt in.
+The memory backend stamps `_emit_seq` from its explicitly owned insertion sequence.
+Other backends preserve caller-provided emitter sequence values when available.
 """
+
 from __future__ import annotations
 
 import pytest

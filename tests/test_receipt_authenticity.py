@@ -32,14 +32,16 @@ a ``require_signature`` axis that mirrors the existing ``require_corroboration``
 spec key OR env ``OOPTDD_REQUIRE_SIGNATURE`` (default OFF), key via ``OOPTDD_SIGNING_KEY``;
 run ``verify_chain`` over the gated events (canonicalizing with backend-stamped ``_*``
 fields excluded) and set ``authenticated`` / ``unauthenticated`` (gating ``ok``) exactly
-like ``uncorroborated``. ``sign_record`` is session-summary-shaped (its ``_SIGNED_FIELDS``
-are ``total/passed/...``); the only general event-stream integrity primitive is
-``sign_chain`` — which is why an event-path fix must use the chain.
+like ``uncorroborated``. ``sign_record`` authenticates one application record, while
+``sign_chain`` additionally protects event-stream ordering and interior membership;
+the event-path integrity check therefore uses the chain.
 """
+
 import pytest
 
 from ooptdd.domain.model import correlation_keys, sign_chain
 from ooptdd.engine.gate import evaluate_events
+from ooptdd.engine.gate_values import GatePolicy
 
 KEY = "harness-signing-key-9f3a"
 CID = "auth-harness"
@@ -73,60 +75,72 @@ def _eval(spec, events, **kw):
 @pytest.fixture(autouse=True)
 def _hermetic_env(monkeypatch):
     # Keep verdicts independent of ambient toggles so the harness measures ONLY authenticity.
-    for var in ("OOPTDD_FORBID_ERRORS", "OOPTDD_REQUIRE_CORROBORATION",
-                "OOPTDD_REQUIRE_SIGNATURE", "OOPTDD_SIGNING_KEY"):
+    for var in (
+        "OOPTDD_FORBID_ERRORS",
+        "OOPTDD_REQUIRE_CORROBORATION",
+        "OOPTDD_REQUIRE_SIGNATURE",
+        "OOPTDD_SIGNING_KEY",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
 # ── permanent guards: must stay GREEN now AND after the fix ─────────────────────────
+
 
 def test_keyless_default_counts_an_unsigned_event():
     """The 0/6-adoption reality AND the back-compat lock: with no key configured, an
     UNSIGNED forged event still counts and the gate goes GREEN. This is the forgeable
     green in the exact mode every consumer runs today; a fix must remain opt-in and leave
     this untouched (breaking it would red every keyless consumer)."""
-    legit = _signed_stream("started")                 # the real run emitted only `started`
-    assert _eval(SPEC, legit)["ok"] is False           # `deterministic` absent -> honest RED
-    forged = legit + _stamp([_rec("deterministic")])[:1]   # attacker appends one unsigned event
+    legit = _signed_stream("started")  # the real run emitted only `started`
+    assert _eval(SPEC, legit)["ok"] is False  # `deterministic` absent -> honest RED
+    forged = legit + _stamp([_rec("deterministic")])[:1]  # attacker appends one unsigned event
     forged[-1]["_timestamp"] = 99
-    assert _eval(SPEC, forged)["ok"] is True            # forged green — undetected on the gate path
+    assert _eval(SPEC, forged)["ok"] is True  # forged green — undetected on the gate path
 
 
-def test_require_signature_accepts_a_fully_signed_stream(monkeypatch):
+def test_require_signature_accepts_a_fully_signed_stream():
     """No-false-alarm guard: a legitimately signed stream that satisfies the check must be
     GREEN even with enforcement ON. Stops a 'reject everything when a key is set'
     pseudo-fix. Green today (auth inert) and must stay green once the axis is wired."""
-    monkeypatch.setenv("OOPTDD_SIGNING_KEY", KEY)
-    monkeypatch.setenv("OOPTDD_REQUIRE_SIGNATURE", "1")
-    res = _eval(SPEC_REQ, _signed_stream("started", "deterministic"))
+    res = _eval(
+        SPEC_REQ,
+        _signed_stream("started", "deterministic"),
+        policy=GatePolicy(require_signature=True, signing_key=KEY),
+    )
     assert res["ok"] is True
-    assert res.get("unauthenticated") in (None, False)   # never falsely flagged
+    assert res.get("unauthenticated") in (None, False)  # never falsely flagged
 
 
 # ── formerly RED-first (audit 비평-1), now wired: the gate path verifies the chain ──────
 
-def test_require_signature_rejects_a_forged_event(monkeypatch):
+
+def test_require_signature_rejects_a_forged_event():
     """The core of the gap: with enforcement ON, a stream whose gated evidence is an
     UNSIGNED injected event must NOT be a clean pass — the injection breaks the hash chain
     (no valid prev-link), so the verdict is unauthenticated/red, not green."""
-    monkeypatch.setenv("OOPTDD_SIGNING_KEY", KEY)
-    monkeypatch.setenv("OOPTDD_REQUIRE_SIGNATURE", "1")
     legit = _signed_stream("started")
-    forged = legit + [{**_rec("deterministic"), "_timestamp": 99}]   # unsigned, off-chain
-    res = _eval(SPEC_REQ, forged)
+    forged = legit + [{**_rec("deterministic"), "_timestamp": 99}]  # unsigned, off-chain
+    res = _eval(
+        SPEC_REQ,
+        forged,
+        policy=GatePolicy(require_signature=True, signing_key=KEY),
+    )
     assert res["ok"] is False
     assert res.get("unauthenticated") is True
 
 
-def test_require_signature_rejects_a_tampered_payload(monkeypatch):
+def test_require_signature_rejects_a_tampered_payload():
     """Revert-proof guard: proves detection depends on the actual signature, not a constant
     `authenticated=True`. We mutate a NON-event field of an otherwise-legit signed record
     AFTER signing — the count check still matches (event name untouched), so nothing but a
     genuine chain verification can red this."""
-    monkeypatch.setenv("OOPTDD_SIGNING_KEY", KEY)
-    monkeypatch.setenv("OOPTDD_REQUIRE_SIGNATURE", "1")
     stream = _signed_stream("started", "deterministic")
-    stream[-1]["service"] = "spoofed.svc"      # tamper post-signature; stale sig_chain
-    res = _eval(SPEC_REQ, stream)
+    stream[-1]["service"] = "spoofed.svc"  # tamper post-signature; stale sig_chain
+    res = _eval(
+        SPEC_REQ,
+        stream,
+        policy=GatePolicy(require_signature=True, signing_key=KEY),
+    )
     assert res["ok"] is False
     assert res.get("unauthenticated") is True

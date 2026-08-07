@@ -1,88 +1,106 @@
 # Quickstart
 
-Five minutes, no infrastructure.
+This quickstart uses `ooptdd` as a normal Python library. No test runner or
+development methodology is required.
 
-## 1. Install
+## 1. Install from a checkout
 
-ooptdd is not on PyPI yet — install it from a sibling checkout (editable), as a
-path dependency, or vendor a copy:
-
-```bash
-uv pip install -e path/to/ooptdd      # editable; auto-registers as a pytest plugin
-# pyproject:  [tool.uv.sources]  ooptdd = { path = "path/to/ooptdd", editable = true }
-# vendor:     python path/to/ooptdd/scripts/vendor_ooptdd.py <your-repo>
-# (once published to PyPI:  pip install ooptdd)
-```
-
-It auto-registers as a pytest plugin. With the default `memory` backend there is
-nothing to run and nothing to configure.
-
-## 2. See the idea
+`ooptdd` is not published to PyPI yet:
 
 ```bash
-git clone https://github.com/gj3447/ooptdd
-cd ooptdd
-pip install -e .
-pytest examples/test_order_pipeline.py -s
+uv pip install -e path/to/ooptdd
+# Once published: pip install ooptdd
 ```
 
-`examples/app.py` is a toy pipeline that emits an event per step.
-`examples/test_order_pipeline.py` shows the whole point in three tests:
+Installation does not auto-register the optional pytest adapter.
 
-- healthy backend → the gate is **GREEN** (events arrived);
-- a backend that silently drops everything → the function *still returns `ok`*,
-  but the gate goes **RED** — the silent loss a return-value test can't see;
-- `verify_trace` returning `present` vs `absent` directly.
-
-## 3. Use it on your code
-
-Write a gate (the **Red** artifact) describing what you expect to observe:
-
-```yaml
-# gates/my_flow.yaml
-cid_env: OOPTDD_CID
-expect:
-  - event: order_received
-    op: "=="
-    count: 1
-  - event: order_shipped
-    op: "=="
-    count: 1
-```
-
-Assert on it:
+## 2. Evaluate an event contract
 
 ```python
-from ooptdd import MemoryBackend, evaluate, load_gate
+from ooptdd import evaluate
+from ooptdd.backends import MemoryBackend
 
-def test_flow():
-    backend = MemoryBackend()
-    run_my_flow(backend, cid="abc")             # your code emits events
-    gate = evaluate(backend, load_gate("gates/my_flow.yaml"))
-    assert gate["ok"], gate["checks"]
+backend = MemoryBackend()
+backend.ship([
+    {"cid": "job-7", "event": "job.started"},
+    {"cid": "job-7", "event": "job.finished", "result": "accepted"},
+])
+
+spec = {
+    "cid": "job-7",
+    "expect": [
+        {"present": [{"event": "job.started"}]},
+        {
+            "event": "job.finished",
+            "where": {"result": "accepted"},
+            "op": "==",
+            "count": 1,
+        },
+    ],
+}
+
+result = evaluate(backend, spec)
+assert result["ok"], result["checks"]
 ```
 
-## 4. Point it at a real store
+Replace the event names and fields with any domain vocabulary. The core treats
+events as structured mappings.
+
+## 3. Verify asynchronous arrival
+
+`evaluate()` reads once. `verify_gate()` applies one immutable bounded-polling
+policy and returns `present`, `absent`, or `inconclusive`:
+
+```python
+from ooptdd import verify_gate
+from ooptdd.domain.settings import PollingSettings
+
+policy = PollingSettings(retries=4, delay=0.25, backoff=2, max_delay=2)
+verdict = verify_gate(backend, "job-7", spec, polling=policy)
+```
+
+Use an independent queryable backend when the result must prove external
+arrival. The memory backend only demonstrates deterministic gate mechanics.
+
+## 4. Use runtime composition
 
 ```toml
-# pyproject.toml
 [tool.ooptdd]
 backend = "openobserve"
-service = "myapp.tests"
-verify  = "warn"          # raise to "strict" to fail CI on silent loss
+service = "orders"
+retries = 4
+
+[tool.ooptdd.adapters.pytest]
+verify = "warn"
 ```
 
 ```bash
-export OOPTDD_OO_URL=http://your-host:5080      # secrets: env only
+export OOPTDD_OO_URL=http://your-host:5080
 export OOPTDD_OO_PASSWORD=…
-pytest                                           # every run now ships + verifies
-ooptdd verify <cid> --backend openobserve        # manual re-check
+ooptdd verify job-7
 ```
 
-60-second runnable version (docker-compose OpenObserve + the founding-incident
-demo pack — GREEN / silent-401 ABSENT / INCONCLUSIVE):
-[`../examples/openobserve_demo/`](../examples/openobserve_demo/README.md), then
-[`warn_to_strict.md`](warn_to_strict.md) to move from observing to enforcing.
+`compose_runtime()` captures project values, environment, and explicit overrides
+once. Core evaluation does not re-read ambient environment variables.
 
-Next: [`../METHODOLOGY.md`](../METHODOLOGY.md) for the why, and
-[`research/`](research/) for the design study.
+## Optional pytest adapter
+
+To consume the framework from pytest, activate its adapter explicitly:
+
+```bash
+uv pip install -e 'path/to/ooptdd[pytest]'
+pytest -p ooptdd.plugin
+```
+
+Alternatively put `pytest_plugins = ["ooptdd.plugin"]` in your project's
+`conftest.py`. This integration is optional and is not the framework's base
+identity.
+
+Install `ooptdd-trajectory` and inject `ooptdd_trajectory.ooptdd_checks` into
+`compose_runtime(extension_providers={"trajectory": ooptdd_checks})` before using
+`extensions = ["trajectory"]`. Imports do not mutate a global registry. GenAI
+event builders remain explicit imports from `ooptdd_genai` because they produce
+values rather than gate predicates.
+
+Next: [semantics and design boundaries](../SEMANTICS.md),
+[backend capabilities](backends.md), and [the threat model](THREAT_MODEL.md).

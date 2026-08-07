@@ -3,21 +3,23 @@
   "harness_tier": "L_IDE",
   "source_root": "src",
   "package": "ooptdd",
-  "claim": "OOPTDD declares the exact modules below as its functional core. FA003 and FA004 are module-local syntactic checks, not transitive purity proofs; the contract does not prove semantic purity or SOLID.",
+  "claim": "OOPTDD explicitly classifies every shipped module and keeps its generic functional core independent from adapters and opt-in domain extensions. FA003 and FA004 are module-local syntactic checks, not transitive purity proofs; the contract does not prove semantic purity or SOLID.",
   "purity_scope": "direct-module-syntax-only",
+  "fail_on_unclassified_modules": true,
   "layers": [
     {
       "name": "pure_core",
       "exact_modules": [
-        "ooptdd.engine.gate_primitives",
         "ooptdd.engine.gate_freeze",
-        "ooptdd.engine.gate_values",
-        "ooptdd.engine.gate_ontology",
-        "ooptdd.engine.gate_rules",
         "ooptdd.engine.gate_kernel",
+        "ooptdd.engine.gate_ontology",
+        "ooptdd.engine.gate_primitives",
+        "ooptdd.engine.gate_rules",
+        "ooptdd.engine.gate_values",
         "ooptdd.ouroboros.identity",
         "ooptdd.ouroboros.model",
         "ooptdd.ouroboros.ports",
+        "ooptdd.ouroboros.receipt",
         "ooptdd.ouroboros.reducer"
       ],
       "module_prefixes": [],
@@ -27,47 +29,29 @@
       ]
     },
     {
-      "name": "functional_domain",
-      "exact_modules": [
-        "ooptdd.ouroboros.gate_adapter",
-        "ooptdd.ouroboros.schema"
-      ],
-      "module_prefixes": [],
-      "may_depend_on": [
-        "domain",
-        "functional_domain",
-        "pure_core"
-      ]
-    },
-    {
-      "name": "application_core",
-      "exact_modules": [
-        "ooptdd.ouroboros.completion"
-      ],
-      "module_prefixes": [],
-      "may_depend_on": [
-        "application_core",
-        "domain",
-        "functional_domain",
-        "pure_core"
-      ]
-    },
-    {
       "name": "domain",
-      "exact_modules": [],
-      "module_prefixes": [
-        "ooptdd.domain"
+      "exact_modules": [
+        "ooptdd.domain",
+        "ooptdd.domain.model",
+        "ooptdd.domain.ontology",
+        "ooptdd.domain.ports",
+        "ooptdd.domain.settings"
       ],
+      "module_prefixes": [],
       "may_depend_on": [
         "domain"
       ]
     },
     {
       "name": "engine",
-      "exact_modules": [],
-      "module_prefixes": [
-        "ooptdd.engine"
+      "exact_modules": [
+        "ooptdd.engine",
+        "ooptdd.engine.gate",
+        "ooptdd.engine.monitor",
+        "ooptdd.engine.polling",
+        "ooptdd.engine.verify"
       ],
+      "module_prefixes": [],
       "may_depend_on": [
         "domain",
         "engine",
@@ -75,17 +59,54 @@
       ]
     },
     {
-      "name": "adapters",
-      "exact_modules": [],
-      "module_prefixes": [
+      "name": "protocol_api",
+      "exact_modules": [
         "ooptdd.ouroboros"
       ],
+      "module_prefixes": [],
       "may_depend_on": [
-        "application_core",
+        "protocol_api",
+        "pure_core"
+      ]
+    },
+    {
+      "name": "adapters",
+      "exact_modules": [
+        "ooptdd.adapters",
+        "ooptdd.adapters.negative_assertion",
+        "ooptdd.adapters.pytest",
+        "ooptdd.adapters.pytest_cli",
+        "ooptdd.assertions",
+        "ooptdd.backends",
+        "ooptdd.backends.base",
+        "ooptdd.backends.clickhouse",
+        "ooptdd.backends.conformance",
+        "ooptdd.backends.jsonl",
+        "ooptdd.backends.memory",
+        "ooptdd.backends.openobserve",
+        "ooptdd.backends.otel",
+        "ooptdd.backends.settings",
+        "ooptdd.backends.victorialogs",
+        "ooptdd.bootstrap",
+        "ooptdd.cli",
+        "ooptdd.config",
+        "ooptdd.gate",
+        "ooptdd.model",
+        "ooptdd.monitor",
+        "ooptdd.ontology",
+        "ooptdd.plugin",
+        "ooptdd.probes",
+        "ooptdd.probes.file",
+        "ooptdd.probes.http",
+        "ooptdd.reports",
+        "ooptdd.verify"
+      ],
+      "module_prefixes": [],
+      "may_depend_on": [
         "adapters",
         "domain",
         "engine",
-        "functional_domain",
+        "protocol_api",
         "pure_core"
       ],
       "default": true
@@ -93,16 +114,17 @@
     {
       "name": "api",
       "exact_modules": [
-        "ooptdd"
+        "ooptdd",
+        "ooptdd.identity",
+        "ooptdd.sdk"
       ],
       "module_prefixes": [],
       "may_depend_on": [
-        "application_core",
         "adapters",
         "api",
         "domain",
         "engine",
-        "functional_domain",
+        "protocol_api",
         "pure_core"
       ]
     }
@@ -117,11 +139,111 @@
     "ooptdd.ouroboros.identity",
     "ooptdd.ouroboros.model",
     "ooptdd.ouroboros.ports",
+    "ooptdd.ouroboros.receipt",
     "ooptdd.ouroboros.reducer"
   ],
   "package_root_import_allowlist": [
     "__version__"
   ],
+  "configuration_boundary": {
+    "environment_key_owner": "ooptdd.domain.settings",
+    "environment_key_patterns": [
+      "^OOPTDD_[A-Z0-9_]+$",
+      "^OTEL_EXPORTER_[A-Z0-9_]+$"
+    ],
+    "ambient_environment_modules": [
+      "ooptdd.bootstrap",
+      "ooptdd.config"
+    ]
+  },
+  "edge_vocabulary_boundary": {
+    "forbidden_layers": [
+      "api",
+      "domain",
+      "engine",
+      "protocol_api",
+      "pure_core"
+    ],
+    "patterns": [
+      {
+        "id": "test-framework",
+        "regex": "(?i)\\bpytest\\b|\\btest_(?:session|outcome)\\b"
+      },
+      {
+        "id": "model-domain",
+        "regex": "(?i)\\bgen[_ -]?ai\\b|\\btrajectory\\b",
+        "forbidden_layers": [
+          "adapters",
+          "api",
+          "domain",
+          "engine",
+          "protocol_api",
+          "pure_core"
+        ]
+      },
+      {
+        "id": "development-method",
+        "regex": "(?i)\\btdd\\b|test[-_ ]driven|\\bred[-_ ]green\\b|\\b(?:red|green)_phase\\b",
+        "forbidden_layers": [
+          "adapters",
+          "api",
+          "domain",
+          "engine",
+          "protocol_api",
+          "pure_core"
+        ]
+      },
+      {
+        "id": "project-history",
+        "regex": "(?i)\\bsymposium\\b|\\blakatotree\\b|\\b(?:p333|omd)\\b|\\bhswm\\b|\\bapt[-_ ](?:sa|sp|st|scw)\\b",
+        "forbidden_layers": [
+          "adapters",
+          "api",
+          "domain",
+          "engine",
+          "protocol_api",
+          "pure_core"
+        ]
+      },
+      {
+        "id": "profile-workflow",
+        "regex": "(?i)ooptdd[_ -]?mutation|mutation[_ -]?(?:workflow|profile|testing|gate)",
+        "forbidden_layers": [
+          "adapters",
+          "api",
+          "domain",
+          "engine",
+          "protocol_api",
+          "pure_core"
+        ]
+      },
+      {
+        "id": "prescribed-methodology",
+        "regex": "(?i)METHODOLOGY\\.md|development[-_ ]methodolog",
+        "forbidden_layers": [
+          "adapters",
+          "api",
+          "domain",
+          "engine",
+          "protocol_api",
+          "pure_core"
+        ]
+      },
+      {
+        "id": "workflow-lineage",
+        "regex": "(?i)\\bcycle_id\\b|\\bsuccessor_cycle_id\\b",
+        "forbidden_layers": [
+          "adapters",
+          "api",
+          "domain",
+          "engine",
+          "protocol_api",
+          "pure_core"
+        ]
+      }
+    ],
+    "scan_comments_and_docstrings": true
+  },
   "pure_boundary": {
     "forbidden_import_roots": [
       "asyncio",
@@ -166,30 +288,9 @@
     {
       "path": "src/ooptdd/ouroboros/__init__.py",
       "classification": "non_pure_debt",
-      "max_physical_lines": 136,
+      "max_physical_lines": 66,
       "max_function_lines": 0,
       "max_function_parameters": 0
-    },
-    {
-      "path": "src/ooptdd/ouroboros/completion.py",
-      "classification": "non_pure_debt",
-      "max_physical_lines": 384,
-      "max_function_lines": 52,
-      "max_function_parameters": 3
-    },
-    {
-      "path": "src/ooptdd/ouroboros/completion_io.py",
-      "classification": "non_pure_debt",
-      "max_physical_lines": 85,
-      "max_function_lines": 50,
-      "max_function_parameters": 4
-    },
-    {
-      "path": "src/ooptdd/ouroboros/gate_adapter.py",
-      "classification": "non_pure_debt",
-      "max_physical_lines": 1482,
-      "max_function_lines": 445,
-      "max_function_parameters": 9
     },
     {
       "path": "src/ooptdd/ouroboros/identity.py",
@@ -201,30 +302,30 @@
     {
       "path": "src/ooptdd/ouroboros/model.py",
       "classification": "pure_module",
-      "max_physical_lines": 658,
-      "max_function_lines": 35,
-      "max_function_parameters": 7
+      "max_physical_lines": 410,
+      "max_function_lines": 32,
+      "max_function_parameters": 6
     },
     {
       "path": "src/ooptdd/ouroboros/ports.py",
       "classification": "pure_module",
-      "max_physical_lines": 49,
-      "max_function_lines": 6,
+      "max_physical_lines": 32,
+      "max_function_lines": 3,
       "max_function_parameters": 4
+    },
+    {
+      "path": "src/ooptdd/ouroboros/receipt.py",
+      "classification": "pure_module",
+      "max_physical_lines": 209,
+      "max_function_lines": 41,
+      "max_function_parameters": 3
     },
     {
       "path": "src/ooptdd/ouroboros/reducer.py",
       "classification": "pure_module",
-      "max_physical_lines": 593,
-      "max_function_lines": 199,
-      "max_function_parameters": 7
-    },
-    {
-      "path": "src/ooptdd/ouroboros/schema.py",
-      "classification": "non_pure_debt",
-      "max_physical_lines": 929,
-      "max_function_lines": 73,
-      "max_function_parameters": 4
+      "max_physical_lines": 121,
+      "max_function_lines": 65,
+      "max_function_parameters": 3
     },
     {
       "path": "src/ooptdd/engine/gate_primitives.py",
@@ -257,14 +358,14 @@
     {
       "path": "src/ooptdd/engine/gate_rules.py",
       "classification": "pure_module",
-      "max_physical_lines": 291,
+      "max_physical_lines": 317,
       "max_function_lines": 29,
       "max_function_parameters": 4
     },
     {
       "path": "src/ooptdd/engine/gate_kernel.py",
       "classification": "pure_module",
-      "max_physical_lines": 319,
+      "max_physical_lines": 322,
       "max_function_lines": 64,
       "max_function_parameters": 7
     }

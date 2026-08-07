@@ -2,46 +2,60 @@
 
 OpenTelemetry's OTLP is the one ingest protocol every major store accepts, so
 emitting events as OTLP LogRecords is the strategic way to stay
-backend-neutral *on write*. The catch (see ``docs/research`` C1/C3): there is no
-portable *query* protocol — LogQL, TraceQL, ES-DSL and SQL all differ — so this
-driver ships via OTLP but cannot, by itself, read back. Pair it with a
+backend-neutral *on write*. There is no portable *query* protocol — LogQL,
+TraceQL, ES-DSL and SQL all differ — so this driver ships via OTLP but cannot,
+by itself, read back. Pair it with a
 store-specific reader, or use it only where you trust ingest.
 
 Requires the ``otel`` extra (``pip install ooptdd[otel]``).
 """
+
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from opentelemetry._logs import Logger
 
-from .base import BackendCaps, QueryResult
+from ..domain.settings import DEFAULT_ENV_KEYS, DEFAULT_SERVICE, EnvironmentKeys
+from .base import BackendCaps, QueryResult, sanitize_endpoint_identity
+from .settings import DEFAULT_BACKEND_SETTINGS, BackendSettings
 
 
 class OtelBackend:
-    default_lookback_s = 3600
-    default_future_buffer_s = 300
+    default_lookback_s = DEFAULT_BACKEND_SETTINGS.lookback_s
+    default_future_buffer_s = DEFAULT_BACKEND_SETTINGS.future_buffer_s
     queryable = False  # OTLP is write-only — no read side, so arrival can't be verified here
     caps = BackendCaps(queryable=False, write_only=True, independent=False)
 
     def __init__(
         self,
         *,
-        service: str = "ooptdd.tests",
-        endpoint_env: str = "OTEL_EXPORTER_OTLP_ENDPOINT",
+        service: str = DEFAULT_SERVICE,
+        endpoint: str | None = None,
+        endpoint_env: str | None = None,
         simple: bool = False,
         exporter=None,
-        **_ignored,
+        environment: Mapping[str, str] | None = None,
+        env_keys: EnvironmentKeys = DEFAULT_ENV_KEYS,
+        settings: BackendSettings = DEFAULT_BACKEND_SETTINGS,
     ):
+        captured = {} if environment is None else dict(environment)
+        if not isinstance(settings, BackendSettings):
+            raise TypeError("settings must be a BackendSettings value")
+        self.default_lookback_s = settings.lookback_s
+        self.default_future_buffer_s = settings.future_buffer_s
         self.service = service
-        self.endpoint_env = endpoint_env
-        # OTel test-exporter discipline (research E #14): a Batch processor buffers and
-        # exports off-thread, which makes "ship then read back" timing flaky — the same
-        # reason the OTel SDKs tell you to use a *simple* (synchronous) processor in tests.
-        # ``simple=True`` swaps to SimpleLogRecordProcessor so each emit exports inline;
-        # combined with the force_flush below, a hermetic test sees a deterministic ingest.
+        self.endpoint_env = endpoint_env or env_keys.otel_endpoint
+        captured_endpoint = (endpoint or captured.get(self.endpoint_env, "")).rstrip("/")
+        self.endpoint = (
+            captured_endpoint
+            if not captured_endpoint or captured_endpoint.endswith("/v1/logs")
+            else f"{captured_endpoint}/v1/logs"
+        )
+        # A batch processor exports asynchronously. ``simple=True`` selects the
+        # synchronous processor for callers that require inline visibility.
         self.simple = simple
         # An injectable log-record exporter: the default (None) ships OTLP over the wire; tests
         # (and the write-only conformance kit) pass an in-memory exporter to capture what shipped.
@@ -59,13 +73,12 @@ class OtelBackend:
             )
             from opentelemetry.sdk.resources import Resource
         except ImportError as exc:  # pragma: no cover - exercised only with extra
-            raise RuntimeError(
-                "the otel backend needs `pip install ooptdd[otel]`"
-            ) from exc
+            raise RuntimeError("the otel backend needs `pip install ooptdd[otel]`") from exc
         exporter = self._exporter
         if exporter is None:
             from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-            exporter = OTLPLogExporter()
+
+            exporter = OTLPLogExporter(endpoint=self.endpoint)
         provider = LoggerProvider(resource=Resource.create({"service.name": self.service}))
         proc = SimpleLogRecordProcessor if self.simple else BatchLogRecordProcessor
         provider.add_log_record_processor(proc(exporter))
@@ -80,7 +93,7 @@ class OtelBackend:
             return
         # The endpoint is only needed for the default OTLP exporter; an injected exporter
         # (e.g. an in-memory one in conformance tests) ships nowhere over the wire.
-        if self._exporter is None and not os.getenv(self.endpoint_env):
+        if self._exporter is None and not self.endpoint:
             raise ValueError(f"{self.endpoint_env} is required for the otel backend.")
         self._ensure()
         from opentelemetry._logs import SeverityNumber
@@ -105,3 +118,6 @@ class OtelBackend:
     def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
         # OTLP has no read side; queries are store-specific. Return inconclusive.
         return QueryResult(reachable=False)
+
+    def identity(self) -> str:
+        return sanitize_endpoint_identity(self.endpoint) if self.endpoint else type(self).__name__

@@ -4,6 +4,7 @@ Importing ``ooptdd.gate`` keeps working (code written against 0.2.x is not broke
 code should import from :mod:`ooptdd.engine.gate` or the package root (``from ooptdd import
 evaluate``). This module only re-exports.
 """
+
 from __future__ import annotations
 
 from .engine.gate import (  # noqa: F401
@@ -15,13 +16,14 @@ from .engine.gate import (  # noqa: F401
     _label,
     _matches,
     _resolve_matcher,
-    can_i_deploy,
     check,
+    checks_from,
+    combine_results,
+    compose_check_registry,
     duration_s,
     evaluate,
     evaluate_events,
     evidence_tier,
     failed_checks,
     load_gate,
-    unregister,
 )

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run the Tier-1 external-store arrival benchmark against a real OpenObserve.
 
-Tier 0 (``ooptdd.benchmark``) proves gate mechanics deterministically; by design it
+Tier 0 (``ooptdd_mutation.benchmarks.tier0``) proves gate mechanics deterministically;
+by design it
 cannot prove that evidence arrived in an independent store. This runner is the Tier-1
 judge: the five scenarios of
 ``docs/research/prom24_ooptdd_efficacy_20260723/D_measurement_plan.md`` §5, each repeated
@@ -28,6 +29,7 @@ compose file; override with ``OOPTDD_T1_OO_URL`` / ``OOPTDD_T1_OO_USER`` /
 Exit ladder: 0 benchmark passed, 1 benchmark failed (an oracle miss is a RED), 2
 infra/evidence-invalid (store down, lock/binding mismatch — never reported as a RED).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -50,13 +52,10 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from ooptdd import __version__
-from ooptdd.backends.openobserve import OpenObserveBackend
-from ooptdd.benchmark import _code_manifest as _packaged_code_manifest
-from ooptdd.benchmark import canonical_json, pass_hat_k
-from ooptdd.domain.ports import backend_caps
-from ooptdd.engine.verify import verify_gate
-from ooptdd.evidence_integrity import (
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ooptdd_mutation.benchmarks.evidence_integrity import (  # noqa: E402
     EvidenceIntegrityError,
     measurement_environment,
     prospective_git_receipt,
@@ -64,6 +63,15 @@ from ooptdd.evidence_integrity import (
     validate_registration_repository,
     validate_tier1_measurement_lock,
 )
+from ooptdd_mutation.benchmarks.tier0 import (  # noqa: E402
+    _code_manifest as _packaged_code_manifest,
+)
+from ooptdd_mutation.benchmarks.tier0 import canonical_json, pass_hat_k  # noqa: E402
+
+from ooptdd import __version__
+from ooptdd.backends.openobserve import OpenObserveBackend
+from ooptdd.domain.ports import backend_caps
+from ooptdd.engine.verify import verify_gate
 from ooptdd.reports import to_junit_xml, to_markdown
 
 SCHEMA = "ooptdd-tier1-benchmark/v0"
@@ -381,9 +389,7 @@ def tier1_gate_result(result: dict) -> dict:
             "got": row["oracle_match_rate"],
             "want": 1.0,
             "observed": sorted({sample["observed"] for sample in row["samples"]}),
-            "inconclusive": all(
-                sample["observed"] == "inconclusive" for sample in row["samples"]
-            ),
+            "inconclusive": all(sample["observed"] == "inconclusive" for sample in row["samples"]),
             "optional": False,
             "pending": False,
         }
@@ -469,9 +475,7 @@ def preflight_binding_mismatches(
     }
 
 
-def binding_violations(
-    lock: dict, *, head: str, dirty: bool, prereg_sha256: str
-) -> list[str]:
+def binding_violations(lock: dict, *, head: str, dirty: bool, prereg_sha256: str) -> list[str]:
     """Candidate/preregistration binding problems (empty = bound). Pure and fail-loud."""
     violations = []
     if head != lock.get("candidate_git_head") or dirty:
@@ -744,9 +748,15 @@ def direct_readback(
     safe_cid = cid.replace("'", "''")
     sql = f"SELECT * FROM {stream} WHERE cycle_id = '{safe_cid}'"
     body = json.dumps(
-        {"query": {
-            "sql": sql, "start_time": since_us, "end_time": until_us, "from": 0, "size": 1000,
-        }}
+        {
+            "query": {
+                "sql": sql,
+                "start_time": since_us,
+                "end_time": until_us,
+                "from": 0,
+                "size": 1000,
+            }
+        }
     ).encode()
     request = urllib.request.Request(
         f"{settings.url}/api/{settings.org}/_search",
@@ -1140,7 +1150,10 @@ def _validate_lock_binding(args, environment: dict):
     if prereg.get("registered_at") >= _iso(_now_us()):
         problems.append("preregistration is not earlier than measurement")
     deepeval_spec = (
-        source_root / "docs" / "receipts" / "lakatotree-trajectory-qualification"
+        source_root
+        / "docs"
+        / "receipts"
+        / "lakatotree-trajectory-qualification"
         / "qualification-spec-v2.json"
     )
     mismatches = preflight_binding_mismatches(

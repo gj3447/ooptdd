@@ -3,16 +3,15 @@
 The :class:`Backend` Protocol is a *port* (hexagonal architecture / dependency inversion):
 the engine (gate, verify) is written against this interface, and concrete drivers
 (memory, OpenObserve, OTLP, …) are *adapters* that implement it in :mod:`ooptdd.backends`.
-Keeping the port here — not in the adapter package — is what lets the dependency arrow
-point engine → domain (never engine → a concrete adapter), enforced by the architecture
-fitness test.
+Keeping the port here — not in the adapter package — makes the dependency arrow
+point engine → domain, never engine → a concrete adapter.
 
 Beyond the backend, this module owns the small **value objects and ports the engine reads
 against**: :class:`QueryResult` (an answer, with its completeness/reachability honesty),
 :class:`TimeWindow` / :class:`QuerySpec` (a typed *query intent* instead of bare kwargs),
 :class:`BackendCaps` (typed capabilities instead of ad-hoc ``getattr``), and the
-:class:`Clock` port (injectable time, so the engine's polling is deterministic and
-sleep-free under test). The bridge functions :func:`backend_caps` and :func:`fetch` let the
+:class:`Clock` port (injectable time, so callers can drive polling deterministically).
+The bridge functions :func:`backend_caps` and :func:`fetch` let the
 engine use the typed surface while every legacy two-method backend keeps working untouched.
 
 A backend does exactly two required things: ``ship(events)`` (write) and
@@ -27,16 +26,102 @@ Two load-bearing honesty fields on :class:`QueryResult`:
     A truncated read may undercount or hide an offender, so the verdict layer must refuse to
     treat ``complete=False`` as a clean pass — the same discipline as ``reachable``.
 """
+
 from __future__ import annotations
 
-import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import date
+from decimal import Decimal
+from fractions import Fraction
+from math import isfinite
+from pathlib import PurePath
+from types import MappingProxyType
 from typing import Protocol, runtime_checkable
+from urllib.parse import urlsplit, urlunsplit
+from uuid import UUID
+
+_IMMUTABLE_VALUE_TYPES = (
+    str,
+    bytes,
+    bool,
+    int,
+    float,
+    Decimal,
+    Fraction,
+    UUID,
+    type(None),
+)
 
 
-@dataclass
+class _FrozenEventSequence(tuple[Mapping[str, object], ...]):
+    """Tuple storage with list-compatible equality for the legacy result surface."""
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, list):
+            return list(self) == other
+        return tuple.__eq__(self, other)
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+def _freeze_public_value(value: object, active: set[int] | None = None) -> object:
+    """Capture a supported public value without retaining mutable caller aliases.
+
+    The port layer accepts JSON-shaped values plus a small set of common immutable
+    scalar types used by external probes. Unsupported or cyclic objects are rejected
+    instead of being retained by reference.
+    """
+
+    seen = set() if active is None else active
+    if type(value) is date or type(value) in _IMMUTABLE_VALUE_TYPES:
+        return value
+    if isinstance(value, PurePath) and type(value).__module__ == "pathlib":
+        return value
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in seen:
+            raise ValueError("cannot capture a cyclic mapping")
+        seen.add(identity)
+        try:
+            captured: dict[str, object] = {}
+            for key, child in value.items():
+                if not isinstance(key, str):
+                    raise TypeError("captured mapping keys must be strings")
+                captured[key] = _freeze_public_value(child, seen)
+            return MappingProxyType(captured)
+        finally:
+            seen.remove(identity)
+    if isinstance(value, list | tuple):
+        identity = id(value)
+        if identity in seen:
+            raise ValueError("cannot capture a cyclic sequence")
+        seen.add(identity)
+        try:
+            return tuple(_freeze_public_value(child, seen) for child in value)
+        finally:
+            seen.remove(identity)
+    if isinstance(value, set | frozenset):
+        identity = id(value)
+        if identity in seen:
+            raise ValueError("cannot capture a cyclic set")
+        seen.add(identity)
+        try:
+            return frozenset(_freeze_public_value(child, seen) for child in value)
+        finally:
+            seen.remove(identity)
+    raise TypeError(f"unsupported public value: {type(value).__name__}")
+
+
+def _freeze_event(value: Mapping[str, object]) -> Mapping[str, object]:
+    captured = _freeze_public_value(value)
+    if not isinstance(captured, Mapping):  # defensive: value is checked by QueryResult
+        raise TypeError("captured event must remain a mapping")
+    return captured
+
+
+@dataclass(frozen=True)
 class QueryResult:
     """Outcome of a single backend query.
 
@@ -52,7 +137,7 @@ class QueryResult:
     """
 
     reachable: bool
-    events: list[dict] = field(default_factory=list)
+    events: Sequence[Mapping[str, object]] = field(default_factory=tuple)
     complete: bool = True
     error: str | None = None
     #: typed diagnosis of WHY the query failed: rate_limited (429/503) / auth (401/403)
@@ -65,8 +150,35 @@ class QueryResult:
     #: filled): pass it back as ``QuerySpec.cursor`` for the next page. None = exhausted.
     next_cursor: str | None = None
 
+    def __post_init__(self) -> None:
+        for field_name in ("reachable", "complete"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise TypeError(f"query result {field_name} must be a bool")
+        if not isinstance(self.events, Sequence) or isinstance(self.events, str | bytes):
+            raise TypeError("query result events must be a sequence of mappings")
+        if any(not isinstance(event, Mapping) for event in self.events):
+            raise TypeError("query result events must be a sequence of mappings")
+        for field_name in ("error", "error_kind", "next_cursor"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"query result {field_name} must be text or None")
+        if self.retry_after_s is not None:
+            if (
+                isinstance(self.retry_after_s, bool)
+                or not isinstance(self.retry_after_s, int | float)
+                or not isfinite(self.retry_after_s)
+                or self.retry_after_s < 0
+            ):
+                raise ValueError("query result retry_after_s must be finite and non-negative")
+        object.__setattr__(
+            self,
+            "events",
+            _FrozenEventSequence(_freeze_event(event) for event in self.events),
+        )
+
 
 # ── time: an injectable Clock port + a typed query window ───────────────────────
+
 
 class Clock(Protocol):
     """The time port. The engine reads ``now_us()`` instead of calling ``time.time()`` so
@@ -91,6 +203,18 @@ class TimeWindow:
     since_us: int
     until_us: int
 
+    def __post_init__(self) -> None:
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in (
+                self.since_us,
+                self.until_us,
+            )
+        ):
+            raise TypeError("time window bounds must be integer microseconds")
+        if self.since_us > self.until_us:
+            raise ValueError("time window since_us must not exceed until_us")
+
     @classmethod
     def around_now(cls, clock: Clock, lookback_s: int, future_buffer_s: int) -> TimeWindow:
         """The window a poll uses: ``[now - lookback, now + future_buffer]``. The future
@@ -114,17 +238,33 @@ class QuerySpec:
     path. The engine must therefore never rely on server-side paging/filter a legacy driver
     can't honour; ``where`` in particular is filtered in Python by design (dialect-neutral and
     injection-safe — see ``BackendCaps.supports_where``). Pushing any of the three down is a
-    per-driver ``query_spec`` opt-in, not a default. The contract is pinned by
-    ``test_fetch_drops_reserved_queryspec_fields_for_legacy_backends``."""
+    per-driver ``query_spec`` opt-in, not a default."""
 
     cid: str
     window: TimeWindow
     limit: int | None = None  # reserved: server-side row cap (query_spec opt-in only)
     cursor: str | None = None  # reserved: server-side paging cursor (query_spec opt-in only)
-    where: dict | None = None  # reserved: server-side filter; default path filters in Python
+    where: Mapping[str, object] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.cid, str) or not self.cid:
+            raise ValueError("query spec cid must be a non-empty string")
+        if not isinstance(self.window, TimeWindow):
+            raise TypeError("query spec window must be a TimeWindow")
+        if self.limit is not None and (
+            isinstance(self.limit, bool) or not isinstance(self.limit, int) or self.limit <= 0
+        ):
+            raise ValueError("query spec limit must be a positive integer or None")
+        if self.cursor is not None and not isinstance(self.cursor, str):
+            raise TypeError("query spec cursor must be text or None")
+        if self.where is not None:
+            if not isinstance(self.where, Mapping):
+                raise TypeError("query spec where must be a mapping or None")
+            object.__setattr__(self, "where", _freeze_public_value(self.where))
 
 
 # ── capabilities: typed, not ad-hoc getattr ─────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class BackendCaps:
@@ -134,10 +274,11 @@ class BackendCaps:
     paginates:     reads to completion across pages (so ``complete`` is meaningful).
     supports_where: can filter server-side (informational; ooptdd filters in Python anyway).
     write_only:    convenience inverse of ``queryable`` for call sites that read positively.
-    independent:   the read side is a separate store the process under test cannot rewrite
+    independent:   the read side is a separate store the observed process cannot rewrite
                    in-memory — the "external judge" positioning claim, as data. memory (same
                    process) and jsonl (same-host, author-writable file) are NOT independent:
-                   they prove gate mechanics, not arrival.
+                   they prove gate mechanics, not arrival. Defaults False; adapters must affirm
+                   independence explicitly.
     samples:       the store (or its ingest pipeline) SAMPLES — head/tail sampling, a
                    dropping BatchSpanProcessor, etc. A sampled store can prove SOME events
                    arrived but not cross-event causal claims: the evidence-tier ladder caps
@@ -152,21 +293,66 @@ class BackendCaps:
     paginates: bool = False
     supports_where: bool = False
     write_only: bool = False
-    independent: bool = True
+    independent: bool = False
     query_visibility_delay_ms: int = 0
     samples: bool = False
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "queryable",
+            "paginates",
+            "supports_where",
+            "write_only",
+            "independent",
+            "samples",
+        ):
+            if not isinstance(getattr(self, field_name), bool):
+                raise TypeError(f"backend capability {field_name} must be a bool")
+        if (
+            isinstance(self.query_visibility_delay_ms, bool)
+            or not isinstance(self.query_visibility_delay_ms, int)
+            or self.query_visibility_delay_ms < 0
+        ):
+            raise ValueError("query visibility delay must be non-negative integer milliseconds")
 
 
 DEFAULT_CAPS = BackendCaps()
 
 
 @runtime_checkable
-class Backend(Protocol):
+class EventSink(Protocol):
+    """Narrow write port for emit-only consumers."""
+
+    def ship(self, events: list[dict]) -> None:
+        """Write a batch of event envelopes."""
+        ...
+
+
+@runtime_checkable
+class EventSource(Protocol):
+    """Narrow read port for verification consumers."""
+
+    def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
+        """Read events for one correlation id and time window."""
+        ...
+
+
+@runtime_checkable
+class FlushPort(Protocol):
+    """Optional durability/visibility boundary exposed by some adapters."""
+
+    def force_flush(self) -> bool:
+        """Make accepted writes visible when supported."""
+        ...
+
+
+@runtime_checkable
+class Backend(EventSink, EventSource, Protocol):
     """Minimal driver contract. Implement these two methods; that's a backend.
 
     A driver MAY additionally expose ``caps: BackendCaps`` and/or ``query_spec(spec)`` for the
     typed surface — both optional and read via :func:`backend_caps` / :func:`fetch`, so a
-    plain two-method backend (and every test fake) still structurally satisfies this Protocol.
+    plain two-method backend still structurally satisfies this Protocol.
     """
 
     #: Per-backend polling hints (seconds). Stores with slow ingest override these.
@@ -177,21 +363,12 @@ class Backend(Protocol):
     #: callers surface that loudly rather than passing silently. Read via :func:`backend_caps`.
     queryable: bool = True
 
-    def ship(self, events: list[dict]) -> None:
-        """Write events. Must be best-effort; raising is allowed but the caller
-        treats a ship failure as a warning, never a build failure."""
-        ...
-
-    def query(self, cid: str, *, since_us: int, until_us: int) -> QueryResult:
-        """Return events carrying ``cid`` whose store timestamp falls in the
-        microsecond window ``[since_us, until_us]``."""
-        ...
-
 
 def backend_caps(backend) -> BackendCaps:
     """The single place capability logic lives: a backend's ``caps`` if it has one, else
-    synthesized from the legacy ``queryable`` attribute. Bridges old and new drivers so the
-    engine never hand-rolls ``getattr(backend, 'queryable', True)`` again."""
+    synthesized conservatively from the legacy ``queryable`` attribute. Missing capability
+    metadata never implies an independent store; a backend must affirm that explicitly.
+    Bridges old and new drivers so the engine never hand-rolls capability defaults again."""
     caps = getattr(backend, "caps", None)
     if isinstance(caps, BackendCaps):
         return caps
@@ -203,13 +380,12 @@ def backend_identity(backend) -> str:
     """A best-effort, framework-DERIVED identity for WHERE a backend reads/writes — the basis for
     emit provenance (``oracle.emit_identity``) and for demoting an ``external:`` probe that re-reads
     this very endpoint (its ``separate_source`` claim then cannot be honest). Prefers a
-    driver's own ``identity()``; else the resolved endpoint URL — read *now* from the env var the
-    driver was configured with (``url_env``), i.e. the real target, not a name the backend chose to
-    report; else the class name (an in-process backend like memory has no endpoint to compare, so
+    driver's own ``identity()``; else a captured ``endpoint``/``base_url`` attribute; else the
+    class name (an in-process backend like memory has no endpoint to compare, so
     relocation *through* it is out of scope). This is NOT a security boundary — a backend or probe
     can still misreport — it only makes the common, honest cases comparable so a provably-same
-    endpoint can be caught. The single-authority residue (shared data lineage, a colluding source)
-    is named in METHODOLOGY.md and cannot be discharged here, only surfaced."""
+    endpoint can be caught. Shared lineage or a colluding source cannot be discharged
+    here; this function can only surface identities reported by the participants."""
     ident = getattr(backend, "identity", None)
     if callable(ident):
         try:
@@ -217,13 +393,29 @@ def backend_identity(backend) -> str:
         except Exception:  # noqa: BLE001 — identity is best-effort; it must never break a verdict
             got = None
         if got:
-            return str(got)
-    url_env = getattr(backend, "url_env", None)
-    if url_env:
-        url = os.getenv(url_env)
-        if url:
-            return url.rstrip("/")
+            return sanitize_endpoint_identity(str(got))
+    for attr in ("endpoint", "base_url"):
+        endpoint = getattr(backend, attr, None)
+        if endpoint:
+            return sanitize_endpoint_identity(str(endpoint))
     return type(backend).__name__
+
+
+def sanitize_endpoint_identity(value: str) -> str:
+    """Strip credentials and secret parameters from a stable URL identity.
+
+    Non-URL identities such as ``jsonl:/path`` and class names are preserved.
+    """
+
+    normalized = value.rstrip("/")
+    try:
+        parsed = urlsplit(normalized)
+    except ValueError:
+        return normalized
+    if not parsed.netloc:
+        return normalized
+    netloc = parsed.netloc.rsplit("@", 1)[-1]
+    return urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
 
 
 def fetch_all_pages(backend, spec: QuerySpec, *, max_rows: int | None = None) -> QueryResult:
@@ -235,31 +427,40 @@ def fetch_all_pages(backend, spec: QuerySpec, *, max_rows: int | None = None) ->
     the legacy two-method contract has no paging to walk."""
     query_spec = getattr(backend, "query_spec", None)
     if not callable(query_spec):
-        raise TypeError(f"{type(backend).__name__} does not implement query_spec — "
-                        "fetch_all_pages needs the paged read surface")
+        raise TypeError(
+            f"{type(backend).__name__} does not implement query_spec — "
+            "fetch_all_pages needs the paged read surface"
+        )
     events: list[dict] = []
     cursor = spec.cursor
     while True:
         page = query_spec(replace(spec, cursor=cursor))
         if not page.reachable:
-            return QueryResult(reachable=False, events=events, complete=False,
-                               error=page.error, error_kind=page.error_kind,
-                               retry_after_s=page.retry_after_s)
+            return QueryResult(
+                reachable=False,
+                events=events,
+                complete=False,
+                error=page.error,
+                error_kind=page.error_kind,
+                retry_after_s=page.retry_after_s,
+            )
         events.extend(page.events)
         cursor = page.next_cursor
         if cursor is None:
-            return QueryResult(reachable=True, events=events,
-                               complete=page.complete, error=page.error)
+            return QueryResult(
+                reachable=True, events=events, complete=page.complete, error=page.error
+            )
         if max_rows is not None and len(events) >= max_rows:
-            return QueryResult(reachable=True, events=events[:max_rows], complete=False,
-                               next_cursor=cursor)
+            return QueryResult(
+                reachable=True, events=events[:max_rows], complete=False, next_cursor=cursor
+            )
 
 
 def fetch(backend, spec: QuerySpec, clock: Clock | None = None) -> QueryResult:
     """Read a backend through one typed entry point regardless of its generation: use
     ``query_spec(spec)`` if the driver implements it, else translate the :class:`QuerySpec`
-    into the legacy ``query(cid, since_us=, until_us=)`` call. This shim is what lets every
-    existing backend (and test fake) keep working while the engine speaks ``QuerySpec``."""
+    into the legacy ``query(cid, since_us=, until_us=)`` call. This shim lets every
+    existing backend keep working while the engine speaks ``QuerySpec``."""
     query_spec = getattr(backend, "query_spec", None)
     if callable(query_spec):
         return query_spec(spec)
@@ -275,7 +476,8 @@ def fetch(backend, spec: QuerySpec, clock: Clock | None = None) -> QueryResult:
 # missing probe as a loud misconfiguration (never a silent green) and an unreachable probe as
 # inconclusive (never a strict fail) — extending, not bypassing, the reachable/complete lattice.
 
-@dataclass
+
+@dataclass(frozen=True)
 class ProbeResult:
     """Outcome of one external-state probe.
 
@@ -304,6 +506,14 @@ class ProbeResult:
     #: promote a missing one — so a genuinely-separate source whose identity the probe cannot
     #: report (``None``) keeps its declared bool. Reference probes (file/http) report it.
     derived_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        for field_name in ("reachable", "complete", "separate_source"):
+            if not isinstance(getattr(self, field_name), bool):
+                raise TypeError(f"probe result {field_name} must be a bool")
+        if self.derived_identity is not None and not isinstance(self.derived_identity, str):
+            raise TypeError("probe result derived_identity must be text or None")
+        object.__setattr__(self, "value", _freeze_public_value(self.value))
 
 
 @runtime_checkable

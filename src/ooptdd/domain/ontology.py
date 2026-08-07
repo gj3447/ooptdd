@@ -1,7 +1,7 @@
-"""Event ontology — give the gate semantic teeth.
+"""Small, domain-neutral event vocabulary and conformance validation.
 
 A flat gate checks *names and counts*: "did event X arrive N times?". That cannot
-see three whole classes of hallucination:
+detect three whole classes of schema violation:
 
   1. **missing required attribute** — the code emits ``payment_authorized`` but with
      no ``amount``. Counted by name -> GREEN. Wrong.
@@ -22,7 +22,7 @@ the standard for exactly this job, so the three drift classes map 1:1 and stay
 defensible:
 
   =========================  ============================  ====================
-  hallucination class        JSON Schema construct         ooptdd field
+  violation class            JSON Schema construct         ooptdd field
   =========================  ============================  ====================
   missing required attr      ``"required": [...]``         ``required``
   bad value (enum/type)      ``"enum"`` / ``"type"``       ``constraints``
@@ -36,41 +36,89 @@ We re-implement the small subset natively (no ``jsonschema`` dependency) to keep
 the core stdlib-only and the offline invariant intact — but a spec author can read
 the table above and reason about an EventType as the JSON Schema it denotes.
 
-It is **file-first** (zero KG, zero network — the offline invariant holds) and can
-be mirrored into the KG when available; the KG never becomes a hard dependency.
+Definitions are validated eagerly.  A malformed or unsupported declaration is a
+configuration error, never a constraint that silently becomes permissive.
 """
+
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
-from typing import ClassVar
+from types import MappingProxyType
+from typing import Any
 
 _NUMBER = (int, float)
+_ROOT_FIELDS = frozenset({"event_types", "closed_world"})
+_EVENT_TYPE_FIELDS = frozenset({"required", "constraints", "description", "additional_properties"})
+_CONSTRAINT_FIELDS = frozenset({"enum", "type", "min", "max"})
+_VALUE_TYPES = frozenset({"number", "int", "float", "str", "bool"})
 
 # Transport/plumbing keys every envelope carries (see model.py). When an EventType
 # is closed (`additional_properties: false`) these are never counted as "unexpected"
 # attributes — closed-world polices the *payload* you declared, not the carrier.
-ENVELOPE_KEYS = frozenset({
-    "cid", "correlation_id", "cycle_id", "spec_version", "service", "level", "event",
-    "_timestamp", "sig", "sig_alg", "sig_chain", "prev_sig",
-    # W3C trace context (model.with_trace_context)
-    "trace_id", "span_id",
-    # CloudEvents context projection (model.cloudevents_envelope)
-    "id", "source", "type", "specversion", "subject", "time", "datacontenttype",
-})
+ENVELOPE_KEYS = frozenset(
+    {
+        "cid",
+        "correlation_id",
+        "spec_version",
+        "service",
+        "level",
+        "event",
+        "_timestamp",
+        "sig",
+        "sig_alg",
+        "sig_chain",
+        "prev_sig",
+        # W3C trace context (model.with_trace_context)
+        "trace_id",
+        "span_id",
+        # CloudEvents context projection (model.cloudevents_envelope)
+        "id",
+        "source",
+        "type",
+        "specversion",
+        "subject",
+        "time",
+        "datacontenttype",
+    }
+)
 
 
-@dataclass
+@dataclass(frozen=True)
 class EventType:
     """One class in the ontology: an event name + what a valid instance must carry."""
 
     name: str
-    required: list[str] = field(default_factory=list)   # attribute keys that must be present
-    constraints: dict = field(default_factory=dict)     # attr -> {enum|type|min|max}
+    required: tuple[str, ...] = field(default_factory=tuple)  # attribute keys that must be present
+    constraints: Mapping[str, Mapping[str, Any]] = field(
+        default_factory=dict
+    )  # attr -> {enum|type|min|max}
     description: str = ""
     #: JSON Schema ``additionalProperties: false`` — when False, a payload attribute
     #: that is neither declared (required/constraints) nor envelope plumbing is drift.
     additional_properties: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise TypeError("event type name must be non-empty text")
+        if not isinstance(self.required, list | tuple) or not all(
+            isinstance(key, str) and key for key in self.required
+        ):
+            raise TypeError(f"event type {self.name!r} required must contain non-empty text")
+        if len(set(self.required)) != len(self.required):
+            raise ValueError(f"event type {self.name!r} required fields must be unique")
+        if not isinstance(self.constraints, Mapping):
+            raise TypeError(f"event type {self.name!r} constraints must be a mapping")
+        if not isinstance(self.description, str):
+            raise TypeError(f"event type {self.name!r} description must be text")
+        if not isinstance(self.additional_properties, bool):
+            raise TypeError(f"event type {self.name!r} additional_properties must be a bool")
+        object.__setattr__(self, "required", tuple(self.required))
+        validated = {
+            attribute: MappingProxyType(rule)
+            for attribute, rule in _validated_constraints(self.name, self.constraints).items()
+        }
+        object.__setattr__(self, "constraints", MappingProxyType(validated))
 
     def _declared(self) -> set[str]:
         return set(self.required) | set(self.constraints)
@@ -108,76 +156,131 @@ def _type_ok(val, t: str) -> bool:
         "float": isinstance(val, float),
         "str": isinstance(val, str),
         "bool": isinstance(val, bool),
-    }.get(t, True)  # unknown type name -> don't fail (forward-compatible)
+    }[t]
 
 
-@dataclass
+def _validated_constraints(
+    event_name: str, constraints: Mapping[str, object]
+) -> dict[str, dict[str, Any]]:
+    validated: dict[str, dict[str, Any]] = {}
+    for attribute, raw_rule in constraints.items():
+        if not isinstance(attribute, str) or not attribute:
+            raise TypeError(f"event type {event_name!r} constraint names must be non-empty text")
+        if not isinstance(raw_rule, Mapping):
+            raise TypeError(f"event type {event_name!r} constraint {attribute!r} must be a mapping")
+        unknown = set(raw_rule) - _CONSTRAINT_FIELDS
+        if unknown:
+            raise ValueError(
+                f"event type {event_name!r} constraint {attribute!r} has unsupported fields: "
+                f"{sorted(unknown)}"
+            )
+        rule = dict(raw_rule)
+        expected_type = rule.get("type")
+        if expected_type is not None and expected_type not in _VALUE_TYPES:
+            raise ValueError(
+                f"event type {event_name!r} constraint {attribute!r} has unsupported "
+                f"type {expected_type!r}"
+            )
+        if "enum" in rule and not isinstance(rule["enum"], list | tuple):
+            raise TypeError(
+                f"event type {event_name!r} constraint {attribute!r} enum must be a sequence"
+            )
+        if "enum" in rule:
+            rule["enum"] = tuple(rule["enum"])
+        for bound in ("min", "max"):
+            if bound in rule and (
+                not isinstance(rule[bound], _NUMBER) or isinstance(rule[bound], bool)
+            ):
+                raise TypeError(
+                    f"event type {event_name!r} constraint {attribute!r} {bound} must be numeric"
+                )
+        if "min" in rule and "max" in rule and rule["min"] > rule["max"]:
+            raise ValueError(f"event type {event_name!r} constraint {attribute!r} min exceeds max")
+        validated[attribute] = rule
+    return validated
+
+
+@dataclass(frozen=True)
 class Ontology:
-    types: dict[str, EventType] = field(default_factory=dict)
+    types: Mapping[str, EventType] = field(default_factory=dict)
     #: when True, an observed event whose name is not a declared type is drift.
     closed_world: bool = False
 
-    #: Preset ontology factories, keyed by name (e.g. ``"gen_ai"``). A ``ClassVar`` —
-    #: shared state, NOT a dataclass field. Dependency-inversion seam: the core exposes
-    #: :meth:`register_preset` as a registration port and preset modules
-    #: (e.g. :mod:`ooptdd.semconv`) register *into* it at import time — so ``ontology.py``
-    #: never imports a specific preset and the module-import graph stays acyclic.
-    _PRESETS: ClassVar[dict[str, Callable[..., Ontology]]] = {}
+    def __post_init__(self) -> None:
+        if not isinstance(self.types, Mapping):
+            raise TypeError("ontology types must be a mapping")
+        if not isinstance(self.closed_world, bool):
+            raise TypeError("ontology closed_world must be a bool")
+        copied: dict[str, EventType] = {}
+        for name, event_type in self.types.items():
+            if not isinstance(name, str) or not name:
+                raise TypeError("ontology event type names must be non-empty text")
+            if not isinstance(event_type, EventType) or event_type.name != name:
+                raise TypeError("ontology types must map names to matching EventType values")
+            copied[name] = event_type
+        object.__setattr__(self, "types", MappingProxyType(copied))
 
     def get(self, name: str) -> EventType | None:
         return self.types.get(name)
 
     @classmethod
-    def from_dict(cls, data: dict) -> Ontology:
-        types = {}
-        for name, spec in (data.get("event_types") or {}).items():
-            spec = spec or {}
+    def from_dict(cls, data: Mapping[str, object]) -> Ontology:
+        if not isinstance(data, Mapping):
+            raise TypeError("ontology definition must be a mapping")
+        unknown_root = set(data) - _ROOT_FIELDS
+        if unknown_root:
+            raise ValueError(f"ontology has unsupported fields: {sorted(unknown_root)}")
+        raw_types = data.get("event_types", {})
+        if raw_types is None:
+            raw_types = {}
+        if not isinstance(raw_types, Mapping):
+            raise TypeError("ontology event_types must be a mapping")
+        raw_closed_world = data.get("closed_world", False)
+        if not isinstance(raw_closed_world, bool):
+            raise TypeError("ontology closed_world must be a bool")
+        types: dict[str, EventType] = {}
+        for name, raw_spec in raw_types.items():
+            if not isinstance(name, str) or not name:
+                raise TypeError("ontology event type names must be non-empty text")
+            if raw_spec is None:
+                raw_spec = {}
+            if not isinstance(raw_spec, Mapping):
+                raise TypeError(f"event type {name!r} definition must be a mapping")
+            unknown_fields = set(raw_spec) - _EVENT_TYPE_FIELDS
+            if unknown_fields:
+                raise ValueError(
+                    f"event type {name!r} has unsupported fields: {sorted(unknown_fields)}"
+                )
+            spec = dict(raw_spec)
+            required = spec.get("required", ())
+            constraints = spec.get("constraints", {})
+            description = spec.get("description", "")
+            additional_properties = spec.get("additional_properties", True)
+            if not isinstance(required, list | tuple):
+                raise TypeError(f"event type {name!r} required must be a sequence")
+            if not isinstance(constraints, Mapping):
+                raise TypeError(f"event type {name!r} constraints must be a mapping")
+            if not isinstance(description, str):
+                raise TypeError(f"event type {name!r} description must be text")
+            if not isinstance(additional_properties, bool):
+                raise TypeError(f"event type {name!r} additional_properties must be a bool")
             types[name] = EventType(
                 name=name,
-                required=list(spec.get("required", [])),
-                constraints=dict(spec.get("constraints", {})),
-                description=spec.get("description", ""),
-                additional_properties=bool(spec.get("additional_properties", True)),
+                required=tuple(required),
+                constraints=constraints,
+                description=description,
+                additional_properties=additional_properties,
             )
-        return cls(types=types, closed_world=bool(data.get("closed_world", False)))
+        return cls(types=types, closed_world=raw_closed_world)
 
     @classmethod
     def from_file(cls, path: str) -> Ontology:
         import yaml
 
-        # YAML is UTF-8 by specification (YAML 1.2 §5.2) — the file's encoding is
-        # not a local question, so it must not be read through the locale codec.
-        # On a Korean Windows box that locale is cp949 and an ontology carrying
-        # Hangul dies with `'cp949' codec can't decode byte 0x80` (measured
-        # 2026-08-07, beadscan_tester). The loop then reports it as a config
-        # error two layers up, which reads like a broken spec rather than a
-        # broken reader.
+        # YAML is UTF-8 by specification (YAML 1.2 §5.2), so do not use the
+        # platform locale codec.
         with open(path, encoding="utf-8") as fh:
             return cls.from_dict(yaml.safe_load(fh) or {})
-
-    @classmethod
-    def register_preset(cls, name: str, factory: Callable[..., Ontology]) -> None:
-        """Register a shipped preset ontology factory under ``name``.
-
-        The inversion seam: preset modules call this at import time
-        (e.g. :mod:`ooptdd.semconv` registers ``"gen_ai"``), so the core never imports a
-        preset. Importing the ``ooptdd`` package wires the shipped built-ins.
-        """
-        cls._PRESETS[name] = factory
-
-    @classmethod
-    def builtin(cls, name: str, **kwargs) -> Ontology:
-        """Resolve a registered preset ontology by ``name`` — e.g. ``"gen_ai"``, the
-        version-pinned OpenTelemetry GenAI semconv vocabulary (see :mod:`ooptdd.semconv`).
-
-        Presets self-register at import; ``import ooptdd`` wires the shipped built-ins.
-        """
-        try:
-            factory = cls._PRESETS[name]
-        except KeyError:
-            have = ", ".join(sorted(cls._PRESETS)) or "none (is the preset module imported?)"
-            raise ValueError(f"unknown builtin ontology {name!r} (have: {have})") from None
-        return factory(**kwargs)
 
 
 _COMPAT_MODES = ("backward", "forward", "full")
@@ -240,16 +343,24 @@ def check_conformance(
     *,
     event_type: str | None = None,
     closed_world: bool | None = None,
+    excluded_event_types: Collection[str] = (),
 ) -> dict:
     """Validate events against the ontology.
 
     ``event_type``: restrict to events of this name (None / "*" = all events).
     ``closed_world``: override the ontology default; when True an event whose name
     is not a declared type is reported as ``unknown_event_type`` drift.
+    ``excluded_event_types``: exact carrier or control event names a caller explicitly
+    excludes from this vocabulary. Prefixes and implicit framework exemptions are not used.
 
     Returns ``{passed, checked, violations:[{event,index,problems}], unknown:[names]}``.
     """
     cw = ontology.closed_world if closed_world is None else closed_world
+    if not isinstance(cw, bool):
+        raise TypeError("closed_world must be a bool")
+    excluded = frozenset(excluded_event_types)
+    if not all(isinstance(name, str) and name for name in excluded):
+        raise TypeError("excluded_event_types must contain non-empty text")
     scope_all = event_type in (None, "*")
     violations: list[dict] = []
     unknown: list[str] = []
@@ -262,18 +373,15 @@ def check_conformance(
             # An event envelope without a string event name cannot conform to any
             # declared vocabulary. Treat it as malformed evidence even in open-world
             # mode; silently skipping it could turn corrupt readback into a green gate.
-            violations.append({
-                "event": name,
-                "index": i,
-                "problems": ["event name must be a string"],
-            })
+            violations.append(
+                {
+                    "event": name,
+                    "index": i,
+                    "problems": ["event name must be a string"],
+                }
+            )
             continue
-        # ooptdd.* framework meta-events (e.g. ooptdd.verdict from emit_verdict_event) are not
-        # part of any SUT's domain vocabulary — a closed-world DOMAIN ontology must not flag them
-        # as drift, or shipping a verdict annotation into a cid would RED a conforms gate over it.
-        # A domain ontology that deliberately declares an ooptdd.* type still validates it (get()
-        # hits below); this only exempts the UNDECLARED case.
-        if name.startswith("ooptdd.") and ontology.get(name) is None:
+        if name in excluded:
             continue
         et = ontology.get(name)
         if et is None:
@@ -281,8 +389,13 @@ def check_conformance(
             # event must have a declared type.
             if cw and (scope_all or name == event_type):
                 unknown.append(name)
-                violations.append({"event": name, "index": i,
-                                   "problems": ["unknown_event_type (closed-world drift)"]})
+                violations.append(
+                    {
+                        "event": name,
+                        "index": i,
+                        "problems": ["unknown_event_type (closed-world drift)"],
+                    }
+                )
             continue
         checked += 1
         problems = et.validate(ev)

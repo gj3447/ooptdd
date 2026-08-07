@@ -20,8 +20,7 @@
     "status": {
       "enum": [
         "complete",
-        "superseded",
-        "incomplete"
+        "superseded"
       ]
     },
     "receipt_id": {
@@ -60,9 +59,6 @@
     },
     "trace": {
       "$ref": "#/$defs/trace"
-    },
-    "legacy": {
-      "$ref": "#/$defs/legacy"
     },
     "missing_obligations": {
       "type": "array",
@@ -549,31 +545,6 @@
         }
       }
     },
-    "legacy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "canonicalization",
-        "schema_version",
-        "source",
-        "source_object_sha256"
-      ],
-      "properties": {
-        "schema_version": {
-          "const": "symposium-ooptdd-receipt/v1"
-        },
-        "canonicalization": {
-          "const": "legacy-parsed-json-object/v1"
-        },
-        "source_object_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "source": {
-          "type": "object"
-        }
-      }
-    },
     "integrity": {
       "type": "object",
       "additionalProperties": false,
@@ -639,11 +610,6 @@
           "status",
           "trace"
         ],
-        "not": {
-          "required": [
-            "legacy"
-          ]
-        },
         "properties": {
           "missing_obligations": {
             "maxItems": 0
@@ -653,88 +619,6 @@
               "value": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
-              }
-            },
-            "required": [
-              "value"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "status": {
-            "const": "incomplete"
-          }
-        },
-        "required": [
-          "status"
-        ]
-      },
-      "then": {
-        "required": [
-          "cycle",
-          "integrity",
-          "legacy",
-          "missing_obligations",
-          "receipt_id",
-          "schema_version",
-          "status"
-        ],
-        "not": {
-          "anyOf": [
-            {
-              "required": [
-                "budget"
-              ]
-            },
-            {
-              "required": [
-                "findings"
-              ]
-            },
-            {
-              "required": [
-                "lineage"
-              ]
-            },
-            {
-              "required": [
-                "material_lock"
-              ]
-            },
-            {
-              "required": [
-                "mutation"
-              ]
-            },
-            {
-              "required": [
-                "oracle_boundary"
-              ]
-            },
-            {
-              "required": [
-                "runs"
-              ]
-            },
-            {
-              "required": [
-                "trace"
-              ]
-            }
-          ]
-        },
-        "properties": {
-          "missing_obligations": {
-            "minItems": 1
-          },
-          "integrity": {
-            "properties": {
-              "value": {
-                "type": "null"
               }
             },
             "required": [

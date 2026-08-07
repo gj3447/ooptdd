@@ -375,7 +375,7 @@ wheels = [
 
 [[package]]
 name = "ooptdd"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },
@@ -395,6 +395,9 @@ otel = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
 ]
+pytest = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -402,6 +405,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.38" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.38" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest", marker = "extra == 'pytest'", specifier = ">=7.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
@@ -409,7 +413,7 @@ requires-dist = [
     { name = "tomli", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
-provides-extras = ["otel", "dev"]
+provides-extras = ["otel", "pytest", "dev"]
 
 [[package]]
 name = "opentelemetry-api"

@@ -1,49 +1,32 @@
-"""Caller-owned ports around the pure Ouroboros reducer.
-
-The protocol module defines effect intent and receipt boundaries, but it owns no threads,
-database, filesystem, or retry loop.  Adapters decide how to make these ports durable.
-"""
+"""Caller-owned ports; the kernel performs no effects itself."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Protocol
 
-from .model import CycleSnapshot, EffectIntent
+from .model import CompletionEvidence, Payload, ProtocolDefinition, ProtocolSnapshot
 
 
-@dataclass(frozen=True)
-class EffectResult:
-    effect_id: str
-    applied: bool
-    detail: str = ""
+class PolicyEvaluator(Protocol):
+    definition: ProtocolDefinition
+    version: str
+    policy_digest: str
 
+    def validate_payload(self, name: str, version: str, payload: Payload) -> bool: ...
 
-class EffectSink(Protocol):
-    """Execute or deduplicate an effect using ``effect.effect_id`` as the key."""
-
-    def apply(self, effect: EffectIntent) -> EffectResult: ...
+    def evaluate_completion(self, version: str, payload: Payload) -> CompletionEvidence: ...
 
 
 class SnapshotStore(Protocol):
-    """Optional state authority supplied by a future runner, not by this module."""
-
-    def load(self, cycle_id: str) -> CycleSnapshot | None: ...
-
+    def load(self, workflow_id: str) -> ProtocolSnapshot | None: ...
     def compare_and_swap(
-        self,
-        cycle_id: str,
-        expected_revision: int,
-        snapshot: CycleSnapshot,
+        self, workflow_id: str, expected_revision: int, snapshot: ProtocolSnapshot
     ) -> bool: ...
 
 
 class ReceiptStore(Protocol):
-    """Persist a completed receipt by its authoritative content hash."""
-
-    def put(self, receipt_sha256: str, receipt_json: bytes) -> None: ...
-
-    def get(self, receipt_sha256: str) -> bytes | None: ...
+    def put(self, receipt_digest: str, receipt_json: bytes) -> None: ...
+    def get(self, receipt_digest: str) -> bytes | None: ...
 
 
-__all__ = ("EffectResult", "EffectSink", "ReceiptStore", "SnapshotStore")
+__all__ = ("PolicyEvaluator", "ReceiptStore", "SnapshotStore")

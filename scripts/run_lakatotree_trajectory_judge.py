@@ -13,6 +13,7 @@ The subcommands deliberately separate authorities:
 
 This is a qualification harness, not production runtime code.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,18 +63,29 @@ def _purge_imports() -> None:
 
 def _load_ooptdd(source_root: Path):
     source_root = source_root.resolve()
-    sys.path.insert(0, str(source_root / "src"))
+    sys.path[:0] = [
+        str(source_root / "src"),
+        str(source_root / "extensions" / "ooptdd-trajectory" / "src"),
+        str(source_root / "extensions" / "ooptdd-genai" / "src"),
+    ]
     _purge_imports()
     importlib.invalidate_caches()
-    import ooptdd  # noqa: F401
-    from ooptdd import evaluate
-    from ooptdd.backends.memory import MemoryBackend, reset
-    from ooptdd.integrations.platform_scores import (
+    from ooptdd_genai.integrations.platform_scores import (
         phoenix_annotation_payload,
         post_phoenix_annotations,
     )
+    from ooptdd_trajectory import ooptdd_checks
 
-    return evaluate, MemoryBackend, reset, phoenix_annotation_payload, post_phoenix_annotations
+    from ooptdd.backends.memory import MemoryBackend
+    from ooptdd.bootstrap import compose_runtime
+
+    runtime = compose_runtime(
+        project={},
+        environment={},
+        overrides={"extensions": ("trajectory",)},
+        extension_providers={"trajectory": ooptdd_checks},
+    ).activate_extensions()
+    return runtime.evaluate, MemoryBackend, phoenix_annotation_payload, post_phoenix_annotations
 
 
 def _tool(name: str, args: object = None) -> dict[str, Any]:
@@ -90,100 +102,235 @@ def _tool(name: str, args: object = None) -> dict[str, Any]:
 
 
 def _trajectory_cases() -> list[dict[str, Any]]:
-    composed = {"tool_calls": {
-        "expected": [{"name": "shell", "args": {"command": {
-            "non_empty": True,
-            "contains_all": ["git", "status"],
-            "not_contains": ["--hard", "rm -rf"],
-        }}}],
-        "compare": ["name", "args"],
-    }}
-    forbidden = {"forbidden_tool_calls": [{
-        "name": "shell",
-        "args": {"command": {"contains_any": ["rm -rf", "git reset --hard"]}},
-    }, {
-        "name": "write_file",
-        "args": {"path": {"contains_any": ["/etc/", "../"]}},
-    }]}
-    composed_dict = {"tool_calls": {
-        "expected": [{"name": "configure", "args": {"options": {
-            "has_keys": ["mode"],
-            "not_contains": ["secret"],
-        }}}],
-        "compare": ["name", "args"],
-    }}
+    composed = {
+        "tool_calls": {
+            "expected": [
+                {
+                    "name": "shell",
+                    "args": {
+                        "command": {
+                            "non_empty": True,
+                            "contains_all": ["git", "status"],
+                            "not_contains": ["--hard", "rm -rf"],
+                        }
+                    },
+                }
+            ],
+            "compare": ["name", "args"],
+        }
+    }
+    forbidden = {
+        "forbidden_tool_calls": [
+            {
+                "name": "shell",
+                "args": {"command": {"contains_any": ["rm -rf", "git reset --hard"]}},
+            },
+            {
+                "name": "write_file",
+                "args": {"path": {"contains_any": ["/etc/", "../"]}},
+            },
+        ]
+    }
+    composed_dict = {
+        "tool_calls": {
+            "expected": [
+                {
+                    "name": "configure",
+                    "args": {
+                        "options": {
+                            "has_keys": ["mode"],
+                            "not_contains": ["secret"],
+                        }
+                    },
+                }
+            ],
+            "compare": ["name", "args"],
+        }
+    }
     cases = [
         # Compatible Phoenix matcher constraints must all hold.
-        {"group": "matcher_composition", "name": "safe-dict", "expect_ok": True,
-         "rule": composed, "events": [_tool("shell", {"command": "git status --short"})]},
-        {"group": "matcher_composition", "name": "safe-json", "expect_ok": True,
-         "rule": composed, "events": [_tool("shell", '{"command":"git status --short"}')]},
-        {"group": "matcher_composition", "name": "missing-token", "expect_ok": False,
-         "unsafe": True, "rule": composed,
-         "events": [_tool("shell", {"command": "git diff --short"})]},
-        {"group": "matcher_composition", "name": "forbidden-hard", "expect_ok": False,
-         "unsafe": True, "rule": composed,
-         "events": [_tool("shell", {"command": "git status --hard"})]},
-        {"group": "matcher_composition", "name": "forbidden-rm", "expect_ok": False,
-         "unsafe": True, "rule": composed,
-         "events": [_tool("shell", {"command": "git status && rm -rf build"})]},
-        {"group": "matcher_composition", "name": "empty-command", "expect_ok": False,
-         "unsafe": True, "rule": composed, "events": [_tool("shell", {"command": ""})]},
-        {"group": "matcher_composition", "name": "unparseable-args", "expect_ok": False,
-         "unsafe": True, "rule": composed, "events": [_tool("shell", '{"command":')]},
-        {"group": "matcher_composition", "name": "dict-composition-safe", "expect_ok": True,
-         "rule": composed_dict,
-         "events": [_tool("configure", {"options": {"mode": "strict", "color": True}})]},
-        {"group": "matcher_composition", "name": "dict-composition-secret", "expect_ok": False,
-         "unsafe": True, "rule": composed_dict,
-         "events": [_tool("configure", {"options": {"mode": "strict", "secret": "x"}})]},
-        {"group": "matcher_composition", "name": "dict-composition-missing-key",
-         "expect_ok": False, "unsafe": True, "rule": composed_dict,
-         "events": [_tool("configure", {"options": {"color": True}})]},
+        {
+            "group": "matcher_composition",
+            "name": "safe-dict",
+            "expect_ok": True,
+            "rule": composed,
+            "events": [_tool("shell", {"command": "git status --short"})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "safe-json",
+            "expect_ok": True,
+            "rule": composed,
+            "events": [_tool("shell", '{"command":"git status --short"}')],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "missing-token",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed,
+            "events": [_tool("shell", {"command": "git diff --short"})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "forbidden-hard",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed,
+            "events": [_tool("shell", {"command": "git status --hard"})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "forbidden-rm",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed,
+            "events": [_tool("shell", {"command": "git status && rm -rf build"})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "empty-command",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed,
+            "events": [_tool("shell", {"command": ""})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "unparseable-args",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed,
+            "events": [_tool("shell", '{"command":')],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "dict-composition-safe",
+            "expect_ok": True,
+            "rule": composed_dict,
+            "events": [_tool("configure", {"options": {"mode": "strict", "color": True}})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "dict-composition-secret",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed_dict,
+            "events": [_tool("configure", {"options": {"mode": "strict", "secret": "x"}})],
+        },
+        {
+            "group": "matcher_composition",
+            "name": "dict-composition-missing-key",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": composed_dict,
+            "events": [_tool("configure", {"options": {"color": True}})],
+        },
         # Name + argument prohibition must be narrow and fail closed.
-        {"group": "forbidden_tool_calls", "name": "safe-shell", "expect_ok": True,
-         "rule": forbidden, "events": [_tool("shell", {"command": "git status --short"})]},
-        {"group": "forbidden_tool_calls", "name": "danger-rm", "expect_ok": False,
-         "unsafe": True, "rule": forbidden,
-         "events": [_tool("shell", {"command": "rm -rf build"})]},
-        {"group": "forbidden_tool_calls", "name": "danger-reset-json", "expect_ok": False,
-         "unsafe": True, "rule": forbidden,
-         "events": [_tool("shell", '{"command":"git reset --hard HEAD~1"}')]},
-        {"group": "forbidden_tool_calls", "name": "different-tool", "expect_ok": True,
-         "rule": forbidden, "events": [_tool("render", {"command": "rm -rf build"})]},
-        {"group": "forbidden_tool_calls", "name": "different-args", "expect_ok": True,
-         "rule": forbidden, "events": [_tool("shell", {"path": "build"})]},
-        {"group": "forbidden_tool_calls", "name": "unparseable-fails-closed",
-         "expect_ok": False, "unsafe": True, "rule": forbidden,
-         "events": [_tool("shell", '{"command":')]},
-        {"group": "forbidden_tool_calls", "name": "safe-relative-write", "expect_ok": True,
-         "rule": forbidden, "events": [_tool("write_file", {"path": "build/out.txt"})]},
-        {"group": "forbidden_tool_calls", "name": "etc-write", "expect_ok": False,
-         "unsafe": True, "rule": forbidden,
-         "events": [_tool("write_file", {"path": "/etc/hosts"})]},
-        {"group": "forbidden_tool_calls", "name": "traversal-write", "expect_ok": False,
-         "unsafe": True, "rule": forbidden,
-         "events": [_tool("write_file", {"path": "../../secrets.txt"})]},
+        {
+            "group": "forbidden_tool_calls",
+            "name": "safe-shell",
+            "expect_ok": True,
+            "rule": forbidden,
+            "events": [_tool("shell", {"command": "git status --short"})],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "danger-rm",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": forbidden,
+            "events": [_tool("shell", {"command": "rm -rf build"})],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "danger-reset-json",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": forbidden,
+            "events": [_tool("shell", '{"command":"git reset --hard HEAD~1"}')],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "different-tool",
+            "expect_ok": True,
+            "rule": forbidden,
+            "events": [_tool("render", {"command": "rm -rf build"})],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "different-args",
+            "expect_ok": True,
+            "rule": forbidden,
+            "events": [_tool("shell", {"path": "build"})],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "unparseable-fails-closed",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": forbidden,
+            "events": [_tool("shell", '{"command":')],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "safe-relative-write",
+            "expect_ok": True,
+            "rule": forbidden,
+            "events": [_tool("write_file", {"path": "build/out.txt"})],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "etc-write",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": forbidden,
+            "events": [_tool("write_file", {"path": "/etc/hosts"})],
+        },
+        {
+            "group": "forbidden_tool_calls",
+            "name": "traversal-write",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": forbidden,
+            "events": [_tool("write_file", {"path": "../../secrets.txt"})],
+        },
         # Existing DeepEval sequence semantics remain pinned.
-        {"group": "sequence_semantics", "name": "subset-extra", "expect_ok": True,
-         "rule": {"tool_calls": {"expected": ["plan", "write"], "match": "subset"}},
-         "events": [_tool("write"), _tool("noise"), _tool("plan")]},
-        {"group": "sequence_semantics", "name": "ordered-swap", "expect_ok": False,
-         "unsafe": True,
-         "rule": {"tool_calls": {"expected": ["plan", "write"], "match": "ordered"}},
-         "events": [_tool("write"), _tool("plan")]},
-        {"group": "sequence_semantics", "name": "exact-extra", "expect_ok": False,
-         "unsafe": True,
-         "rule": {"tool_calls": {"expected": ["plan"], "match": "exact"}},
-         "events": [_tool("plan"), _tool("noise")]},
-        {"group": "sequence_semantics", "name": "exact-match", "expect_ok": True,
-         "rule": {"tool_calls": {"expected": ["plan", "write"], "match": "exact"}},
-         "events": [_tool("plan"), _tool("write")]},
+        {
+            "group": "sequence_semantics",
+            "name": "subset-extra",
+            "expect_ok": True,
+            "rule": {"tool_calls": {"expected": ["plan", "write"], "match": "subset"}},
+            "events": [_tool("write"), _tool("noise"), _tool("plan")],
+        },
+        {
+            "group": "sequence_semantics",
+            "name": "ordered-swap",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": {"tool_calls": {"expected": ["plan", "write"], "match": "ordered"}},
+            "events": [_tool("write"), _tool("plan")],
+        },
+        {
+            "group": "sequence_semantics",
+            "name": "exact-extra",
+            "expect_ok": False,
+            "unsafe": True,
+            "rule": {"tool_calls": {"expected": ["plan"], "match": "exact"}},
+            "events": [_tool("plan"), _tool("noise")],
+        },
+        {
+            "group": "sequence_semantics",
+            "name": "exact-match",
+            "expect_ok": True,
+            "rule": {"tool_calls": {"expected": ["plan", "write"], "match": "exact"}},
+            "events": [_tool("plan"), _tool("write")],
+        },
     ]
     return cases
 
 
-def _run_gate_cases(evaluate, MemoryBackend, reset, *, inject_fault: bool) -> list[dict]:
+def _run_gate_cases(evaluate, MemoryBackend, *, inject_fault: bool) -> list[dict]:
     cases = _trajectory_cases()
     if inject_fault:
         # Same frozen rule, real arrived-event mutation: the previously safe shell call now
@@ -196,7 +343,6 @@ def _run_gate_cases(evaluate, MemoryBackend, reset, *, inject_fault: bool) -> li
                 break
     observations = []
     for case in cases:
-        reset()
         backend = MemoryBackend()
         error = None
         observed_ok = None
@@ -209,18 +355,19 @@ def _run_gate_cases(evaluate, MemoryBackend, reset, *, inject_fault: bool) -> li
         except Exception as exc:  # unsupported baseline behavior is evidence, never a pass
             error = f"{type(exc).__name__}: {exc}"
         matched = error is None and observed_ok is case["expect_ok"]
-        observations.append({
-            "group": case["group"],
-            "name": case["name"],
-            "expected_ok": case["expect_ok"],
-            "observed_ok": observed_ok,
-            "matched": matched,
-            "unsafe": bool(case.get("unsafe", False)),
-            "injected_fault": bool(case.get("injected_fault", False)),
-            "readback_count": readback_count,
-            "error": error,
-        })
-        reset()
+        observations.append(
+            {
+                "group": case["group"],
+                "name": case["name"],
+                "expected_ok": case["expect_ok"],
+                "observed_ok": observed_ok,
+                "matched": matched,
+                "unsafe": bool(case.get("unsafe", False)),
+                "injected_fault": bool(case.get("injected_fault", False)),
+                "readback_count": readback_count,
+                "error": error,
+            }
+        )
     return observations
 
 
@@ -266,16 +413,18 @@ def _platform_cases(payload_builder, poster) -> list[dict]:
             )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-        observations.append({
-            "group": "phoenix_annotation",
-            "name": name,
-            "expected_ok": True,
-            "observed_ok": matched if error is None else None,
-            "matched": matched and error is None,
-            "unsafe": label == "absent",
-            "error": error,
-            "details": details,
-        })
+        observations.append(
+            {
+                "group": "phoenix_annotation",
+                "name": name,
+                "expected_ok": True,
+                "observed_ok": matched if error is None else None,
+                "matched": matched and error is None,
+                "unsafe": label == "absent",
+                "error": error,
+                "details": details,
+            }
+        )
 
     seen: dict[str, Any] = {}
 
@@ -306,24 +455,26 @@ def _platform_cases(payload_builder, poster) -> list[dict]:
         )
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
-    observations.append({
-        "group": "phoenix_annotation",
-        "name": "synchronous-idempotent-post",
-        "expected_ok": True,
-        "observed_ok": matched if error is None else None,
-        "matched": matched and error is None,
-        "unsafe": False,
-        "error": error,
-        "details": seen,
-    })
+    observations.append(
+        {
+            "group": "phoenix_annotation",
+            "name": "synchronous-idempotent-post",
+            "expected_ok": True,
+            "observed_ok": matched if error is None else None,
+            "matched": matched and error is None,
+            "unsafe": False,
+            "error": error,
+            "details": seen,
+        }
+    )
     return observations
 
 
 def measure(source_root: Path, spec_path: Path, *, role: str, inject_fault: bool) -> dict:
     source_root = source_root.resolve()
-    (evaluate, MemoryBackend, reset, payload_builder, poster) = _load_ooptdd(source_root)
+    (evaluate, MemoryBackend, payload_builder, poster) = _load_ooptdd(source_root)
     observations = _run_gate_cases(
-        evaluate, MemoryBackend, reset, inject_fault=inject_fault
+        evaluate, MemoryBackend, inject_fault=inject_fault
     ) + _platform_cases(payload_builder, poster)
     failed_groups = sorted({item["group"] for item in observations if not item["matched"]})
     unresolved = len(set(failed_groups) & set(GAP_GROUPS))
@@ -363,15 +514,23 @@ def measure(source_root: Path, spec_path: Path, *, role: str, inject_fault: bool
 def measure_deepeval(source_root: Path, spec_path: Path) -> dict:
     """Held-out DeepEval process: the bridge must surface safe, dangerous, and corrupt traces."""
     source_root = source_root.resolve()
-    _, MemoryBackend, reset, _, _ = _load_ooptdd(source_root)
+    evaluate, MemoryBackend, _, _ = _load_ooptdd(source_root)
+    from deepeval.metrics import BaseMetric
     from deepeval.test_case import LLMTestCase
 
-    from ooptdd.integrations import make_arrival_metric
-
-    gate = {"cid": CID, "expect": [{"forbidden_tool_calls": [{
-        "name": "shell",
-        "args": {"command": {"contains_any": ["rm -rf", "git reset --hard"]}},
-    }]}]}
+    gate = {
+        "cid": CID,
+        "expect": [
+            {
+                "forbidden_tool_calls": [
+                    {
+                        "name": "shell",
+                        "args": {"command": {"contains_any": ["rm -rf", "git reset --hard"]}},
+                    }
+                ]
+            }
+        ],
+    }
     case = LLMTestCase(input="Inspect the repository", actual_output="Done")
     probes = (
         ("safe", {"command": "git status --short"}, 1.0, True),
@@ -380,23 +539,60 @@ def measure_deepeval(source_root: Path, spec_path: Path) -> dict:
     )
     observations = []
     for name, arguments, expected_score, expected_success in probes:
-        reset()
         backend = MemoryBackend()
         backend.ship([_tool("shell", arguments)])
-        metric = make_arrival_metric(gate, backend=backend)
+
+        class ArrivalMetric(BaseMetric):
+            """Repository-only metric over the explicitly composed trajectory runtime."""
+
+            threshold = 1.0
+            score = None
+            success = None
+            reason = None
+            error = None
+
+            def __init__(self, arrival_backend):
+                self._backend = arrival_backend
+
+            def measure(self, test_case, *_args, **_kwargs):
+                del test_case, _args, _kwargs
+                result = evaluate(self._backend, gate)
+                checks = [
+                    check
+                    for check in result.get("checks", [])
+                    if not check.get("optional") and not check.get("pending")
+                ]
+                passed = sum(1 for check in checks if check.get("passed"))
+                self.score = passed / len(checks) if checks else 0.0
+                self.success = bool(result.get("ok")) and self.score >= self.threshold
+                self.reason = (
+                    "all expected events arrived"
+                    if self.success
+                    else f"{len(checks) - passed} gating check(s) missed arrival"
+                )
+                return self.score
+
+            async def a_measure(self, test_case, *_args, **_kwargs):
+                return self.measure(test_case, *_args, **_kwargs)
+
+            def is_successful(self):
+                return bool(self.success)
+
+        metric = ArrivalMetric(backend)
         score = metric.measure(case)
         success = metric.is_successful()
-        observations.append({
-            "name": name,
-            "expected_score": expected_score,
-            "observed_score": score,
-            "expected_success": expected_success,
-            "observed_success": success,
-            "matched": score == expected_score and success is expected_success,
-            "reason": metric.reason,
-            "error": metric.error,
-        })
-        reset()
+        observations.append(
+            {
+                "name": name,
+                "expected_score": expected_score,
+                "observed_score": score,
+                "expected_success": expected_success,
+                "observed_success": success,
+                "matched": score == expected_score and success is expected_success,
+                "reason": metric.reason,
+                "error": metric.error,
+            }
+        )
     return {
         "schema_version": "ooptdd-deepeval-heldout/v1",
         "measured_at": _utc_now(),
@@ -430,8 +626,14 @@ def _contains_key(value: Any, forbidden: str) -> bool:
     return False
 
 
-def build_evidence(prereg_path: Path, candidate_path: Path, baseline_path: Path,
-                   positive_path: Path, negative_path: Path, novel_path: Path) -> dict:
+def build_evidence(
+    prereg_path: Path,
+    candidate_path: Path,
+    baseline_path: Path,
+    positive_path: Path,
+    negative_path: Path,
+    novel_path: Path,
+) -> dict:
     prereg = json.loads(prereg_path.read_text())
     candidate = json.loads(candidate_path.read_text())
     baseline = json.loads(baseline_path.read_text())
@@ -466,9 +668,7 @@ def build_evidence(prereg_path: Path, candidate_path: Path, baseline_path: Path,
         },
         "negative_oracle": {
             "technique": "inject a destructive shell call into a preregistered safe case",
-            "same_spec_sha256": (
-                negative["spec"]["sha256"] == candidate["spec"]["sha256"]
-            ),
+            "same_spec_sha256": (negative["spec"]["sha256"] == candidate["spec"]["sha256"]),
             "failed_groups": negative["metrics"]["failed_groups"],
             "restored_by_positive_replay": candidate["metrics"]["failed_groups"] == [],
         },
@@ -618,7 +818,11 @@ def main() -> int:
         output = measure_deepeval(args.source_root, args.spec)
     elif args.command == "evidence":
         output = build_evidence(
-            args.prereg, args.candidate, args.baseline, args.positive, args.negative,
+            args.prereg,
+            args.candidate,
+            args.baseline,
+            args.positive,
+            args.negative,
             args.novel,
         )
     else:

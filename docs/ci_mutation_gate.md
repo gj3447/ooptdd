@@ -1,12 +1,13 @@
 # Mutation score as a CI credibility gate
 
 A green gate proves the expected events arrived. It does not prove the gate
-could have noticed if they hadn't — or if they had arrived *wrong*. `ooptdd
-mutate` measures exactly that second thing, and this page shows how to make the
+could have noticed if they hadn't — or if they had arrived *wrong*.
+`ooptdd-mutation mutate` measures exactly that second thing, and this page shows
+how to make the
 measurement a blocking CI artifact:
 
 ```bash
-ooptdd mutate gates/deploy.yaml --events baseline_events.json --min-score 0.8
+ooptdd-mutation mutate gates/deploy.yaml --events baseline_events.json --min-score 0.8
 ```
 
 The score is a **credibility number for the gate spec itself**: of the
@@ -17,9 +18,44 @@ tested against planted failures" — the same reason
 [warn → strict](warn_to_strict.md) demands a caught planted loss before
 trusting a verifier's silence.
 
+## Install and operator boundary
+
+Mutation analysis is not part of the `ooptdd` base distribution. Install the
+base and the separately versioned extension from the same compatible release
+line:
+
+```bash
+# From PyPI after the distributions are published:
+python -m pip install 'ooptdd>=0.6,<0.7' 'ooptdd-mutation>=0.1,<0.2'
+
+# From this monorepo checkout:
+python -m pip install . ./extensions/ooptdd-trajectory ./extensions/ooptdd-mutation
+```
+
+The `ooptdd-mutation` executable exists only when the extension is installed.
+It reads a gate and a baseline event file; it does not query a live backend or
+mutate production data. Operators should generate or export the baseline first,
+retain the JSON report as a CI artifact, and treat exit `2` as ungraded or
+invalid evidence rather than as a passing score.
+
+Library embedding is explicit too. Importing the extension registers nothing:
+
+```python
+from ooptdd.bootstrap import compose_runtime
+from ooptdd_mutation import mutation_report, ooptdd_checks
+
+runtime = compose_runtime(
+    project={"extensions": ["mutation"]},
+    environment={},
+    extension_providers={"mutation": ooptdd_checks},
+).activate_extensions()
+report = mutation_report(events, spec, registry=runtime.check_registry)
+```
+
 ## What is measured
 
-`mutation_report(events, spec)` (`src/ooptdd/mutation.py`) takes a *passing*
+`mutation_report(events, spec)`
+(`extensions/ooptdd-mutation/src/ooptdd_mutation/analysis.py`) takes a *passing*
 (events, gate) pair, derives labeled mutant event-lists from the gate's own
 expectations, and re-runs the gate on each. Three operators:
 
@@ -59,7 +95,8 @@ refuses to bless (see the exit ladder).
 
 ## The exit ladder
 
-`_cmd_mutate` (`src/ooptdd/cli.py`) maps the report onto the CLI's shared
+The extension CLI (`extensions/ooptdd-mutation/src/ooptdd_mutation/cli.py`) maps
+the report onto the shared
 0/1/2 rungs, in this order:
 
 | condition | exit | meaning |
@@ -103,14 +140,16 @@ through anyway, at measurement time.
 
 ## A copy-pasteable GitHub Actions step
 
-ooptdd is not yet on PyPI, so install from a checkout (vendor, submodule, or a
-sibling clone — adjust the path):
+Until all four distributions are published, install the base and extension
+projects from the checkout:
 
 ```yaml
 - name: Gate mutation score (credibility gate)
   run: |
-    pip install ./ooptdd
-    ooptdd mutate gates/deploy.yaml \
+    python -m pip install ./ooptdd \
+      ./ooptdd/extensions/ooptdd-trajectory \
+      ./ooptdd/extensions/ooptdd-mutation
+    ooptdd-mutation mutate gates/deploy.yaml \
       --events ci/baseline_events.json \
       --min-score 0.8 \
       --json > mutation-report.json
@@ -151,7 +190,7 @@ side by side:
 | artifact | command | what it proves |
 |---|---|---|
 | verdict | `ooptdd gate spec.yaml --report junit --report-out gate.xml` | these events actually arrived (readback from the store) |
-| credibility | `ooptdd mutate spec.yaml --events baseline.json --json > mutation-report.json` | the gate would have noticed derived deviations |
+| credibility | `ooptdd-mutation mutate spec.yaml --events baseline.json --json > mutation-report.json` | the gate would have noticed derived deviations |
 
 The JUnit renderer (`src/ooptdd/reports.py`) makes the verdict a first-class CI
 citizen: one `<testcase>` per check, INFRA renders as `skipped` (never
@@ -207,7 +246,8 @@ gate would wave through today.
   uncorroborated").
 - `ooptdd lint` / `ooptdd strength` — the static vacuity and weakening
   detectors this measurement cross-checks dynamically.
-- `src/ooptdd/mutation.py` — operator derivation and the canary, with the
+- `extensions/ooptdd-mutation/src/ooptdd_mutation/analysis.py` — operator
+  derivation and the canary, with the
   design rationale inline.
 
 ## The winner's-curse lock (`--lock`)
@@ -216,7 +256,7 @@ A mutation score invites a quiet cheat: run, peek, then pick the threshold (or
 trim the gate) so the number reads as a pass. `--lock` refuses the re-pick:
 
 ```bash
-ooptdd mutate gates/deploy.yaml --events baseline.json --lock deploy.lock.json
+ooptdd-mutation mutate gates/deploy.yaml --events baseline.json --lock deploy.lock.json
 ```
 
 The lock JSON (`ooptdd-mutation-lock/v1`) pins `gate_spec_sha256` and
@@ -233,12 +273,13 @@ front's unlanded "4/5 negative" premise predicted. Scope honestly: n=4 are all
 drop mutants (the gate is count-constrained with no `where` values, so no
 corrupt mutants are derivable) — the number grades drop-blindness only. Audit
 trail arrived on the Tier-1 store (cid `a3-winner-curse-lock-20260728`,
-independent readback). Result: `benchmarks/mutation/v0/order_pipeline.locked_result.json`.
+independent readback). Result:
+`extensions/ooptdd-mutation/research/mutation/v0/order_pipeline.locked_result.json`.
 
 ## The nDCG ranking gate (`audit-rank`)
 
 ```bash
-ooptdd audit-rank gates/deploy.yaml --events baseline.json --report mutation-report.json \
+ooptdd-mutation audit-rank gates/deploy.yaml --events baseline.json --report mutation-report.json \
   [--ranking ranking.json] [--min-ndcg 1.0] [--lock deploy.lock.json]
 ```
 
@@ -317,7 +358,7 @@ any positive run):
 
 ## Who audits the auditor
 
-`ooptdd mutate` prices the gate's credibility against the *product*. The
+`ooptdd-mutation mutate` prices the gate's credibility against the *product*. The
 symmetric question — would anything notice a broken *test system* (a gate that
 never runs, an import that resolves to stale code, a control suite gone
 vacuous)? — is answered by the [Ouroboros pattern](ouroboros.md), which closes

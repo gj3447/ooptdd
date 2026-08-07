@@ -81,7 +81,7 @@ mutant가 0개일 때 `score=1.0`을 성능으로 해석하지 않도록 `score_
 
 ### 2. summary가 자신을 인증하지 못하게 만들기
 
-`src/ooptdd/evidence_integrity.py`와
+repository-only `benchmarks/evidence_integrity.py`와
 `scripts/validate_trajectory_evidence.py`는 raw observation에서 metric을 다시 계산하고,
 중복 sample, source head/spec hash mismatch, dirty worktree, fault-mode mismatch, 사후적
 chronology를 거부한다. 특히 기존 DeepEval 이름의 혼동을 분리해 다음을 동시에 기록한다.

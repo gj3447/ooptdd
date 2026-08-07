@@ -9,17 +9,11 @@
     "correlation_id": {
       "type": "string"
     },
-    "cycle_id": {
-      "type": "string"
-    },
     "event": {
       "type": "string"
     },
     "level": {
-      "enum": [
-        "INFO",
-        "ERROR"
-      ],
+      "minLength": 1,
       "type": "string"
     },
     "service": {
@@ -33,9 +27,7 @@
     "spec_version",
     "cid",
     "correlation_id",
-    "cycle_id",
     "service",
-    "level",
     "event"
   ],
   "title": "ooptdd event envelope",

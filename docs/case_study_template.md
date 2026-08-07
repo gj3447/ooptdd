@@ -107,7 +107,7 @@ redacted. Candidates, in rough order of evidentiary weight:
    unreachable / truncated read) that did NOT fail the build. This is the
    three-valued honesty claim made concrete; a case study with only greens is
    less credible, not more.
-5. **Mutation score** — `ooptdd mutate <spec> --events events.json
+5. **Mutation score** — `ooptdd-mutation mutate <spec> --events events.json
    [--min-score X]` output. Note the semantics honestly: exit 2 means the
    score is meaningless (no baseline green, or the drop-all canary survived —
    a gate that passes on an empty stream), and that is worth showing too.

@@ -20,11 +20,11 @@
 | required/forbidden/ordered tool trajectory | O04, O05, P02, P12 | `ALREADY` | `src/ooptdd/engine/trajectory.py`, trajectory tests | 도착한 구조만 판정; reasonableness 아님 |
 | semantic trajectory mutants | O07, P05 | `CODED` | `src/ooptdd/mutation.py`, `tests/test_mutation.py`, `tests/test_trajectory_checks.py` | `n>=1`일 때만 score measured |
 | stable mutant ID/status/eligible | O07, P05 | `CODED` | mutation report fields | timeout을 killed로 세지 않음 |
-| observation-derived aggregate | O02, P01, P14 | `CODED` | `src/ooptdd/evidence_integrity.py` | top-level metric은 인증 근거가 아님 |
+| observation-derived aggregate | O02, P01, P14 | `CODED` | repository-only `benchmarks/evidence_integrity.py` | top-level metric은 인증 근거가 아님 |
 | source/spec/dirty/fault binding | O02, O09, P14 | `CODED` | `validate_measurement`, validator CLI/tests | 다른 head/spec 결과 재사용 금지 |
 | duplicate sample and chronology guard | O02, P07 | `CODED` | evidence-integrity tests | registration < negative < restored 강제 |
 | DeepEval agreement/success 분리 | O04, P06 | `WIRED/PENDING` | `deepeval_metrics`, validator, `.github/workflows/ci.yml` | Actions run URL + artifact hash 전에 CI 실측 주장 금지; 3/3 agreement != 3 successes |
-| deterministic Tier 0 scenario harness | O08, P01, P02, P07, P13 | `CODED` | `src/ooptdd/benchmark_fixtures/arrival/v0/`, `src/ooptdd/benchmark.py`, runner/tests/CI | scenario당 고유 identity의 20회 deterministic repetition; 의미 있는 factor만 변화; final artifact 전에 measured 아님 |
+| deterministic Tier 0 scenario harness | O08, P01, P02, P07, P13 | `CODED` | optional `ooptdd_mutation.benchmarks` package, runner/tests/CI | scenario당 고유 identity의 20회 deterministic repetition; 의미 있는 factor만 변화; final artifact 전에 measured 아님 |
 | byte-identical canonical result | O03, O08, O09 | `CODED` | fixed seed/clock + canonical JSON validator | wall clock/PID/temp path 금지 |
 | repeated reliability `pass_hat_k` | P01, P07 | `CODED` | scenario별 `C(c,k)/C(n,k)`, 기본 k=8 | frozen panel robustness만 표현; population generalization 아님 |
 | outage oracle/JUnit 이중 의미 | O03, P13 | `CODED` | `benchmark_gate_result`, `to_junit_xml`, `tests/test_arrival_benchmark.py` | 전체 oracle는 match/pass 가능; testcase는 반드시 skipped/inconclusive |

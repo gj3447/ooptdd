@@ -1,8 +1,4 @@
-"""Pure gate-rule expansion and classification.
-
-This module owns the declarative rule vocabulary.  It deliberately knows nothing about
-backends, environment variables, probes, or verdict aggregation.
-"""
+"""Pure declarative gate-rule expansion and classification."""
 
 from __future__ import annotations
 
@@ -20,7 +16,6 @@ _KEY_PROBES = (
     ("forbid", "absent"),
     ("heartbeat", "heartbeat"),
     ("must_order", "must_order"),
-    ("trajectory", "must_order"),
     ("present", "present"),
     ("ratioMetric", "ratioMetric"),
     ("conforms", "conforms"),
@@ -30,36 +25,41 @@ _KEY_PROBES = (
     ("external", "external"),
 )
 
-_STRENGTH_BY_KEY = MappingProxyType({
-    "absent": "forbid",
-    "must_order": "ordered",
-    "ratioMetric": "ratio",
-    "heartbeat": "liveness",
-    "conforms": "conformance",
-    "invariant": "invariant",
-    "metamorphic": "metamorphic",
-    "external": "external",
-    "duration": "threshold",
-    "tool_calls": "value-pinned",
-    "forbidden_tools": "forbid",
-    "forbidden_tool_calls": "forbid",
-    "aggregate": "threshold",
-})
+_STRENGTH_BY_KEY = MappingProxyType(
+    {
+        "absent": "forbid",
+        "must_order": "ordered",
+        "ratioMetric": "ratio",
+        "heartbeat": "liveness",
+        "conforms": "conformance",
+        "invariant": "invariant",
+        "metamorphic": "metamorphic",
+        "external": "external",
+        "duration": "threshold",
+        "aggregate": "threshold",
+    }
+)
 
-_STRENGTH_RANK = MappingProxyType({
-    "existence-only": 1,
-    "bounded": 2,
-    "threshold": 2,
-    "value-pinned": 3,
-    "ordered": 3,
-    "forbid": 3,
-    "ratio": 4,
-    "liveness": 4,
-    "conformance": 4,
-    "invariant": 5,
-    "metamorphic": 5,
-    "external": 6,
-})
+_STRENGTH_RANK = MappingProxyType(
+    {
+        "existence-only": 1,
+        "bounded": 2,
+        "threshold": 2,
+        "value-pinned": 3,
+        "ordered": 3,
+        "forbid": 3,
+        "ratio": 4,
+        "liveness": 4,
+        "conformance": 4,
+        "invariant": 5,
+        "metamorphic": 5,
+        "external": 6,
+    }
+)
+_COUNT_CONTROLS = frozenset(
+    "event where indicatorRef op target count want optional pending weight strength "
+    "label threshold events charged _auto".split()
+)
 
 
 def join_matchers(value: Any) -> str:
@@ -133,7 +133,23 @@ def detect_check_key(rule: Mapping[str, Any], registry: Mapping[str, CheckFn]) -
     for spec_key, canonical in _KEY_PROBES:
         if spec_key in rule:
             return canonical
-    return next((key for key in registry if key in rule), None)
+    key = next((key for key in registry if key in rule), None)
+    if key is None:
+        validate_count_rule(rule)
+    return key
+
+
+def validate_count_rule(rule: Mapping[str, Any]) -> None:
+    unknown = sorted(
+        name
+        for name, value in rule.items()
+        if name not in _COUNT_CONTROLS and isinstance(value, (Mapping, list, tuple))
+    )
+    if unknown:
+        raise ValueError(
+            f"unknown gate predicate(s): {unknown!r}; structured predicates must "
+            "register or import the extension that owns them"
+        )
 
 
 def strength(
@@ -158,38 +174,51 @@ def strength(
     return "bounded" if tight else "existence-only"
 
 
-def rule_event_names(rule: Mapping[str, Any]) -> set[str]:
+def rule_event_names(
+    rule: Mapping[str, Any], registry: Mapping[str, CheckFn] | None = None
+) -> set[str]:
     names: set[str] = set()
+    _add_matcher_event_names(rule, names)
+    _add_ordered_event_names(rule, names)
+    _add_nested_event_names(rule, names)
+    resolver = _event_name_resolver(rule, registry)
+    if callable(resolver):
+        for value in resolver(rule):
+            _add_event_name(names, value)
+    return names
 
-    def add(value: Any) -> None:
-        if isinstance(value, str) and value:
-            names.add(value)
 
+def _add_event_name(names: set[str], value: Any) -> None:
+    if isinstance(value, str) and value:
+        names.add(value)
+
+
+def _add_matcher_event_names(rule: Mapping[str, Any], names: set[str]) -> None:
     for key in ("present", "absent", "forbid"):
         value = rule.get(key)
         matchers = value if isinstance(value, list) else [value] if isinstance(value, dict) else []
         for matcher in matchers:
             if isinstance(matcher, dict):
-                add(matcher.get("event"))
-    for key in ("must_order", "trajectory"):
-        for part in rule.get(key) or []:
-            event = (
-                part
-                if isinstance(part, str)
-                else part.get("event")
-                if isinstance(part, dict)
-                else None
-            )
-            add(event)
-    _add_nested_event_names(rule, names)
-    return names
+                _add_event_name(names, matcher.get("event"))
+
+
+def _add_ordered_event_names(rule: Mapping[str, Any], names: set[str]) -> None:
+    for part in rule.get("must_order") or []:
+        event = (
+            part if isinstance(part, str) else part.get("event") if isinstance(part, dict) else None
+        )
+        _add_event_name(names, event)
+
+
+def _event_name_resolver(rule: Mapping[str, Any], registry: Mapping[str, CheckFn] | None) -> Any:
+    if registry is None:
+        return None
+    predicate_key = detect_check_key(rule, registry)
+    handler = registry.get(predicate_key) if predicate_key is not None else None
+    return getattr(handler, "__ooptdd_event_names__", None)
 
 
 def _add_nested_event_names(rule: Mapping[str, Any], names: set[str]) -> None:
-    def add(value: Any) -> None:
-        if isinstance(value, str) and value:
-            names.add(value)
-
     for container, sides in (
         ("ratioMetric", ("good", "total")),
         ("invariant", ("left", "right")),
@@ -200,20 +229,16 @@ def _add_nested_event_names(rule: Mapping[str, Any], names: set[str]) -> None:
             for side in sides:
                 nested = value.get(side)
                 if isinstance(nested, dict):
-                    add(nested.get("event"))
+                    _add_event_name(names, nested.get("event"))
     for key in ("duration", "aggregate"):
         value = rule.get(key)
         if isinstance(value, dict):
-            add(value.get("event"))
-    add(rule.get("heartbeat"))
-    add(rule.get("conforms") if isinstance(rule.get("conforms"), str) else None)
-    if isinstance(rule.get("tool_calls"), dict):
-        add(rule["tool_calls"].get("event", "gen_ai.execute_tool"))
-    if "forbidden_tools" in rule or "forbidden_tool_calls" in rule:
-        add(rule.get("event", "gen_ai.execute_tool"))
-    add(rule.get("event"))
+            _add_event_name(names, value.get("event"))
+    _add_event_name(names, rule.get("heartbeat"))
+    _add_event_name(names, rule.get("conforms") if isinstance(rule.get("conforms"), str) else None)
+    _add_event_name(names, rule.get("event"))
     for value in rule.get("events") or []:
-        add(value)
+        _add_event_name(names, value)
 
 
 def check_charged(check: Mapping[str, Any]) -> bool:
@@ -288,4 +313,5 @@ __all__ = (
     "label",
     "rule_event_names",
     "strength",
+    "validate_count_rule",
 )

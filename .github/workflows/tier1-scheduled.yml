@@ -19,7 +19,10 @@ jobs:
       - name: Install ooptdd (system python 3.13 on ci-runner-01)
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install -q -e .
+          .venv/bin/pip install -q \
+            -e . \
+            -e ./extensions/ooptdd-trajectory \
+            -e ./extensions/ooptdd-mutation
 
       - name: Run Tier-1 benchmark (100 reps)
         env:

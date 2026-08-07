@@ -27,12 +27,12 @@ arrival?
 
 | backend | write+read | queryable | external judge | complete-read paging | server-side filter | driver |
 |---|---|---|---|---|---|---|
-| `clickhouse` | yes | yes | yes | no | yes | ClickHouse backend — the permissively-licensed SQL driver (Tier-2 #6) |
-| `jsonl` | yes | yes | no | no | yes | 파일(JSON Lines) 기반 영속 queryable backend. cid 는 동등 비교(=injection 불가) |
-| `memory` | yes | yes | no | no | yes | A fake store that keeps events in a dict. Drop-in for CI and demos |
+| `clickhouse` | yes | yes | yes | no | yes | ClickHouse backend using the HTTP interface |
+| `jsonl` | yes | yes | no | no | yes | Persistent queryable backend using one append-only UTF-8 JSONL file |
+| `memory` | yes | yes | no | no | yes | Queryable backend with explicit ownership and deterministic insertion order |
 | `openobserve` | yes | yes | yes | yes | yes | OpenObserve backend — the reference network driver |
 | `otel` | no | no | no | no | no | OTLP backend — the portable *write* path (best-effort, optional) |
-| `signoz` | yes | yes | yes | no | yes | ClickHouse backend — the permissively-licensed SQL driver (Tier-2 #6) |
+| `signoz` | yes | yes | yes | no | yes | ClickHouse backend using the HTTP interface |
 | `victorialogs` | yes | yes | yes | no | yes | VictoriaLogs backend — a schema-free log store driver |
 
 Third-party drivers register via the `ooptdd.backends` entry-point group and

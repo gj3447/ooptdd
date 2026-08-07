@@ -3,22 +3,25 @@
 Hermeticity against ambient OOPTDD_* env (so these pytester self-tests survive a full-suite
 real-store dogfood) is provided by the autouse ``_hermetic_env`` fixture in conftest.py.
 """
+
 import pytest
 
 from ooptdd.plugin import _resolve_require_signature
+
+_LOAD_PLUGIN = ("-p", "ooptdd.plugin")
 
 
 def test_plugin_ships_and_confirms_arrival(pytester):
     pytester.makepyfile("def test_ok():\n    assert True\n")
     pytester.makeini("[pytest]\nooptdd_backend = memory\nooptdd_enabled = 1\n")
-    result = pytester.runpytest()
+    result = pytester.runpytest(*_LOAD_PLUGIN)
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*[ooptdd]*arrival confirmed*"])
 
 
 def test_plugin_is_a_true_noop_when_disabled(pytester):
     pytester.makepyfile("def test_ok():\n    assert True\n")
-    result = pytester.runpytest("--no-ooptdd")
+    result = pytester.runpytest(*_LOAD_PLUGIN, "--no-ooptdd")
     result.assert_outcomes(passed=1)
     assert "[ooptdd]" not in result.stdout.str()
 
@@ -33,7 +36,7 @@ def test_strict_inconclusive_never_fails_build(pytester):
         "[pytest]\nooptdd_backend = openobserve\nooptdd_enabled = 1\nooptdd_verify = strict\n"
     )
     # no OOPTDD_OO_URL -> backend query unreachable -> inconclusive -> build NOT failed
-    result = pytester.runpytest()
+    result = pytester.runpytest(*_LOAD_PLUGIN)
     result.assert_outcomes(passed=1)
     assert result.ret == 0  # inconclusive must never break CI, even in strict
 
@@ -41,8 +44,12 @@ def test_strict_inconclusive_never_fails_build(pytester):
 # A reachable store that silently drops everything shipped: ship is a no-op but query
 # round-trips and returns nothing -> a real `absent` (⊥), i.e. silent ingest loss.
 _DROP_CONFTEST = (
-    "from ooptdd.backends import default_registry, MemoryBackend\n"
-    "default_registry.register('dropmem', lambda **o: MemoryBackend(drop=True))\n"
+    "from dataclasses import replace\n"
+    "from ooptdd.backends import BackendRegistry, MemoryBackend\n"
+    "def pytest_ooptdd_runtime(config, runtime):\n"
+    "    registry = BackendRegistry()\n"
+    "    registry.register('dropmem', lambda **o: MemoryBackend(drop=True))\n"
+    "    return replace(runtime, backend_registry=registry)\n"
 )
 
 
@@ -56,7 +63,7 @@ def test_strict_mode_fails_build_on_silent_loss(pytester):
         "[pytest]\nooptdd_backend = dropmem\nooptdd_enabled = 1\nooptdd_verify = strict\n"
         "ooptdd_delay = 0\nooptdd_retries = 1\n"  # no real poll delay — absent is immediate
     )
-    result = pytester.runpytest_subprocess()
+    result = pytester.runpytest_subprocess(*_LOAD_PLUGIN)
     result.stdout.fnmatch_lines(["*[ooptdd]*silent ingest loss*"])
     assert result.ret != 0  # strict turns a real arrival miss into a build failure
 
@@ -72,7 +79,7 @@ def test_plugin_ships_and_confirms_under_xdist(pytester):
         "def test_c():\n    assert True\n"
     )
     pytester.makeini("[pytest]\nooptdd_backend = memory\nooptdd_enabled = 1\n")
-    result = pytester.runpytest_subprocess("-n", "2")
+    result = pytester.runpytest_subprocess(*_LOAD_PLUGIN, "-n", "2")
     result.assert_outcomes(passed=3)
     result.stdout.fnmatch_lines(["*[ooptdd]*arrival confirmed*"])
 
@@ -81,14 +88,14 @@ def test_plugin_ships_and_confirms_under_xdist(pytester):
     "env_value, signing_key, expected",
     [
         # Enforce-if-keyed: with no explicit choice, require a signature iff a key is set.
-        (None, None, False),   # zero-config (the demo / this suite): keyless, lenient — unbroken
-        (None, "k", True),     # THE FOOTGUN FIX: a key is set => unsigned receipts are rejected
-        ("", "k", True),       # blank env == "no explicit choice" => keyed default
+        (None, None, False),  # zero-config (the demo / this suite): keyless, lenient — unbroken
+        (None, "k", True),  # THE FOOTGUN FIX: a key is set => unsigned receipts are rejected
+        ("", "k", True),  # blank env == "no explicit choice" => keyed default
         # An explicit OOPTDD_REQUIRE_SIGNATURE always wins, both directions:
-        ("0", "k", False),     # opt OUT even with a key
+        ("0", "k", False),  # opt OUT even with a key
         ("false", "k", False),
         ("off", "k", False),
-        ("1", None, True),     # opt IN even without a local key (verifier side)
+        ("1", None, True),  # opt IN even without a local key (verifier side)
         ("true", None, True),
     ],
 )
@@ -97,3 +104,8 @@ def test_resolve_require_signature_enforce_if_keyed(env_value, signing_key, expe
     # verifier with require unset still greenlit UNSIGNED receipts. Setting a key is now itself
     # the intent to reject unsigned — without breaking keyless zero-config.
     assert _resolve_require_signature(env_value, signing_key) is expected
+
+
+def test_resolve_require_signature_rejects_ambiguous_security_value():
+    with pytest.raises(ValueError, match="invalid security boolean"):
+        _resolve_require_signature("definitely", None)

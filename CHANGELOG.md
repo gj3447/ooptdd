@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-07
+
+### Changed
+
+- **Breaking: the base distribution is now domain-neutral.** Trajectory predicates,
+  GenAI semantic conventions and integrations, and mutation/Ouroboros tooling no longer
+  ship in the `ooptdd` wheel. Install `ooptdd-trajectory`, `ooptdd-genai`, or
+  `ooptdd-mutation` explicitly and replace removed `ooptdd.extensions.*`,
+  `ooptdd.integrations.*`, and root assertion imports with their new distribution APIs.
+- Runtime extension activation is explicit and immutable: applications pass a named
+  `ooptdd_checks` provider to `compose_runtime(..., extension_providers=...)`, then call
+  `activate_extensions()`. Importing an extension has no registration side effect.
+- The pytest adapter is opt-in instead of an automatic `pytest11` entry point. Activate
+  it with `pytest -p ooptdd.plugin` or a project-owned `pytest_plugins` declaration.
+- Repository benchmarks, efficacy machinery, and frozen research artifacts are no
+  longer importable package modules or base-wheel content.
+
+### Packaging
+
+- Separate, independently buildable distributions: `ooptdd-mutation==0.1.0`,
+  `ooptdd-trajectory==0.1.0`, and `ooptdd-genai==0.1.0`. Each pins compatibility to
+  `ooptdd>=0.6,<0.7`; mutation also requires the trajectory extension.
+- Exact tag-routed Trusted Publishing for each distribution, plus clean-wheel install,
+  import, typing, entry-point, wheel/sdist content, and cache-bloat packaging checks.
+
+### Migration
+
+- Replace `ooptdd mutate` and `ooptdd audit-rank` with `ooptdd-mutation mutate` and
+  `ooptdd-mutation audit-rank` after installing `ooptdd-mutation`.
+- Replace GenAI imports with `ooptdd_genai`; replace trajectory imports with
+  `ooptdd_trajectory` and explicitly compose its `ooptdd_checks` provider.
+- Replace `assert_gate`/`assert_gate_red` convenience imports with a composed runtime's
+  `evaluate()` call and assert the returned `ok` value appropriate to the test.
+
 ### Added
 - **Chain truncation is detectable — with an external anchor.** `verify_chain`
   accepts optional `expect_len` / `expect_head`. Without them a truncated chain
@@ -24,8 +58,7 @@ All notable changes to this project are documented here. The format follows
   total Bite disposition as immutable states and idempotent effect intents.
   Full-width, domain-separated identities, mutation-safe interruption, bounded
   ordinary progress and generation depth, replay-validated receipt v2 with an
-  unkeyed change-detection hash, machine-readable FSM traces, and a conservative
-  v1 upcaster make missing proof explicit instead of inferred. Caller invocation
+  unkeyed change-detection hash, and machine-readable FSM traces. Caller invocation
   bounds, evidence authentication, durability, and effect delivery remain outside
   this module.
 - **LakatoTree-qualified trajectory programme.** A preregistered, frozen
@@ -47,7 +80,7 @@ All notable changes to this project are documented here. The format follows
   primitive, so a cursor is refused loudly instead of faked and a filled limit reports
   `complete=False`. Both delegate byte-identically to `query()` when the spec carries
   neither limit nor cursor.
-- **OpenLLMetry bridge (`ooptdd.integrations.openllmetry`).** Encodes a verified
+- **OpenLLMetry bridge (`ooptdd_genai.openllmetry`).** Encodes a verified
   finding rather than a hope: an OpenLLMetry-instrumented app is *not* gate-ready for
   free — it names tools `traceloop.entity.name` (never `gen_ai.tool.name`) — so
   `span_to_event` / `spans_to_events` map its spans onto `gen_ai.*` events, carrying
