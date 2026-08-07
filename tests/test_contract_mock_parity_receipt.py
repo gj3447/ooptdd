@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from types import MappingProxyType
 
 import pytest
 
@@ -39,11 +40,11 @@ from ooptdd.engine.gate import evaluate
 
 KG_ID = "contract-mock-parity-receipt-2026-07-22"
 
-# Captured at import time — BEFORE the autouse _hermetic_env fixture scrubs OOPTDD_OO_*
-# (the suite is hermetic by design; a test that wants the real store must re-set the env
-# itself, which wins over the autouse delenv). None values mean the wing will skip.
-_OO_ENV = {k: os.getenv(k) for k in
-           ("OOPTDD_OO_URL", "OOPTDD_OO_USER", "OOPTDD_OO_PASSWORD", "OOPTDD_OO_ORG")}
+# Capture the live-service inputs once at the test boundary, before the hermetic
+# fixture scrubs ambient OOPTDD_OO_* values. Backends receive this immutable map
+# explicitly; the process environment is never re-armed.
+_OO_KEYS = ("OOPTDD_OO_URL", "OOPTDD_OO_USER", "OOPTDD_OO_PASSWORD", "OOPTDD_OO_ORG")
+_OO_ENV = MappingProxyType({key: os.environ[key] for key in _OO_KEYS if key in os.environ})
 
 #: The contract's clauses, named 1:1 after what assert_backend_conforms asserts —
 #: the receipt vocabulary. If the contract grows a clause, this receipt must too
@@ -124,17 +125,15 @@ def test_mock_never_overclaims_the_external_judge_role():
 
 
 @pytest.mark.skipif(
-    not (_OO_ENV["OOPTDD_OO_URL"] and _OO_ENV["OOPTDD_OO_PASSWORD"]),
+    not (_OO_ENV.get("OOPTDD_OO_URL") and _OO_ENV.get("OOPTDD_OO_PASSWORD")),
     reason="live OpenObserve wing needs OOPTDD_OO_URL + OOPTDD_OO_PASSWORD",
 )
-def test_real_openobserve_satisfies_the_identical_contract_with_arrival_receipt(monkeypatch):
+def test_real_openobserve_satisfies_the_identical_contract_with_arrival_receipt():
     from ooptdd.engine.verify import verify_gate
 
-    for key, val in _OO_ENV.items():  # re-arm the real-store env the hermetic fixture scrubbed
-        if val is not None:
-            monkeypatch.setenv(key, val)
-
-    make = lambda: get_backend("openobserve", stream="conformance")  # noqa: E731
+    make = lambda: get_backend(  # noqa: E731
+        "openobserve", stream="conformance", environment=_OO_ENV
+    )
     # OO ingest->searchable latency: retry the whole contract with a fresh cid per
     # attempt (never reuse — clause counts are ==, and reruns would double them).
     last = None
