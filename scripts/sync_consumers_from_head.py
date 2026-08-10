@@ -81,12 +81,16 @@ def main(argv=None) -> int:
     apply = "--apply" in args
     files = vendor_files()
     head_content = {rel: head_bytes(rel) for rel in files}
-    print(f"sourcing from HEAD ({subprocess.run(['git','rev-parse','--short','HEAD'],cwd=OOPTDD,capture_output=True,text=True).stdout.strip()}), "
+    head_short = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=OOPTDD, capture_output=True, text=True
+    ).stdout.strip()
+    print(f"sourcing from HEAD ({head_short}), "
           f"mode={'APPLY' if apply else 'CHECK (no writes)'}\n")
     for c in CONSUMERS:
         vdir, mode = c["vendor"], c["hash"]
         if not vdir.parent.exists():
-            print(f"  {c['name']:<11}: SKIP (consumer not found)"); continue
+            print(f"  {c['name']:<11}: SKIP (consumer not found)")
+            continue
         changed = []
         for rel in files:
             vf = vdir / rel
@@ -109,7 +113,8 @@ def main(argv=None) -> int:
                   + (f", removed {len(stale)} stale" if stale else "") + f" <- HEAD  {changed}")
             continue
         if changed or stale:
-            print(f"  {c['name']:<11}: would sync {len(changed)}" + (f" + remove {len(stale)} stale" if stale else "")
+            removed = f" + remove {len(stale)} stale" if stale else ""
+            print(f"  {c['name']:<11}: would sync {len(changed)}{removed}"
                   + f" file(s)  {changed}")
             continue
         print(f"  {c['name']:<11}: already == HEAD")

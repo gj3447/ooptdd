@@ -80,7 +80,8 @@ def test_vendored_matches_canonical_when_present():
     for rel in manifest["files"]:
         c = canon / rel
         assert c.exists(), f"canonical dropped ooptdd/{rel} — re-vendor this repo"
-        if _normalized_sha256(c.read_text()) != _normalized_sha256((_VENDOR / "ooptdd" / rel).read_text()):
+        vendored_sha = _normalized_sha256((_VENDOR / "ooptdd" / rel).read_text())
+        if _normalized_sha256(c.read_text()) != vendored_sha:
             behind.append(rel)
     assert not behind, (
         f"vendored ooptdd is BEHIND canonical on {behind}. The manifest guards passed because "

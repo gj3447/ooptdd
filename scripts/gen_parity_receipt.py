@@ -58,7 +58,8 @@ def run_mock_wing() -> tuple[str, str, dict]:
     reader = JsonlBackend(path=str(OUT_JSONL))  # a fresh handle re-reads from disk
     res = evaluate(reader, _receipt_gate(cid, "MemoryBackend"))
     assert res["ok"], f"mock-wing receipt gate RED: {res}"
-    log = _fmt_events(reader.query(cid, since_us=int((time.time() - 3600) * 1_000_000), until_us=int((time.time() + 3600) * 1_000_000)).events)
+    window = (int((time.time() - 3600) * 1_000_000), int((time.time() + 3600) * 1_000_000))
+    log = _fmt_events(reader.query(cid, since_us=window[0], until_us=window[1]).events)
     return cid, log, res
 
 
@@ -82,7 +83,8 @@ def run_oo_wing() -> tuple[str, str, dict] | None:
     res = verify_gate(make(), cid, _receipt_gate(cid, "OpenObserveBackend"),
                       retries=6, delay=1.0)
     assert res["verdict"] == "present", f"live receipt did not arrive: {res}"
-    log = _fmt_events(make().query(cid, since_us=int((time.time() - 3600) * 1_000_000), until_us=int((time.time() + 3600) * 1_000_000)).events)
+    window = (int((time.time() - 3600) * 1_000_000), int((time.time() + 3600) * 1_000_000))
+    log = _fmt_events(make().query(cid, since_us=window[0], until_us=window[1]).events)
     return cid, log, res
 
 

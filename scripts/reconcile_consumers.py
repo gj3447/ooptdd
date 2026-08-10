@@ -5,10 +5,10 @@ WHY this exists (measured 2026-06-16): the three consumers were vendored with
 *different* conventions, so the plain ``vendor_ooptdd.py <consumer>`` cannot
 uniformly re-vendor them, and two of them silently lag canonical:
 
-    consumer     vendored dir         manifest                       drift test loc   canonical-compare guard
-    consumer-a      tests/_vendor/ooptdd ooptdd_manifest.json           tests/           YES  (catches lag -> RED now)
-    consumer-b       _vendor/ooptdd       ooptdd_vendor_manifest.json    _vendor/         NO   (in sync, so green)
-    lakatotree   _vendor/ooptdd       ooptdd_vendor_manifest.json    _vendor/         NO   (BEHIND but green = silent stale)
+    consumer    vendored dir          manifest                     drift test  canonical guard
+    consumer-a  tests/_vendor/ooptdd  ooptdd_manifest.json         tests/      YES (lag -> RED)
+    consumer-b  _vendor/ooptdd        ooptdd_vendor_manifest.json  _vendor/    NO (in sync, green)
+    lakatotree  _vendor/ooptdd        ooptdd_vendor_manifest.json  _vendor/    NO (BEHIND, stale)
 
 Measured lag vs *committed* canonical (HEAD), independent of any uncommitted WIP:
     consumer-a, lakatotree  : behind on verify.py + backends/{base,memory,openobserve,otel}.py
@@ -138,9 +138,13 @@ def test_vendored_files_match_manifest():
     for rel, sha in files.items():
         f = _VENDOR / rel
         assert f.exists(), f"vendored ooptdd/{{rel}} missing"
-        assert _nsha(f.read_text()) == sha, f"vendored ooptdd/{{rel}} drifted from manifest — re-vendor"
+        assert _nsha(f.read_text()) == sha, (
+            f"vendored ooptdd/{{rel}} drifted from manifest — re-vendor"
+        )
     present = {{str(p.relative_to(_VENDOR)).replace(os.sep, "/") for p in _VENDOR.rglob("*.py")}}
-    assert present == set(files), f"vendor tree != manifest (symmetric diff): {{present ^ set(files)}}"
+    assert present == set(files), (
+        f"vendor tree != manifest (symmetric diff): {{present ^ set(files)}}"
+    )
 
 
 def test_vendored_matches_canonical_when_present():
@@ -217,7 +221,8 @@ def main(argv=None) -> int:
         suffix = "  -> re-vendored + strong test written" if r.get("written") else ""
         print(f"  {r['name']:<11} : {status}{suffix}")
     if not apply:
-        print(f"\n{'lag present — run --apply once canonical is clean' if any_lag else 'all in sync'}.")
+        tail = "lag present — run --apply once canonical is clean" if any_lag else "all in sync"
+        print(f"\n{tail}.")
     return 0
 
 

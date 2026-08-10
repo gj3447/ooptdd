@@ -36,7 +36,9 @@ ROOT_REQUIRED = {
 }
 
 ROOT_EXCLUDES_ADAPTER_CONCERNS = {
-    "MemoryBackend",
+    # MemoryBackend is deliberately root-exported (11311d3): its siblings
+    # (Backend, BackendCaps, BackendRegistry, QueryResult) already were, and it
+    # was the only backend symbol that failed `from ooptdd import ...`.
     "memory_reset",
     "assert_gate",
     "assert_present",
