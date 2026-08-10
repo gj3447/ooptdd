@@ -19,9 +19,9 @@ Public API:
 from .backends import (
     Backend,
     BackendCaps,
-    MemoryBackend,
     BackendRegistry,
     Clock,
+    MemoryBackend,
     QueryResult,
     QuerySpec,
     SystemClock,
