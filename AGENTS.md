@@ -109,3 +109,25 @@ belong to outer adapters. See `SEMANTICS.md`.
 
 If a gate fails for a reason you did not cause, say so and leave it alone
 rather than fixing it into your diff.
+
+## Execution Budget
+
+An autonomous run operates under a declared budget, not an open loop:
+
+1. Declare limits before starting: maximum tool calls, tokens, and wall-clock
+   time. Exceeding a limit means stop and report — not retry.
+2. No-progress stop: if the same gate fails three consecutive times for the
+   same reason, stop and report the evidence. Do not grind against one wall.
+3. Waiting is not computing. Check on external results (CI, hardware, a
+   deploy) with one scheduled probe or a completion callback, not a retry loop.
+4. Prefer a fresh session when the topic changes or the context has gone
+   stale; a long-lived session resends its whole history every turn for no
+   quality gain.
+5. An agent's own green report is a claim, not a verification. Completion is
+   accepted only after a second party — orchestrator or reviewer — re-runs
+   `check`/`verify` independently.
+
+Where a mechanical gate exists for one of these rules (runner budget,
+auto-compaction limit, write-set deny), the gate is authoritative and the
+corresponding prose above should be deleted. Prose that is only prose is a
+rule that is not yet enforced.
