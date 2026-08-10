@@ -19,6 +19,7 @@ Public API:
 from .backends import (
     Backend,
     BackendCaps,
+    MemoryBackend,
     BackendRegistry,
     Clock,
     QueryResult,
@@ -80,6 +81,7 @@ __all__ = [
     "failed_checks",
     "compile_check",
     "LiveMonitorSet",
+    "MemoryBackend",
     "Backend",
     "QueryResult",
     "QuerySpec",
